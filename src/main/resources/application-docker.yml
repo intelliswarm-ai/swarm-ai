@@ -1,0 +1,124 @@
+# Docker-specific configuration for SwarmAI Framework
+# This configuration is optimized for containerized deployment with Ollama
+
+spring:
+  application:
+    name: swarmai-framework
+  
+  # Ollama configuration for Docker environment - Single model for all agents
+  ai:
+    ollama:
+      base-url: ${SPRING_AI_OLLAMA_BASE_URL:http://ollama:11434}
+      chat:
+        options:
+          model: ${SPRING_AI_OLLAMA_CHAT_OPTIONS_MODEL:llama3.2:3b}
+          temperature: ${SPRING_AI_OLLAMA_CHAT_OPTIONS_TEMPERATURE:0.7}
+          num-predict: 2048
+          top-k: 40
+          top-p: 0.9
+          repeat-penalty: 1.1
+    
+    # Disable other AI providers in Docker mode
+    openai:
+      api-key: ""
+    anthropic:
+      api-key: ""
+
+# SwarmAI Framework configuration
+swarmai:
+  default:
+    max-rpm: ${SWARMAI_DEFAULT_MAX_RPM:10}
+    max-execution-time: ${SWARMAI_DEFAULT_MAX_EXECUTION_TIME:300000}
+    verbose: ${SWARMAI_DEFAULT_VERBOSE:true}
+    language: en
+    
+  memory:
+    enabled: true
+    provider: ${SWARMAI_MEMORY_PROVIDER:in-memory}
+    
+  knowledge:
+    enabled: true
+    provider: ${SWARMAI_KNOWLEDGE_PROVIDER:in-memory}
+    
+  telemetry:
+    enabled: true
+    export-interval: 30000
+
+# Server configuration
+server:
+  port: 8080
+  compression:
+    enabled: true
+    mime-types: application/json,application/xml,text/html,text/xml,text/plain,application/javascript,text/css
+  tomcat:
+    max-threads: 200
+    min-spare-threads: 10
+
+# Actuator endpoints for monitoring
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,env,ollama
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+      show-components: always
+    metrics:
+      enabled: true
+  health:
+    diskspace:
+      enabled: true
+    ping:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+# Logging configuration for Docker
+logging:
+  level:
+    ai.intelliswarm.swarmai: ${LOGGING_LEVEL_AI_INTELLISWARM_SWARMAI:DEBUG}
+    org.springframework.ai: ${LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_AI:INFO}
+    org.springframework.ai.ollama: DEBUG
+    org.springframework.web: INFO
+    root: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%logger{36}] - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%logger{36}] - %msg%n"
+  file:
+    name: /app/logs/swarmai.log
+  logback:
+    rollingpolicy:
+      max-file-size: 100MB
+      max-history: 30
+      total-size-cap: 3GB
+
+# Docker-specific JVM and performance tuning
+spring.jmx:
+  enabled: true
+
+# Custom endpoints for Docker environment
+springdoc:
+  api-docs:
+    enabled: true
+    path: /api-docs
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+
+# Example-specific configuration
+examples:
+  competitive-analysis:
+    enabled: true
+    max-execution-time: 600000  # 10 minutes for complex analysis
+    output-directory: /app/reports
+    
+  # Ollama model management - Single unified model
+  ollama:
+    auto-pull-models: true
+    required-models:
+      - llama3.2:3b
+    model-check-interval: 300000  # Check every 5 minutes

@@ -1,0 +1,74 @@
+# SwarmAI Research Example - Local Ollama Configuration
+# 
+# This docker-compose file uses locally installed Ollama instead of containerized Ollama
+# to avoid architecture compatibility issues on WSL2/ARM systems.
+
+services:
+  # SwarmAI Research Example application (connects to local Ollama)
+  research-app:
+    image: swarmai-research:latest
+    container_name: research-competitive-analysis
+    environment:
+      # Spring AI configuration for local Ollama
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_AI_OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - SPRING_AI_OLLAMA_CHAT_OPTIONS_MODEL=llama3.2:3b
+      - SPRING_AI_OLLAMA_CHAT_OPTIONS_TEMPERATURE=0.7
+      
+      # SwarmAI configuration optimized for research
+      - SWARMAI_DEFAULT_MAX_RPM=15
+      - SWARMAI_DEFAULT_MAX_EXECUTION_TIME=600000  # 10 minutes for complex analysis
+      - SWARMAI_DEFAULT_VERBOSE=true
+      
+      # Research-specific configuration
+      - RESEARCH_OUTPUT_DIRECTORY=/app/reports
+      - RESEARCH_MAX_EXECUTION_TIME=900000  # 15 minutes max
+      - RESEARCH_ENABLE_DETAILED_LOGGING=true
+      
+      # Java runtime options optimized for research workload
+      - JAVA_OPTS=-Xmx2g -XX:+UseG1GC -XX:MaxGCPauseMillis=100 -XX:+UseStringDeduplication
+      
+      # Logging configuration
+      - LOGGING_LEVEL_AI_INTELLISWARM_SWARMAI=DEBUG
+      - LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_AI=INFO
+      
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./reports:/app/reports
+      - ./logs:/app/logs
+      - ./config:/app/config
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 2m
+    # Connect to host network to access local Ollama
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - research-network
+
+networks:
+  research-network:
+    name: research-network
+    driver: bridge
+
+# Usage with Local Ollama:
+#
+# 1. Install Ollama locally:
+#    curl -fsSL https://ollama.ai/install.sh | sh
+#
+# 2. Start Ollama:
+#    ollama serve
+#
+# 3. Download the model:
+#    ollama pull llama3.2:3b
+#
+# 4. Start the research application:
+#    docker compose -f docker-compose-local.yml up
+#
+# 5. Run competitive analysis:
+#    docker compose -f docker-compose-local.yml exec research-app java -jar app.jar competitive-analysis

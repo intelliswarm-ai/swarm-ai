@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: stock-analysis-ollama
+    ports:
+      - "11435:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    command: >
+      sh -c "ollama serve & 
+             sleep 10 && 
+             ollama pull llama3.2:3b && 
+             wait"
+
+  stock-analysis:
+    build: 
+      context: ../..
+      dockerfile: examples/stock/Dockerfile
+    container_name: stock-analysis-app
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - SPRING_PROFILES_ACTIVE=local
+      - SPRING_AI_OLLAMA_BASE_URL=http://ollama:11434
+      - STOCK_TICKER=AAPL
+    volumes:
+      - ./config:/app/config
+      - ./output:/app/output
+    restart: unless-stopped
+
+volumes:
+  ollama_data:

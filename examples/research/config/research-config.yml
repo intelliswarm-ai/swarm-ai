@@ -1,0 +1,119 @@
+# SwarmAI Research Example - Configuration
+# Specialized configuration for competitive analysis research workflow
+
+# Research Example Configuration
+research:
+  competitive-analysis:
+    # Workflow configuration
+    enabled: true
+    max-execution-time: 900000  # 15 minutes maximum
+    timeout-per-task: 300000    # 5 minutes per task
+    retry-attempts: 2
+    
+    # Output configuration
+    output:
+      directory: "/app/reports"
+      format: "markdown"
+      include-metadata: true
+      generate-summary: true
+      
+    # Agent specialization through temperature
+    agents:
+      project-manager:
+        temperature: 0.3
+        max-rpm: 10
+        description: "Coordinates workflow with consistent decision making"
+        
+      market-researcher:
+        temperature: 0.4
+        max-rpm: 15
+        description: "Factual research with slight creativity for comprehensive analysis"
+        
+      data-analyst:
+        temperature: 0.2
+        max-rpm: 12
+        description: "Precise analytical work with minimal creativity"
+        
+      strategist:
+        temperature: 0.5
+        max-rpm: 8
+        description: "Strategic thinking with balanced creativity"
+        
+      report-writer:
+        temperature: 0.6
+        max-rpm: 10
+        description: "Engaging writing with creative expression"
+    
+    # Task configuration
+    tasks:
+      market-research:
+        max-execution-time: 180000  # 3 minutes
+        expected-output-length: 2000
+        focus-areas:
+          - "Competitor identification"
+          - "Market sizing"
+          - "Pricing analysis"
+          - "Recent developments"
+          
+      data-analysis:
+        max-execution-time: 240000  # 4 minutes
+        expected-output-length: 1500
+        analysis-types:
+          - "Quantitative metrics"
+          - "Trend analysis"
+          - "Comparative analysis"
+          - "Gap identification"
+          
+      strategy-development:
+        max-execution-time: 240000  # 4 minutes
+        expected-output-length: 2000
+        strategic-focus:
+          - "Positioning recommendations"
+          - "Differentiation strategies"
+          - "Market entry plans"
+          - "Risk mitigation"
+          
+      report-generation:
+        max-execution-time: 300000  # 5 minutes
+        expected-output-length: 4000
+        report-sections:
+          - "Executive Summary"
+          - "Market Analysis"
+          - "Competitive Landscape"
+          - "Strategic Recommendations"
+          - "Implementation Roadmap"
+    
+    # Tool configuration
+    tools:
+      web-search:
+        enabled: true
+        max-results: 10
+        timeout: 30000
+        
+      data-analysis:
+        enabled: true
+        statistical-functions: true
+        visualization: false  # Simplified for container
+        
+      report-generator:
+        enabled: true
+        templates: ["executive", "detailed", "summary"]
+        export-formats: ["markdown", "html"]
+
+# Monitoring and telemetry for research
+monitoring:
+  research-metrics:
+    enabled: true
+    track-agent-performance: true
+    track-task-completion-time: true
+    track-output-quality-metrics: false  # Simplified for container
+    export-interval: 60000  # 1 minute
+
+# Logging specific to research workflow
+logging:
+  research:
+    enabled: true
+    log-agent-decisions: true
+    log-task-outputs: true
+    log-performance-metrics: true
+    output-directory: "/app/logs"

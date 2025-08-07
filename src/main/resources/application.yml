@@ -1,0 +1,61 @@
+spring:
+  application:
+    name: swarmai-framework
+  
+  ai:
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+      chat:
+        options:
+          model: gpt-4o-mini
+          temperature: 0.7
+    
+    anthropic:
+      api-key: ${ANTHROPIC_API_KEY:}
+      chat:
+        options:
+          model: claude-3-sonnet-20240229
+          temperature: 0.7
+    
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      chat:
+        options:
+          model: llama3.2
+          temperature: 0.7
+
+swarmai:
+  default:
+    max-rpm: 30
+    max-execution-time: 300000  # 5 minutes in milliseconds
+    verbose: false
+    language: en
+    
+  memory:
+    enabled: true
+    provider: in-memory  # Options: in-memory, redis, postgresql
+    
+  knowledge:
+    enabled: true
+    provider: chroma  # Options: chroma, pgvector, in-memory
+    
+  telemetry:
+    enabled: true
+    export-interval: 30000  # 30 seconds
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,env
+  endpoint:
+    health:
+      show-details: when-authorized
+      
+logging:
+  level:
+    ai.intelliswarm.swarmai: DEBUG
+    org.springframework.ai: INFO
+    root: INFO
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"

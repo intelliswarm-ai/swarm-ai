@@ -1,0 +1,99 @@
+# Local development configuration for SwarmAI Framework
+# This configuration works with locally installed Ollama
+
+spring:
+  application:
+    name: swarmai-framework
+  main:
+    allow-bean-definition-overriding: true
+  autoconfigure:
+    exclude:
+      - org.springframework.ai.autoconfigure.vectorstore.chroma.ChromaVectorStoreAutoConfiguration
+      - org.springframework.ai.autoconfigure.vectorstore.pgvector.PgVectorStoreAutoConfiguration
+      - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.ai.autoconfigure.openai.OpenAiAutoConfiguration
+      - org.springframework.ai.autoconfigure.anthropic.AnthropicAutoConfiguration
+  
+  # Local Ollama configuration - Single unified model
+  ai:
+    ollama:
+      base-url: ${SPRING_AI_OLLAMA_BASE_URL:http://localhost:11434}
+      chat:
+        options:
+          model: ${SPRING_AI_OLLAMA_CHAT_OPTIONS_MODEL:llama3.2:3b}
+          temperature: ${SPRING_AI_OLLAMA_CHAT_OPTIONS_TEMPERATURE:0.7}
+          num-predict: 2048
+          top-k: 40
+          top-p: 0.9
+          repeat-penalty: 1.1
+    
+    # Disable other AI providers in local mode
+    openai:
+      api-key: ""
+    anthropic:
+      api-key: ""
+
+# SwarmAI Framework configuration - optimized for local development
+swarmai:
+  default:
+    max-rpm: ${SWARMAI_DEFAULT_MAX_RPM:15}
+    max-execution-time: ${SWARMAI_DEFAULT_MAX_EXECUTION_TIME:300000}
+    verbose: ${SWARMAI_DEFAULT_VERBOSE:true}
+    language: en
+    
+  memory:
+    enabled: true
+    provider: ${SWARMAI_MEMORY_PROVIDER:in-memory}
+    
+  knowledge:
+    enabled: true
+    provider: ${SWARMAI_KNOWLEDGE_PROVIDER:in-memory}
+    
+  telemetry:
+    enabled: true
+    export-interval: 30000
+
+# Server configuration
+server:
+  port: 8080
+
+# Actuator endpoints for monitoring
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,ollama
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+    metrics:
+      enabled: true
+
+# Logging configuration
+logging:
+  level:
+    ai.intelliswarm.swarmai: ${LOGGING_LEVEL_AI_INTELLISWARM_SWARMAI:DEBUG}
+    org.springframework.ai: ${LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_AI:INFO}
+    org.springframework.ai.ollama: DEBUG
+    root: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%logger{36}] - %msg%n"
+
+# Example-specific configuration
+examples:
+  competitive-analysis:
+    enabled: true
+    max-execution-time: 600000  # 10 minutes for complex analysis
+    output-directory: ./reports
+    
+# Unified model configuration for local development
+unified-model:
+  name: llama3.2:3b
+  temperature-variants:
+    research: 0.4      # Lower temperature for factual research
+    analysis: 0.2      # Very low temperature for data analysis
+    strategy: 0.5      # Moderate temperature for strategic thinking
+    writing: 0.6       # Higher temperature for creative writing
+    management: 0.3    # Low temperature for consistent coordination

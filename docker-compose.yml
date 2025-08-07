@@ -1,0 +1,156 @@
+# Docker Compose for SwarmAI Framework with Ollama
+# 
+# This setup demonstrates running SwarmAI with local LLMs using Ollama
+# for complete privacy and control over the AI models.
+
+services:
+  # Ollama service for local LLM hosting
+  ollama:
+    image: ollama/ollama:latest
+    platform: linux/amd64
+    container_name: swarmai-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+      - ./models:/models  # Optional: for pre-downloaded models
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_ORIGINS=*
+    restart: unless-stopped
+    # For GPU support (uncomment if you have NVIDIA GPU)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 1m
+
+  # SwarmAI application
+  swarmai-app:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: swarmai-framework
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      # Spring AI configuration for Ollama
+      - SPRING_AI_OLLAMA_BASE_URL=http://ollama:11434
+      - SPRING_AI_OLLAMA_CHAT_OPTIONS_MODEL=llama3.2:3b
+      - SPRING_AI_OLLAMA_CHAT_OPTIONS_TEMPERATURE=0.7
+      
+      # SwarmAI configuration
+      - SWARMAI_DEFAULT_MAX_RPM=10
+      - SWARMAI_DEFAULT_MAX_EXECUTION_TIME=300000
+      - SWARMAI_DEFAULT_VERBOSE=true
+      
+      # Java runtime options
+      - JAVA_OPTS=-Xmx2g -XX:+UseG1GC
+      
+      # Logging configuration
+      - LOGGING_LEVEL_AI_INTELLISWARM_SWARMAI=DEBUG
+      - LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_AI=INFO
+      
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./logs:/app/logs
+      - ./reports:/app/reports
+      - ./config:/app/config
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 2m
+
+  # Optional: Ollama Web UI for model management
+  ollama-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: swarmai-ollama-webui
+    depends_on:
+      - ollama
+    ports:
+      - "3000:8080"
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - WEBUI_SECRET_KEY=your-secret-key-here
+    volumes:
+      - ollama_webui_data:/app/backend/data
+    restart: unless-stopped
+    profiles:
+      - webui  # Use --profile webui to include this service
+
+  # Optional: PostgreSQL for production memory/knowledge storage
+  postgres:
+    image: postgres:15-alpine
+    container_name: swarmai-postgres
+    environment:
+      - POSTGRES_DB=swarmai
+      - POSTGRES_USER=swarmai
+      - POSTGRES_PASSWORD=swarmai_password
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    restart: unless-stopped
+    profiles:
+      - postgres  # Use --profile postgres to include this service
+
+  # Optional: Redis for caching and session storage
+  redis:
+    image: redis:7-alpine
+    container_name: swarmai-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    restart: unless-stopped
+    profiles:
+      - redis  # Use --profile redis to include this service
+
+  # Optional: ChromaDB for vector storage (knowledge base)
+  chromadb:
+    image: ghcr.io/chroma-core/chroma:latest
+    container_name: swarmai-chromadb
+    ports:
+      - "8000:8000"
+    volumes:
+      - chromadb_data:/chroma/chroma
+    environment:
+      - CHROMA_SERVER_AUTHN_CREDENTIALS=swarmai:swarmai_password
+      - CHROMA_SERVER_AUTHN_PROVIDER=chromadb.auth.basic.BasicAuthenticationServerProvider
+    restart: unless-stopped
+    profiles:
+      - chromadb  # Use --profile chromadb to include this service
+
+volumes:
+  ollama_data:
+    driver: local
+  ollama_webui_data:
+    driver: local
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  chromadb_data:
+    driver: local
+
+networks:
+  default:
+    name: swarmai-network
+    driver: bridge

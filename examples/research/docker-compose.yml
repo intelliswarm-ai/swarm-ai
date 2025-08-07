@@ -1,0 +1,174 @@
+# SwarmAI Research Example - Docker Compose Configuration
+# 
+# This docker-compose file sets up the complete environment for running
+# the competitive analysis research workflow with Ollama.
+
+version: '3.8'
+
+services:
+  # Ollama service for local LLM hosting
+  ollama:
+    image: ollama/ollama:latest
+    platform: linux/amd64
+    container_name: research-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - research_ollama_data:/root/.ollama
+      - ./models:/models  # Optional: for pre-downloaded models
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_ORIGINS=*
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 1m
+    networks:
+      - research-network
+
+  # Model setup service - downloads required models
+  ollama-setup:
+    image: curlimages/curl:latest
+    container_name: research-ollama-setup
+    depends_on:
+      ollama:
+        condition: service_healthy
+    volumes:
+      - ./setup-models.sh:/setup-models.sh:ro
+    command: |
+      sh -c '
+        echo "🔄 Setting up Ollama models for research example..."
+        
+        # Wait a bit more for Ollama to be fully ready
+        sleep 10
+        
+        # Check if model exists
+        if curl -sf http://ollama:11434/api/tags | grep -q "llama3.2:3b"; then
+          echo "✅ Model llama3.2:3b already exists"
+        else
+          echo "📥 Downloading model llama3.2:3b..."
+          curl -sf -X POST http://ollama:11434/api/pull \
+            -H "Content-Type: application/json" \
+            -d "{\"name\":\"llama3.2:3b\"}"
+          echo "✅ Model download completed"
+        fi
+        
+        # Test the model
+        echo "🧪 Testing model..."
+        response=$(curl -sf -X POST http://ollama:11434/api/generate \
+          -H "Content-Type: application/json" \
+          -d "{\"model\":\"llama3.2:3b\",\"prompt\":\"Hello! Say Model Ready\",\"stream\":false}" | \
+          grep -o "\"response\":\"[^\"]*\"" | sed "s/\"response\":\"//;s/\"//")
+        
+        if [ -n "$response" ]; then
+          echo "✅ Model test successful: $response"
+        else
+          echo "⚠️ Model test failed"
+        fi
+        
+        echo "🎉 Ollama setup completed!"
+      '
+    networks:
+      - research-network
+
+  # SwarmAI Research Example application
+  research-app:
+    image: swarmai-research:latest
+    container_name: research-competitive-analysis
+    depends_on:
+      ollama-setup:
+        condition: service_completed_successfully
+    environment:
+      # Spring AI configuration for Ollama
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_AI_OLLAMA_BASE_URL=http://ollama:11434
+      - SPRING_AI_OLLAMA_CHAT_OPTIONS_MODEL=llama3.2:3b
+      - SPRING_AI_OLLAMA_CHAT_OPTIONS_TEMPERATURE=0.7
+      
+      # SwarmAI configuration optimized for research
+      - SWARMAI_DEFAULT_MAX_RPM=15
+      - SWARMAI_DEFAULT_MAX_EXECUTION_TIME=600000  # 10 minutes for complex analysis
+      - SWARMAI_DEFAULT_VERBOSE=true
+      
+      # Research-specific configuration
+      - RESEARCH_OUTPUT_DIRECTORY=/app/reports
+      - RESEARCH_MAX_EXECUTION_TIME=900000  # 15 minutes max
+      - RESEARCH_ENABLE_DETAILED_LOGGING=true
+      
+      # Java runtime options optimized for research workload
+      - JAVA_OPTS=-Xmx2g -XX:+UseG1GC -XX:MaxGCPauseMillis=100 -XX:+UseStringDeduplication
+      
+      # Logging configuration
+      - LOGGING_LEVEL_AI_INTELLISWARM_SWARMAI=DEBUG
+      - LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_AI=INFO
+      
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./reports:/app/reports
+      - ./logs:/app/logs
+      - ./config:/app/config
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 2m
+    networks:
+      - research-network
+
+  # Optional: Ollama Web UI for model management during research
+  ollama-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: research-ollama-webui
+    depends_on:
+      - ollama
+    ports:
+      - "3000:8080"
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - WEBUI_SECRET_KEY=research-swarm-key
+      - WEBUI_NAME=SwarmAI Research UI
+    volumes:
+      - research_ollama_webui_data:/app/backend/data
+    restart: unless-stopped
+    profiles:
+      - webui  # Use --profile webui to include this service
+    networks:
+      - research-network
+
+volumes:
+  research_ollama_data:
+    driver: local
+    name: research_ollama_data
+  research_ollama_webui_data:
+    driver: local
+    name: research_ollama_webui_data
+
+networks:
+  research-network:
+    name: research-network
+    driver: bridge
+
+# Usage Examples:
+#
+# 1. Start the complete research environment:
+#    docker-compose up --build
+#
+# 2. Run competitive analysis (after services are up):
+#    docker-compose exec research-app java -jar app.jar competitive-analysis
+#
+# 3. Include Web UI for model management:
+#    docker-compose --profile webui up --build
+#
+# 4. Check logs:
+#    docker-compose logs research-app
+#    docker-compose logs ollama
+#
+# 5. Clean up:
+#    docker-compose down -v  # Removes volumes too
