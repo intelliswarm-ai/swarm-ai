@@ -43,6 +43,46 @@ swarmai:
     enabled: true
     export-interval: 30000  # 30 seconds
 
+# Stock analysis tool configuration
+stock:
+  search:
+    # Google Custom Search API for general web search
+    # Get free API key from: https://developers.google.com/custom-search/v1/overview
+    # Create custom search engine at: https://cse.google.com/cse/
+    google:
+      api-key: ${GOOGLE_API_KEY:}  # Set your Google API key here
+      search-engine-id: ${GOOGLE_SEARCH_ENGINE_ID:}  # Set your Custom Search Engine ID
+      
+    # Bing Search API for general web search
+    # Get free API key from: https://www.microsoft.com/en-us/bing/apis/bing-web-search-api
+    bing:
+      api-key: ${BING_API_KEY:}  # Set your Bing Search API key here
+      
+    # Alpha Vantage API for market data and company overviews
+    # Get free API key from: https://www.alphavantage.co/support/#api-key
+    alphavantage:
+      api-key: demo  # Replace with your Alpha Vantage API key
+      
+    # NewsAPI for financial news aggregation  
+    # Get free API key from: https://newsapi.org/register
+    newsapi:
+      api-key: ${NEWSAPI_KEY:}  # Set your NewsAPI key here
+      
+    # Finnhub for stock news and market data
+    # Get free API key from: https://finnhub.io/register
+    finnhub:
+      api-key: ${FINNHUB_API_KEY:}  # Set your Finnhub API key here
+      
+    # Polygon.io for market data (optional)
+    # Get API key from: https://polygon.io/
+    polygon:
+      api-key: ${POLYGON_API_KEY:}  # Set your Polygon.io API key here
+      
+    # Rate limiting and caching
+    rate-limit:
+      requests-per-minute: 60
+      cache-ttl-minutes: 5
+
 management:
   endpoints:
     web:
