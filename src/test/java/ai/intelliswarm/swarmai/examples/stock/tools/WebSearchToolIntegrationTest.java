@@ -259,6 +259,9 @@ class WebSearchToolIntegrationTest {
         assertNotNull(result);
         String resultStr = result.toString();
         
+        // Write output to file for visual inspection
+        writeOutputToFile("NewsAPI_Integration", "AMZN financial news", resultStr);
+        
         logger.info("NewsAPI result length: {} characters", resultStr.length());
         
         // Should contain news results
@@ -292,6 +295,9 @@ class WebSearchToolIntegrationTest {
         
         assertNotNull(result);
         String resultStr = result.toString();
+        
+        // Write output to file for visual inspection
+        writeOutputToFile("Finnhub_Integration", "GOOGL company news", resultStr);
         
         logger.info("Finnhub result length: {} characters", resultStr.length());
         
@@ -366,6 +372,9 @@ class WebSearchToolIntegrationTest {
         assertNotNull(result, "Should return result even with API failures");
         String resultStr = result.toString();
         
+        // Write output to file for visual inspection
+        writeOutputToFile("API_Failure_Handling", "AAPL test failure handling", resultStr);
+        
         // Should still provide structured response
         assertTrue(resultStr.contains("Web Search Results"), 
             "Should still provide basic structure");
@@ -402,11 +411,17 @@ class WebSearchToolIntegrationTest {
         Object result = webSearchTool.execute(parameters);
         assertNotNull(result);
         
-        String resultStr = result.toString().toLowerCase();
+        String resultStr = result.toString();
+        
+        // Write output to file for visual inspection
+        String sanitizedQuery = query.replaceAll("[^a-zA-Z0-9 ]", "").replaceAll("\\s+", "_");
+        writeOutputToFile("Query_Type_" + sanitizedQuery, query, resultStr);
+        
+        String resultStrLower = resultStr.toLowerCase();
         
         // Should contain relevant keywords based on query
         for (String keyword : expectedKeywords) {
-            assertTrue(resultStr.contains(keyword.toLowerCase()), 
+            assertTrue(resultStrLower.contains(keyword.toLowerCase()), 
                 "Result should contain keyword '" + keyword + "' for query: " + query);
         }
         
@@ -438,6 +453,10 @@ class WebSearchToolIntegrationTest {
         
         // Should provide meaningful response
         String resultStr = result.toString();
+        
+        // Write output to file for visual inspection
+        writeOutputToFile("Performance_Test", "AAPL performance test", resultStr);
+        
         assertTrue(resultStr.length() > 500, 
             "Should provide substantial response within time limit");
     }
@@ -459,6 +478,9 @@ class WebSearchToolIntegrationTest {
         
         assertNotNull(result);
         String resultStr = result.toString();
+        
+        // Write output to file for visual inspection
+        writeOutputToFile("Concurrent_API_Calls", "AMZN cloud services market", resultStr);
         
         // Should complete faster than sequential calls would take
         // (This is hard to test precisely, but should be under 10 seconds for concurrent execution)
@@ -490,6 +512,10 @@ class WebSearchToolIntegrationTest {
         assertNotNull(result);
         
         String resultStr = result.toString();
+        
+        // Write output to file for visual inspection
+        String sanitizedQuery = query.replaceAll("[^a-zA-Z0-9 ]", "").replaceAll("\\s+", "_");
+        writeOutputToFile("Ticker_Extraction_" + expectedTicker + "_" + sanitizedQuery, query, resultStr);
         
         // Check ticker detection (may or may not work depending on implementation)
         boolean tickerDetected = resultStr.contains("Detected Ticker: " + expectedTicker) || 
