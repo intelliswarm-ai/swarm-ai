@@ -80,22 +80,31 @@ public class SequentialProcess implements Process {
     private List<Task> orderTasks(List<Task> tasks) {
         List<Task> ordered = new ArrayList<>();
         Set<String> processed = new HashSet<>();
-        Map<String, Task> taskMap = tasks.stream()
-            .collect(Collectors.toMap(Task::getId, task -> task));
+        Set<String> queued = new HashSet<>();
 
-        Queue<Task> queue = new LinkedList<>(tasks.stream()
-            .filter(task -> task.getDependencyTaskIds().isEmpty())
-            .collect(Collectors.toList()));
+        Queue<Task> queue = new LinkedList<>();
+
+        // Initialize queue with tasks that have no dependencies
+        for (Task task : tasks) {
+            if (task.getDependencyTaskIds().isEmpty()) {
+                queue.offer(task);
+                queued.add(task.getId());
+            }
+        }
 
         while (!queue.isEmpty()) {
             Task current = queue.poll();
             ordered.add(current);
             processed.add(current.getId());
 
-            tasks.stream()
-                .filter(task -> !processed.contains(task.getId()))
-                .filter(task -> processed.containsAll(task.getDependencyTaskIds()))
-                .forEach(queue::offer);
+            // Add tasks whose dependencies are now satisfied
+            for (Task task : tasks) {
+                if (!queued.contains(task.getId()) &&
+                    processed.containsAll(task.getDependencyTaskIds())) {
+                    queue.offer(task);
+                    queued.add(task.getId());
+                }
+            }
         }
 
         if (ordered.size() != tasks.size()) {

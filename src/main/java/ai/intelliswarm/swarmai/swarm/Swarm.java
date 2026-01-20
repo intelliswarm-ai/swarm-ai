@@ -66,12 +66,15 @@ public class Swarm {
 
     public SwarmOutput kickoff(Map<String, Object> inputs) {
         publishEvent(SwarmEvent.Type.SWARM_STARTED, "Swarm kickoff initiated");
-        
+
+        // Handle null inputs gracefully
+        Map<String, Object> safeInputs = inputs != null ? inputs : Map.of();
+
         try {
             status = SwarmStatus.RUNNING;
-            
+
             Process process = createProcess();
-            SwarmOutput output = process.execute(tasks, inputs);
+            SwarmOutput output = process.execute(tasks, safeInputs);
             
             this.lastOutput = output;
             status = SwarmStatus.COMPLETED;

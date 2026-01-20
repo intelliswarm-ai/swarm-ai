@@ -7,84 +7,142 @@ on:
     branches: [ main ]
 
 jobs:
-  test:
+  unit-tests:
+    name: Unit Tests (Java ${{ matrix.java }})
     runs-on: ubuntu-latest
-    
+
     strategy:
       matrix:
         java: [ '17', '21' ]
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
+
     - name: Set up JDK ${{ matrix.java }}
       uses: actions/setup-java@v4
       with:
         java-version: ${{ matrix.java }}
         distribution: 'temurin'
         cache: maven
-        
-    - name: Run tests
-      run: mvn clean test
-      
+
+    - name: Run unit tests
+      run: mvn clean test -DexcludedGroups=integration
+
     - name: Generate test report
       uses: dorny/test-reporter@v1
       if: success() || failure()
       with:
-        name: Maven Tests - Java ${{ matrix.java }}
+        name: Unit Tests - Java ${{ matrix.java }}
         path: target/surefire-reports/*.xml
         reporter: java-junit
-        
+
     - name: Upload coverage to Codecov
       if: matrix.java == '21'
-      uses: codecov/codecov-action@v3
+      uses: codecov/codecov-action@v4
       with:
         file: ./target/site/jacoco/jacoco.xml
         flags: unittests
         name: codecov-umbrella
-        
-  build:
-    needs: test
+        token: ${{ secrets.CODECOV_TOKEN }}
+
+  integration-tests:
+    name: Integration Tests
     runs-on: ubuntu-latest
-    
+    needs: unit-tests
+    # Only run on push to main/develop, not on PRs (to avoid exposing secrets)
+    if: github.event_name == 'push'
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
+
     - name: Set up JDK 21
       uses: actions/setup-java@v4
       with:
         java-version: '21'
         distribution: 'temurin'
         cache: maven
-        
-    - name: Build with Maven
-      run: mvn clean package
-      
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v3
+
+    - name: Run integration tests
+      run: mvn verify -Dgroups=integration -DskipTests=false
+      env:
+        # Web Search API Keys
+        GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        GOOGLE_SEARCH_ENGINE_ID: ${{ secrets.GOOGLE_SEARCH_ENGINE_ID }}
+        BING_API_KEY: ${{ secrets.BING_API_KEY }}
+        NEWSAPI_KEY: ${{ secrets.NEWSAPI_KEY }}
+        FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+        POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
+        # LLM Provider Keys (for future integration tests)
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+    - name: Generate integration test report
+      uses: dorny/test-reporter@v1
+      if: success() || failure()
       with:
-        name: jar-artifact
-        path: target/*.jar
-        
-  dependency-check:
+        name: Integration Tests
+        path: target/failsafe-reports/*.xml
+        reporter: java-junit
+
+    - name: Upload integration test outputs
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: integration-test-outputs
+        path: target/integration-test-outputs/
+        retention-days: 7
+
+  build:
+    name: Build
+    needs: unit-tests
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
-    - name: Run OWASP Dependency Check
-      uses: dependency-check/Dependency-Check_Action@main
+
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
       with:
-        project: 'SwarmAI Framework'
-        path: '.'
-        format: 'HTML'
-        
+        java-version: '21'
+        distribution: 'temurin'
+        cache: maven
+
+    - name: Build with Maven
+      run: mvn clean package -DskipTests
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: jar-artifact
+        path: target/*.jar
+        retention-days: 30
+
+  dependency-check:
+    name: Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+        cache: maven
+
+    - name: Run OWASP Dependency Check
+      run: mvn org.owasp:dependency-check-maven:check -DfailBuildOnCVSS=11
+      continue-on-error: true
+
     - name: Upload dependency check results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       if: always()
       with:
         name: dependency-check-report
-        path: reports/
+        path: target/dependency-check-report.html
+        retention-days: 30

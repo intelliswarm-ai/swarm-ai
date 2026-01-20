@@ -2,54 +2,280 @@ name: Maven Release
 
 on:
   release:
-    types: [created]
+    types: [ published ]
+
+# Prevent concurrent releases
+concurrency:
+  group: release-deploy
+  cancel-in-progress: false
 
 jobs:
-  release:
+  # ============================================
+  # Validate release version
+  # ============================================
+  validate:
+    name: Validate Release
     runs-on: ubuntu-latest
-    
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
-    - name: Set up JDK 17
+
+    - name: Set up JDK 21
       uses: actions/setup-java@v4
       with:
-        java-version: '17'
+        java-version: '21'
         distribution: 'temurin'
+        cache: maven
+
+    - name: Extract and validate version
+      id: version
+      run: |
+        # Get version from pom.xml
+        POM_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+        echo "POM version: $POM_VERSION"
+
+        # Get tag version (remove 'v' prefix if present)
+        TAG_VERSION="${{ github.event.release.tag_name }}"
+        TAG_VERSION="${TAG_VERSION#v}"
+        echo "Tag version: $TAG_VERSION"
+
+        # Verify versions match (allow SNAPSHOT in pom if tag doesn't have it)
+        POM_BASE="${POM_VERSION%-SNAPSHOT}"
+        if [[ "$POM_BASE" != "$TAG_VERSION" ]]; then
+          echo "Warning: POM version ($POM_VERSION) doesn't match tag ($TAG_VERSION)"
+          echo "Using tag version for release"
+        fi
+
+        # Ensure it's not a SNAPSHOT for release
+        if [[ "$TAG_VERSION" == *-SNAPSHOT ]]; then
+          echo "Error: Cannot release a SNAPSHOT version"
+          exit 1
+        fi
+
+        echo "version=$TAG_VERSION" >> $GITHUB_OUTPUT
+
+    - name: Update version if needed
+      run: |
+        mvn versions:set -DnewVersion=${{ steps.version.outputs.version }} -DgenerateBackupPoms=false
+
+  # ============================================
+  # Run full regression suite
+  # ============================================
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: validate
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+        cache: maven
+
+    - name: Update version
+      run: |
+        mvn versions:set -DnewVersion=${{ needs.validate.outputs.version }} -DgenerateBackupPoms=false
+
+    - name: Run unit tests
+      run: mvn clean test -DexcludedGroups=integration
+
+    - name: Generate test report
+      uses: dorny/test-reporter@v1
+      if: success() || failure()
+      with:
+        name: Release Unit Tests
+        path: target/surefire-reports/*.xml
+        reporter: java-junit
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [ validate, unit-tests ]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+        cache: maven
+
+    - name: Update version
+      run: |
+        mvn versions:set -DnewVersion=${{ needs.validate.outputs.version }} -DgenerateBackupPoms=false
+
+    - name: Run integration tests
+      run: mvn verify -Dgroups=integration -DskipTests=false
+      env:
+        GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        GOOGLE_SEARCH_ENGINE_ID: ${{ secrets.GOOGLE_SEARCH_ENGINE_ID }}
+        BING_API_KEY: ${{ secrets.BING_API_KEY }}
+        NEWSAPI_KEY: ${{ secrets.NEWSAPI_KEY }}
+        FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+        POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+    - name: Generate integration test report
+      uses: dorny/test-reporter@v1
+      if: success() || failure()
+      with:
+        name: Release Integration Tests
+        path: target/failsafe-reports/*.xml
+        reporter: java-junit
+
+  # ============================================
+  # Deploy to Maven Central
+  # ============================================
+  publish-maven-central:
+    name: Publish to Maven Central
+    runs-on: ubuntu-latest
+    needs: [ validate, unit-tests, integration-tests ]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+        cache: maven
         server-id: ossrh
         server-username: MAVEN_USERNAME
         server-password: MAVEN_PASSWORD
         gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
         gpg-passphrase: MAVEN_GPG_PASSPHRASE
-        
-    - name: Cache Maven dependencies
-      uses: actions/cache@v3
-      with:
-        path: ~/.m2
-        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-        restore-keys: ${{ runner.os }}-m2
-        
+
     - name: Configure Git
       run: |
         git config --global user.email "actions@github.com"
         git config --global user.name "GitHub Actions"
-        
-    - name: Import GPG key
+
+    - name: Update version
       run: |
-        echo "${{ secrets.MAVEN_GPG_PRIVATE_KEY }}" | gpg --batch --import
-        gpg --list-secret-keys --keyid-format LONG
-        
+        mvn versions:set -DnewVersion=${{ needs.validate.outputs.version }} -DgenerateBackupPoms=false
+
     - name: Deploy to Maven Central
       run: |
-        mvn --batch-mode -Prelease deploy
+        mvn --batch-mode -Prelease deploy -DskipTests
       env:
         MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
         MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
         MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
-        
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v3
+
+    - name: Summary
+      run: |
+        echo "## Maven Central Release Published" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- **Version:** ${{ needs.validate.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Release:** ${{ github.event.release.html_url }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "The release will be available on Maven Central after sync (usually 2-4 hours)." >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Maven Dependency" >> $GITHUB_STEP_SUMMARY
+        echo '```xml' >> $GITHUB_STEP_SUMMARY
+        echo '<dependency>' >> $GITHUB_STEP_SUMMARY
+        echo '    <groupId>ai.intelliswarm</groupId>' >> $GITHUB_STEP_SUMMARY
+        echo '    <artifactId>swarmai-framework</artifactId>' >> $GITHUB_STEP_SUMMARY
+        echo "    <version>${{ needs.validate.outputs.version }}</version>" >> $GITHUB_STEP_SUMMARY
+        echo '</dependency>' >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+
+  # ============================================
+  # Publish to GitHub Packages
+  # ============================================
+  publish-github:
+    name: Publish to GitHub Packages
+    runs-on: ubuntu-latest
+    needs: [ validate, unit-tests, integration-tests ]
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
       with:
-        name: maven-artifacts
-        path: target/*.jar
+        java-version: '21'
+        distribution: 'temurin'
+        cache: maven
+
+    - name: Update version
+      run: |
+        mvn versions:set -DnewVersion=${{ needs.validate.outputs.version }} -DgenerateBackupPoms=false
+
+    - name: Deploy to GitHub Packages
+      run: |
+        mvn --batch-mode deploy -DskipTests \
+          -DaltDeploymentRepository=github::https://maven.pkg.github.com/${{ github.repository }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Summary
+      run: |
+        echo "## GitHub Packages Release Published" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- **Version:** ${{ needs.validate.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Repository:** https://github.com/${{ github.repository }}/packages" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================
+  # Upload release artifacts
+  # ============================================
+  upload-artifacts:
+    name: Upload Release Artifacts
+    runs-on: ubuntu-latest
+    needs: [ validate, publish-maven-central, publish-github ]
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+        cache: maven
+
+    - name: Update version
+      run: |
+        mvn versions:set -DnewVersion=${{ needs.validate.outputs.version }} -DgenerateBackupPoms=false
+
+    - name: Build release artifacts
+      run: mvn clean package -DskipTests -Prelease
+
+    - name: Upload artifacts to GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          target/*.jar
+          target/*.pom
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Upload artifacts to workflow
+      uses: actions/upload-artifact@v4
+      with:
+        name: release-artifacts-${{ needs.validate.outputs.version }}
+        path: |
+          target/*.jar
+          target/*.pom
+        retention-days: 90

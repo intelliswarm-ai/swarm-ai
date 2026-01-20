@@ -64,13 +64,16 @@ public class Task {
         if (status != TaskStatus.PENDING) {
             throw new IllegalStateException("Task " + id + " has already been executed or is in progress");
         }
-        
+
         setStatus(TaskStatus.RUNNING);
         startedAt = LocalDateTime.now();
-        
+
+        // Handle null context gracefully
+        List<TaskOutput> safeContext = contextOutputs != null ? contextOutputs : Collections.emptyList();
+
         try {
             if (condition != null) {
-                String contextString = buildContextString(contextOutputs);
+                String contextString = buildContextString(safeContext);
                 if (!condition.test(contextString)) {
                     setStatus(TaskStatus.SKIPPED);
                     return createSkippedOutput();
@@ -80,8 +83,8 @@ public class Task {
             if (agent == null) {
                 throw new IllegalStateException("Agent is required for task execution");
             }
-            
-            List<TaskOutput> filteredContext = filterContextByDependencies(contextOutputs);
+
+            List<TaskOutput> filteredContext = filterContextByDependencies(safeContext);
             TaskOutput result = agent.executeTask(this, filteredContext);
             
             this.output = result;
