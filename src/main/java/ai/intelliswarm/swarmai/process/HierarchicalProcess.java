@@ -5,6 +5,9 @@ import ai.intelliswarm.swarmai.swarm.SwarmOutput;
 import ai.intelliswarm.swarmai.event.SwarmEvent;
 import ai.intelliswarm.swarmai.task.Task;
 import ai.intelliswarm.swarmai.task.output.TaskOutput;
+import ai.intelliswarm.swarmai.observability.core.ObservabilityContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.LocalDateTime;
@@ -12,6 +15,8 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 public class HierarchicalProcess implements Process {
+
+    private static final Logger logger = LoggerFactory.getLogger(HierarchicalProcess.class);
 
     private final List<Agent> workerAgents;
     private final Agent managerAgent;
@@ -45,13 +50,29 @@ public class HierarchicalProcess implements Process {
             
             // Execute delegated tasks
             List<Task> delegatedTasks = parseDelegatedTasks(coordinationOutput, tasks);
-            
+
+            logger.info("📋 Hierarchical Process: Executing {} delegated tasks", delegatedTasks.size());
+
             for (Task task : delegatedTasks) {
                 Agent assignedAgent = selectAgentForTask(task);
-                
-                publishEvent(SwarmEvent.Type.TASK_STARTED, 
+
+                // Update observability context for this task
+                ObservabilityContext ctx = ObservabilityContext.currentOrNull();
+                if (ctx != null) {
+                    ctx.withTaskId(task.getId())
+                       .withAgentId(assignedAgent.getId());
+                }
+
+                logger.info("🎯 Starting task: {} -> assigned to: {} (tools: {})",
+                        truncateForLog(task.getDescription(), 80),
+                        assignedAgent.getRole(),
+                        assignedAgent.getTools().stream()
+                                .map(t -> t.getFunctionName())
+                                .collect(Collectors.joining(", ")));
+
+                publishEvent(SwarmEvent.Type.TASK_STARTED,
                     "Delegated task started: " + task.getId() + " assigned to: " + assignedAgent.getRole());
-                
+
                 // Create a new task with the assigned agent
                 Task assignedTask = Task.builder()
                     .description(task.getDescription())
@@ -59,10 +80,16 @@ public class HierarchicalProcess implements Process {
                     .tools(task.getTools())
                     .agent(assignedAgent)
                     .build();
-                
+
                 List<TaskOutput> contextOutputs = getRelevantContext(task, allOutputs);
                 TaskOutput output = assignedTask.execute(contextOutputs);
-                
+
+                // Log output details for debugging
+                logger.info("✅ Task completed: {} (output: {} chars, exec time: {} ms)",
+                        truncateForLog(task.getDescription(), 50),
+                        output.getRawOutput() != null ? output.getRawOutput().length() : 0,
+                        output.getExecutionTimeMs());
+
                 allOutputs.add(output);
                 publishEvent(SwarmEvent.Type.TASK_COMPLETED, "Delegated task completed: " + task.getId());
             }
@@ -199,18 +226,39 @@ public class HierarchicalProcess implements Process {
 
     private Task createFinalCoordinationTask(List<TaskOutput> allOutputs) {
         StringBuilder description = new StringBuilder();
-        description.append("As the manager, review all completed tasks and provide a final coordinated output:\n\n");
-        
+        description.append("As the manager, review all completed task results and provide a final coordinated output.\n\n");
+        description.append("IMPORTANT: Your final output MUST be based on the actual task results provided below. ");
+        description.append("Do NOT generate new information or make up data. Use ONLY the information from the completed tasks.\n\n");
+
+        int taskNum = 1;
         for (TaskOutput output : allOutputs) {
-            description.append("Task: ").append(output.getDescription()).append("\n");
-            description.append("Result: ").append(output.getSummary()).append("\n\n");
+            description.append("=== TASK ").append(taskNum++).append(" ===\n");
+            description.append("Description: ").append(output.getDescription()).append("\n");
+            description.append("Agent: ").append(output.getAgentId()).append("\n");
+            // Use full raw output instead of truncated summary
+            String rawOutput = output.getRawOutput();
+            if (rawOutput != null && rawOutput.length() > 3000) {
+                // Truncate very long outputs but keep more than 100 chars
+                description.append("Result:\n").append(rawOutput.substring(0, 3000)).append("...[truncated]\n\n");
+            } else {
+                description.append("Result:\n").append(rawOutput != null ? rawOutput : "No output").append("\n\n");
+            }
+
+            // Log for observability
+            logger.debug("Final coordination - Task {}: {} (output length: {} chars)",
+                    taskNum - 1, output.getDescription(),
+                    rawOutput != null ? rawOutput.length() : 0);
         }
-        
-        description.append("Provide a comprehensive summary and final output that incorporates all task results.");
-        
+
+        description.append("Based on the above task results, provide a comprehensive final output that:\n");
+        description.append("1. Synthesizes all the findings from the completed tasks\n");
+        description.append("2. Presents the information in a clear, organized manner\n");
+        description.append("3. Includes all relevant data and insights from the task outputs\n");
+        description.append("4. Does NOT introduce new information not found in the task results\n");
+
         return Task.builder()
             .description(description.toString())
-            .expectedOutput("A comprehensive final output incorporating all task results")
+            .expectedOutput("A comprehensive final output that synthesizes all task results accurately")
             .agent(managerAgent)
             .build();
     }
@@ -250,5 +298,12 @@ public class HierarchicalProcess implements Process {
         if (!managerAgent.isAllowDelegation()) {
             throw new IllegalArgumentException("Manager agent must allow delegation for hierarchical process");
         }
+    }
+
+    private String truncateForLog(String text, int maxLength) {
+        if (text == null || text.length() <= maxLength) {
+            return text;
+        }
+        return text.substring(0, maxLength - 3) + "...";
     }
 }

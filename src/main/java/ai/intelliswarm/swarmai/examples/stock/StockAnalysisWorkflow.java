@@ -6,7 +6,13 @@ import ai.intelliswarm.swarmai.swarm.SwarmOutput;
 import ai.intelliswarm.swarmai.task.Task;
 import ai.intelliswarm.swarmai.task.output.OutputFormat;
 import ai.intelliswarm.swarmai.process.ProcessType;
+import ai.intelliswarm.swarmai.observability.core.ObservabilityHelper;
+import ai.intelliswarm.swarmai.observability.decision.DecisionTracer;
+import ai.intelliswarm.swarmai.observability.decision.DecisionTree;
+import ai.intelliswarm.swarmai.observability.replay.EventStore;
+import ai.intelliswarm.swarmai.observability.replay.WorkflowRecording;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 import org.slf4j.Logger;
@@ -15,6 +21,7 @@ import org.slf4j.LoggerFactory;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import ai.intelliswarm.swarmai.examples.stock.tools.CalculatorTool;
 import ai.intelliswarm.swarmai.examples.stock.tools.WebSearchTool;
@@ -22,26 +29,37 @@ import ai.intelliswarm.swarmai.examples.stock.tools.SECFilingsTool;
 
 @Component
 public class StockAnalysisWorkflow {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(StockAnalysisWorkflow.class);
-    
+
     private final ChatClient.Builder chatClientBuilder;
     private final ApplicationEventPublisher eventPublisher;
     private final CalculatorTool calculatorTool;
     private final WebSearchTool webSearchTool;
     private final SECFilingsTool secFilingsTool;
-    
+
+    // Observability components
+    private final ObservabilityHelper observabilityHelper;
+    private final DecisionTracer decisionTracer;
+    private final EventStore eventStore;
+
     public StockAnalysisWorkflow(
             ChatClient.Builder chatClientBuilder,
             ApplicationEventPublisher eventPublisher,
             CalculatorTool stockCalculatorTool,
             WebSearchTool stockWebSearchTool,
-            SECFilingsTool stockSECFilingsTool) {
+            SECFilingsTool stockSECFilingsTool,
+            @Autowired(required = false) ObservabilityHelper observabilityHelper,
+            @Autowired(required = false) DecisionTracer decisionTracer,
+            @Autowired(required = false) EventStore eventStore) {
         this.chatClientBuilder = chatClientBuilder;
         this.eventPublisher = eventPublisher;
         this.calculatorTool = stockCalculatorTool;
         this.webSearchTool = stockWebSearchTool;
         this.secFilingsTool = stockSECFilingsTool;
+        this.observabilityHelper = observabilityHelper;
+        this.decisionTracer = decisionTracer;
+        this.eventStore = eventStore;
     }
     
     public void run(String... args) throws Exception {
@@ -181,11 +199,23 @@ public class StockAnalysisWorkflow {
         inputs.put("analysisScope", "Comprehensive financial and market analysis");
         inputs.put("timeframe", "Current market state with forward-looking insights");
         inputs.put("investmentObjective", "Investment decision support");
-        
+
+        // Initialize decision tracing if enabled
+        String correlationId = java.util.UUID.randomUUID().toString();
+        if (decisionTracer != null && decisionTracer.isEnabled()) {
+            decisionTracer.startTrace(correlationId, "stock-analysis-swarm");
+            logger.info("🔍 Decision tracing enabled - Correlation ID: {}", correlationId);
+        }
+
         long startTime = System.currentTimeMillis();
         SwarmOutput result = stockAnalysisSwarm.kickoff(inputs);
         long endTime = System.currentTimeMillis();
-        
+
+        // Complete decision tracing
+        if (decisionTracer != null && decisionTracer.isEnabled()) {
+            decisionTracer.completeTrace(correlationId);
+        }
+
         // Display Results
         double durationMinutes = (endTime - startTime) / 60000.0;
         logger.info("\n" + "=".repeat(80));
@@ -195,5 +225,79 @@ public class StockAnalysisWorkflow {
         logger.info("⏱️ Duration: {:.1f} minutes", durationMinutes);
         logger.info("📈 Final Investment Recommendation:\n{}", result.getFinalOutput());
         logger.info("=".repeat(80));
+
+        // Display observability summary
+        displayObservabilitySummary(correlationId);
+    }
+
+    /**
+     * Displays observability summary including event timeline and decision trace.
+     */
+    private void displayObservabilitySummary(String correlationId) {
+        logger.info("\n" + "=".repeat(80));
+        logger.info("📊 OBSERVABILITY SUMMARY");
+        logger.info("=".repeat(80));
+
+        // Display workflow recording if available
+        if (eventStore != null) {
+            Optional<WorkflowRecording> recordingOpt = eventStore.createRecording(correlationId);
+            if (recordingOpt.isPresent()) {
+                WorkflowRecording recording = recordingOpt.get();
+                WorkflowRecording.WorkflowSummary summary = recording.getSummary();
+
+                logger.info("📋 Workflow Recording:");
+                logger.info("   Correlation ID: {}", recording.getCorrelationId());
+                logger.info("   Status: {}", recording.getStatus());
+                logger.info("   Duration: {} ms", recording.getDurationMs());
+                logger.info("   Total Events: {}", summary.getTotalEvents());
+                logger.info("   Unique Agents: {}", summary.getUniqueAgents());
+                logger.info("   Unique Tasks: {}", summary.getUniqueTasks());
+                logger.info("   Unique Tools: {}", summary.getUniqueTools());
+                logger.info("   Error Count: {}", summary.getErrorCount());
+
+                // Display event timeline
+                logger.info("\n📅 Event Timeline:");
+                for (WorkflowRecording.EventRecord event : recording.getTimeline()) {
+                    logger.info("   [{} ms] {} - {} (agent: {}, task: {}, tool: {})",
+                            event.getElapsedMs() != null ? event.getElapsedMs() : 0,
+                            event.getEventType(),
+                            truncate(event.getMessage(), 50),
+                            event.getAgentId() != null ? truncate(event.getAgentId(), 20) : "-",
+                            event.getTaskId() != null ? truncate(event.getTaskId(), 20) : "-",
+                            event.getToolName() != null ? event.getToolName() : "-");
+                }
+            } else {
+                logger.info("   No workflow recording available");
+            }
+        }
+
+        // Display decision trace if available
+        if (decisionTracer != null && decisionTracer.isEnabled()) {
+            Optional<DecisionTree> treeOpt = decisionTracer.getDecisionTree(correlationId);
+            if (treeOpt.isPresent()) {
+                DecisionTree tree = treeOpt.get();
+                logger.info("\n🧠 Decision Trace:");
+                logger.info("   Total Decisions: {}", tree.getNodeCount());
+                logger.info("   Unique Agents: {}", tree.getUniqueAgentIds().size());
+                logger.info("   Unique Tasks: {}", tree.getUniqueTaskIds().size());
+
+                // Display workflow explanation
+                String explanation = decisionTracer.explainWorkflow(correlationId);
+                logger.info("\n📝 Workflow Explanation:\n{}", explanation);
+            } else {
+                logger.info("   No decision trace available (enable decision-tracing-enabled in config)");
+            }
+        } else {
+            logger.info("   Decision tracing not enabled");
+        }
+
+        logger.info("=".repeat(80));
+    }
+
+    private String truncate(String text, int maxLength) {
+        if (text == null || text.length() <= maxLength) {
+            return text;
+        }
+        return text.substring(0, maxLength - 3) + "...";
     }
 }

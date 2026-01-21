@@ -54,6 +54,23 @@ swarmai:
     enabled: true
     export-interval: 30000
 
+  # Observability configuration for debugging
+  observability:
+    enabled: true
+    structured-logging-enabled: true
+    tool-tracing-enabled: true
+    decision-tracing-enabled: true  # Enable for debugging workflow issues
+    replay-enabled: true
+    metrics-enabled: true
+
+    replay:
+      store-type: in-memory
+      max-events-in-memory: 10000
+
+    decision:
+      capture-prompts: true
+      capture-responses: true
+
 # Server configuration
 server:
   port: 8080
@@ -75,11 +92,13 @@ management:
 logging:
   level:
     ai.intelliswarm.swarmai: ${LOGGING_LEVEL_AI_INTELLISWARM_SWARMAI:DEBUG}
+    ai.intelliswarm.swarmai.observability: DEBUG
     org.springframework.ai: ${LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_AI:INFO}
     org.springframework.ai.ollama: DEBUG
     root: INFO
   pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%logger{36}] - %msg%n"
+    # Include correlation ID from MDC for observability tracing
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{correlationId:-}] [%logger{36}] - %msg%n"
 
 # Example-specific configuration
 examples:

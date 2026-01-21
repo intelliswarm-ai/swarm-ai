@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    volumes:
+      # Mount source code for live testing
+      - ./src:/app/src:ro
+      - ./pom.xml:/app/pom.xml:ro
+      # Cache Maven dependencies
+      - maven-cache:/root/.m2
+    environment:
+      - MAVEN_OPTS=-Xmx1024m
+    command: ["./mvnw", "test", "-DexcludedGroups="]
+
+  test-unit:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    volumes:
+      - ./src:/app/src:ro
+      - ./pom.xml:/app/pom.xml:ro
+      - maven-cache:/root/.m2
+    command: ["./mvnw", "test"]
+
+  test-integration:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    volumes:
+      - ./src:/app/src:ro
+      - ./pom.xml:/app/pom.xml:ro
+      - maven-cache:/root/.m2
+    command: ["./mvnw", "verify", "-Dgroups=integration"]
+
+volumes:
+  maven-cache:

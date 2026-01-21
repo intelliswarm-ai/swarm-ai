@@ -79,29 +79,32 @@ public class Agent {
 
     public TaskOutput executeTask(Task task, List<TaskOutput> context) {
         incrementExecutionCount();
-        
+        long startTime = System.currentTimeMillis();
+
         try {
             String prompt = buildPrompt(task, context);
-            
+
             // Use Spring AI ChatClient fluent API
             var requestBuilder = chatClient.prompt().user(prompt);
-            
+
             if (!tools.isEmpty()) {
                 requestBuilder.functions(tools.stream()
                     .map(tool -> tool.getFunctionName())
                     .toArray(String[]::new));
             }
-            
+
             String response = requestBuilder.call().content();
-            
+            long executionTimeMs = System.currentTimeMillis() - startTime;
+
             return TaskOutput.builder()
                 .agentId(id)
                 .taskId(task.getId())
                 .rawOutput(response)
                 .description(task.getDescription())
                 .summary(extractSummary(response))
+                .executionTimeMs(executionTimeMs)
                 .build();
-                
+
         } catch (Exception e) {
             throw new RuntimeException("Failed to execute task: " + task.getId(), e);
         }

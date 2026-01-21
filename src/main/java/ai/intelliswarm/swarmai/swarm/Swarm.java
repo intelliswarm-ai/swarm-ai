@@ -8,6 +8,7 @@ import ai.intelliswarm.swarmai.process.ProcessType;
 import ai.intelliswarm.swarmai.memory.Memory;
 import ai.intelliswarm.swarmai.knowledge.Knowledge;
 import ai.intelliswarm.swarmai.event.SwarmEvent;
+import ai.intelliswarm.swarmai.observability.core.ObservabilityContext;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -65,6 +66,10 @@ public class Swarm {
     }
 
     public SwarmOutput kickoff(Map<String, Object> inputs) {
+        // Initialize observability context for this workflow
+        ObservabilityContext ctx = ObservabilityContext.create()
+                .withSwarmId(this.id);
+
         publishEvent(SwarmEvent.Type.SWARM_STARTED, "Swarm kickoff initiated");
 
         // Handle null inputs gracefully
@@ -75,18 +80,21 @@ public class Swarm {
 
             Process process = createProcess();
             SwarmOutput output = process.execute(tasks, safeInputs);
-            
+
             this.lastOutput = output;
             status = SwarmStatus.COMPLETED;
-            
+
             publishEvent(SwarmEvent.Type.SWARM_COMPLETED, "Swarm execution completed successfully");
-            
+
             return output;
-            
+
         } catch (Exception e) {
             status = SwarmStatus.FAILED;
             publishEvent(SwarmEvent.Type.SWARM_FAILED, "Swarm execution failed: " + e.getMessage());
             throw new RuntimeException("Swarm execution failed", e);
+        } finally {
+            // Clean up observability context
+            ObservabilityContext.clear();
         }
     }
 

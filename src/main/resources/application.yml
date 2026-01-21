@@ -43,6 +43,31 @@ swarmai:
     enabled: true
     export-interval: 30000  # 30 seconds
 
+  observability:
+    enabled: true
+    structured-logging-enabled: true
+    tool-tracing-enabled: true
+    decision-tracing-enabled: false  # Enable for debugging (higher overhead)
+    replay-enabled: true
+    metrics-enabled: true
+
+    replay:
+      store-type: in-memory  # Options: in-memory, file
+      store-directory: ./observability/events
+      retention-days: 7
+      max-events-in-memory: 10000
+
+    decision:
+      capture-prompts: true
+      capture-responses: true
+      max-prompt-length: 10000
+      max-response-length: 10000
+
+    metrics:
+      prefix: swarm
+      histogram-percentiles-enabled: true
+      percentiles: 0.5, 0.9, 0.95, 0.99
+
 # Stock analysis tool configuration
 stock:
   search:
@@ -98,4 +123,5 @@ logging:
     org.springframework.ai: INFO
     root: INFO
   pattern:
-    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    # Include MDC fields for correlation: correlationId, traceId, swarmId, agentId, taskId
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level [%X{correlationId:-}] %logger{36} - %msg%n"

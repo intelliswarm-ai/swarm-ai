@@ -1,0 +1,24 @@
+# Test Dockerfile for SwarmAI Framework
+FROM eclipse-temurin:21-jdk-alpine
+
+WORKDIR /app
+
+# Install Maven wrapper dependencies
+RUN apk add --no-cache bash
+
+# Copy Maven wrapper and pom.xml first for caching
+COPY mvnw ./
+COPY .mvn ./.mvn
+COPY pom.xml ./
+
+# Make mvnw executable
+RUN chmod +x mvnw
+
+# Download dependencies (cached layer)
+RUN ./mvnw dependency:go-offline -B || true
+
+# Copy source code
+COPY src ./src
+
+# Default command: run all tests
+CMD ["./mvnw", "test", "-DexcludedGroups="]

@@ -6,13 +6,20 @@ services:
       - "11435:11434"
     volumes:
       - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_NOPRUNE=1
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "ollama", "list"]
-      interval: 10s
+      interval: 30s  # Reduced frequency to minimize log noise
       timeout: 5s
       start_period: 30s
       retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     # Ollama image entrypoint is already "ollama serve"
     # Model will be pulled by the app on first use
 
@@ -25,7 +32,7 @@ services:
         condition: service_healthy
     environment:
       - OLLAMA_HOST=http://ollama:11434
-    entrypoint: ["ollama", "pull", "llama3.2:3b"]
+    entrypoint: ["ollama", "pull", "mistral:7b"]
     restart: "no"
 
   stock-analysis:
@@ -41,6 +48,7 @@ services:
     environment:
       - SPRING_PROFILES_ACTIVE=local
       - SPRING_AI_OLLAMA_BASE_URL=http://ollama:11434
+      - SPRING_AI_OLLAMA_CHAT_OPTIONS_MODEL=mistral:7b
       - STOCK_TICKER=AAPL
     volumes:
       - ./config:/app/config

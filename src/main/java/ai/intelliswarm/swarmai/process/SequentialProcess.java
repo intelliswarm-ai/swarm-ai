@@ -5,6 +5,9 @@ import ai.intelliswarm.swarmai.swarm.SwarmOutput;
 import ai.intelliswarm.swarmai.event.SwarmEvent;
 import ai.intelliswarm.swarmai.task.Task;
 import ai.intelliswarm.swarmai.task.output.TaskOutput;
+import ai.intelliswarm.swarmai.observability.core.ObservabilityContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.LocalDateTime;
@@ -13,6 +16,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 public class SequentialProcess implements Process {
+
+    private static final Logger logger = LoggerFactory.getLogger(SequentialProcess.class);
 
     private final List<Agent> agents;
     private final ApplicationEventPublisher eventPublisher;
@@ -34,23 +39,49 @@ public class SequentialProcess implements Process {
             List<TaskOutput> allOutputs = new ArrayList<>();
             Set<String> completedTaskIds = new HashSet<>();
             
+            logger.info("📋 Sequential Process: Executing {} tasks", orderedTasks.size());
+
             for (Task task : orderedTasks) {
+                // Update observability context
+                ObservabilityContext ctx = ObservabilityContext.currentOrNull();
+                if (ctx != null) {
+                    ctx.withTaskId(task.getId());
+                    if (task.getAgent() != null) {
+                        ctx.withAgentId(task.getAgent().getId());
+                    }
+                }
+
+                Agent agent = task.getAgent();
+                String agentInfo = agent != null ?
+                        String.format("%s (tools: %s)", agent.getRole(),
+                                agent.getTools().stream().map(t -> t.getFunctionName()).collect(Collectors.joining(", ")))
+                        : "no agent assigned";
+
+                logger.info("🎯 Starting task: {} -> agent: {}",
+                        truncateForLog(task.getDescription(), 80), agentInfo);
+
                 publishEvent(SwarmEvent.Type.TASK_STARTED, "Starting task: " + task.getId());
-                
+
                 List<TaskOutput> contextOutputs = getContextForTask(task, allOutputs);
                 TaskOutput output;
-                
+
                 if (task.isAsyncExecution() && isLastInSequence(task, orderedTasks)) {
                     output = executeAsyncTask(task, contextOutputs);
                 } else {
                     output = task.execute(contextOutputs);
                 }
-                
+
+                // Log output for debugging
+                logger.info("✅ Task completed: {} (output: {} chars, exec time: {} ms)",
+                        truncateForLog(task.getDescription(), 50),
+                        output.getRawOutput() != null ? output.getRawOutput().length() : 0,
+                        output.getExecutionTimeMs());
+
                 allOutputs.add(output);
                 completedTaskIds.add(task.getId());
-                
+
                 publishEvent(SwarmEvent.Type.TASK_COMPLETED, "Completed task: " + task.getId());
-                
+
                 if (!output.isSuccessful()) {
                     publishEvent(SwarmEvent.Type.TASK_FAILED, "Task failed: " + task.getId());
                 }
@@ -191,5 +222,12 @@ public class SequentialProcess implements Process {
         if (!tasksWithoutAgents.isEmpty() && agents.isEmpty()) {
             throw new IllegalArgumentException("Tasks without agents found, but no agents available");
         }
+    }
+
+    private String truncateForLog(String text, int maxLength) {
+        if (text == null || text.length() <= maxLength) {
+            return text;
+        }
+        return text.substring(0, maxLength - 3) + "...";
     }
 }
