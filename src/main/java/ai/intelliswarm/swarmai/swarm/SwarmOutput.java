@@ -89,9 +89,101 @@ public class SwarmOutput {
         if (taskOutputs.isEmpty()) {
             return successful ? 1.0 : 0.0;
         }
-        
+
         long successfulCount = getSuccessfulOutputs().size();
         return (double) successfulCount / taskOutputs.size();
+    }
+
+    // ============================================
+    // Token Usage Aggregation
+    // ============================================
+
+    public long getTotalPromptTokens() {
+        return taskOutputs.stream()
+                .mapToLong(o -> o.getPromptTokens() != null ? o.getPromptTokens() : 0)
+                .sum();
+    }
+
+    public long getTotalCompletionTokens() {
+        return taskOutputs.stream()
+                .mapToLong(o -> o.getCompletionTokens() != null ? o.getCompletionTokens() : 0)
+                .sum();
+    }
+
+    public long getTotalTokens() {
+        return taskOutputs.stream()
+                .mapToLong(o -> o.getTotalTokens() != null ? o.getTotalTokens() : 0)
+                .sum();
+    }
+
+    /**
+     * Estimates cost in USD based on model pricing.
+     * Pricing per 1M tokens:
+     *   gpt-4o-mini: $0.15 input, $0.60 output
+     *   gpt-4o: $2.50 input, $10.00 output
+     *   claude-3-sonnet: $3.00 input, $15.00 output
+     *   claude-3-haiku: $0.25 input, $1.25 output
+     */
+    public double estimateCostUsd(String modelName) {
+        double inputPricePer1M;
+        double outputPricePer1M;
+
+        if (modelName == null) modelName = "";
+        String model = modelName.toLowerCase();
+
+        if (model.contains("gpt-4o-mini")) {
+            inputPricePer1M = 0.15;
+            outputPricePer1M = 0.60;
+        } else if (model.contains("gpt-4o")) {
+            inputPricePer1M = 2.50;
+            outputPricePer1M = 10.00;
+        } else if (model.contains("gpt-4-turbo") || model.contains("gpt-4")) {
+            inputPricePer1M = 10.00;
+            outputPricePer1M = 30.00;
+        } else if (model.contains("gpt-3.5")) {
+            inputPricePer1M = 0.50;
+            outputPricePer1M = 1.50;
+        } else if (model.contains("claude") && model.contains("sonnet")) {
+            inputPricePer1M = 3.00;
+            outputPricePer1M = 15.00;
+        } else if (model.contains("claude") && model.contains("haiku")) {
+            inputPricePer1M = 0.25;
+            outputPricePer1M = 1.25;
+        } else if (model.contains("claude") && model.contains("opus")) {
+            inputPricePer1M = 15.00;
+            outputPricePer1M = 75.00;
+        } else {
+            // Default: assume cheap model
+            inputPricePer1M = 0.15;
+            outputPricePer1M = 0.60;
+        }
+
+        double inputCost = (getTotalPromptTokens() / 1_000_000.0) * inputPricePer1M;
+        double outputCost = (getTotalCompletionTokens() / 1_000_000.0) * outputPricePer1M;
+        return inputCost + outputCost;
+    }
+
+    /**
+     * Returns a formatted token usage summary string.
+     */
+    public String getTokenUsageSummary(String modelName) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Token Usage:\n");
+        sb.append(String.format("  Prompt tokens:     %,d\n", getTotalPromptTokens()));
+        sb.append(String.format("  Completion tokens: %,d\n", getTotalCompletionTokens()));
+        sb.append(String.format("  Total tokens:      %,d\n", getTotalTokens()));
+        sb.append(String.format("  Estimated cost:    $%.4f (%s)\n", estimateCostUsd(modelName), modelName));
+
+        sb.append("\n  Per-task breakdown:\n");
+        for (TaskOutput task : taskOutputs) {
+            String desc = task.getDescription() != null ? task.getDescription() : "Task";
+            if (desc.length() > 40) desc = desc.substring(0, 37) + "...";
+            sb.append(String.format("    %-40s  %6d prompt, %6d completion\n",
+                    desc,
+                    task.getPromptTokens() != null ? task.getPromptTokens() : 0,
+                    task.getCompletionTokens() != null ? task.getCompletionTokens() : 0));
+        }
+        return sb.toString();
     }
 
     public static Builder builder() {

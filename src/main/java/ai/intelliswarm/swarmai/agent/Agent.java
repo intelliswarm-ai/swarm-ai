@@ -11,6 +11,7 @@ import jakarta.validation.constraints.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
@@ -120,10 +121,22 @@ public class Agent {
                     .toArray(String[]::new));
             }
 
-            // Call LLM with retry and timeout
+            // Call LLM with retry and timeout — capture full ChatResponse for token stats
             int timeoutMs = maxExecutionTime != null ? maxExecutionTime : DEFAULT_TIMEOUT_MS;
-            String response = callWithRetry(() -> requestBuilder.call().content(), DEFAULT_MAX_RETRIES, timeoutMs);
+            ChatResponse chatResponse = callWithRetry(
+                    () -> requestBuilder.call().chatResponse(), DEFAULT_MAX_RETRIES, timeoutMs);
+
+            String response = chatResponse.getResult().getOutput().getContent();
             long executionTimeMs = System.currentTimeMillis() - startTime;
+
+            // Extract token usage
+            Long promptTokens = null, completionTokens = null, totalTokens = null;
+            if (chatResponse.getMetadata() != null && chatResponse.getMetadata().getUsage() != null) {
+                var usage = chatResponse.getMetadata().getUsage();
+                promptTokens = usage.getPromptTokens();
+                completionTokens = usage.getGenerationTokens();
+                totalTokens = usage.getTotalTokens();
+            }
 
             // Save result to memory for future context
             if (memory != null) {
@@ -134,8 +147,11 @@ public class Agent {
             }
 
             if (verbose) {
-                logger.info("Agent [{}] completed task in {} ms ({} chars output)",
-                        role, executionTimeMs, response != null ? response.length() : 0);
+                logger.info("Agent [{}] completed task in {} ms ({} chars, {} prompt tokens, {} completion tokens)",
+                        role, executionTimeMs,
+                        response != null ? response.length() : 0,
+                        promptTokens != null ? promptTokens : "N/A",
+                        completionTokens != null ? completionTokens : "N/A");
             }
 
             return TaskOutput.builder()
@@ -145,6 +161,9 @@ public class Agent {
                 .description(task.getDescription())
                 .summary(extractSummary(response))
                 .executionTimeMs(executionTimeMs)
+                .promptTokens(promptTokens)
+                .completionTokens(completionTokens)
+                .totalTokens(totalTokens)
                 .build();
 
         } catch (Exception e) {
@@ -154,11 +173,11 @@ public class Agent {
         }
     }
 
-    private String callWithRetry(Supplier<String> llmCall, int maxRetries, int timeoutMs) {
+    private <T> T callWithRetry(Supplier<T> llmCall, int maxRetries, int timeoutMs) {
         Exception lastException = null;
         for (int attempt = 1; attempt <= maxRetries; attempt++) {
             try {
-                CompletableFuture<String> future = CompletableFuture.supplyAsync(llmCall::get);
+                CompletableFuture<T> future = CompletableFuture.supplyAsync(llmCall::get);
                 return future.get(timeoutMs, TimeUnit.MILLISECONDS);
             } catch (TimeoutException e) {
                 throw new RuntimeException("LLM call timed out after " + timeoutMs + "ms", e);

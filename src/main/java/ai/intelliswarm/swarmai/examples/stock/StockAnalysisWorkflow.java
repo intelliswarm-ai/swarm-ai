@@ -326,6 +326,8 @@ public class StockAnalysisWorkflow {
         logger.info("=".repeat(80));
         logger.info("📊 Stock Analyzed: {}", companyStock);
         logger.info("Duration: {} seconds", (endTime - startTime) / 1000);
+        logger.info("Tasks completed: {}", result.getTaskOutputs().size());
+        logger.info("\n{}", result.getTokenUsageSummary("gpt-4o-mini"));
         logger.info("📈 Final Investment Recommendation:\n{}", result.getFinalOutput());
         logger.info("=".repeat(80));
 
