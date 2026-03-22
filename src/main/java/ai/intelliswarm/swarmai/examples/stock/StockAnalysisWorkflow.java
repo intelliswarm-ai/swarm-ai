@@ -101,6 +101,7 @@ public class StockAnalysisWorkflow {
                 .allowDelegation(true)
                 .maxRpm(10)
                 .temperature(0.2)
+                .modelName("gpt-4o-mini")
                 .build();
 
         Agent financialAnalyst = Agent.builder()
@@ -120,6 +121,7 @@ public class StockAnalysisWorkflow {
                 .verbose(true)
                 .maxRpm(10)
                 .temperature(0.1)
+                .modelName("gpt-4o-mini")
                 .build();
 
         Agent researchAnalyst = Agent.builder()
@@ -138,6 +140,7 @@ public class StockAnalysisWorkflow {
                 .verbose(true)
                 .maxRpm(12)
                 .temperature(0.2)
+                .modelName("gpt-4o-mini")
                 .build();
 
         Agent investmentAdvisor = Agent.builder()
@@ -157,6 +160,7 @@ public class StockAnalysisWorkflow {
                 .verbose(true)
                 .maxRpm(10)
                 .temperature(0.2)
+                .modelName("gpt-4o-mini")
                 .build();
 
         // =====================================================================
@@ -270,18 +274,19 @@ public class StockAnalysisWorkflow {
                 .dependsOn(filingsAnalysisTask)
                 .build();
         
-        // Create Swarm with Hierarchical Process
+        // Create Swarm with Parallel Process
+        // Layer 0 (parallel): financialAnalysis + research + filingsAnalysis
+        // Layer 1 (sequential): recommendation (depends on all 3)
         Swarm stockAnalysisSwarm = Swarm.builder()
                 .id("stock-analysis-swarm")
                 .agent(financialAnalyst)
                 .agent(researchAnalyst)
                 .agent(investmentAdvisor)
-                .managerAgent(portfolioManager)
                 .task(financialAnalysisTask)
                 .task(researchTask)
                 .task(filingsAnalysisTask)
                 .task(recommendationTask)
-                .process(ProcessType.HIERARCHICAL) // Manager coordinates the workflow
+                .process(ProcessType.PARALLEL)
                 .verbose(true)
                 .maxRpm(15)
                 .language("en")
@@ -290,12 +295,12 @@ public class StockAnalysisWorkflow {
                 .config("ticker", companyStock)
                 .config("outputFormat", "investment-report")
                 .build();
-        
+
         // Execute Workflow
-        logger.info("🎯 Executing Stock Analysis Workflow for {}", companyStock);
-        logger.info("👥 Team: Portfolio Manager + 3 Specialized Financial Agents");
-        logger.info("📊 Process: Hierarchical coordination");
-        logger.info("⏱️ Expected Duration: ~8-12 minutes");
+        logger.info("Executing Stock Analysis Workflow for {}", companyStock);
+        logger.info("Team: 3 Specialized Financial Agents");
+        logger.info("Process: PARALLEL (3 independent streams + 1 synthesis)");
+        logger.info("Dynamic Context: {} token window", "128K");
         
         Map<String, Object> inputs = new HashMap<>();
         inputs.put("company_stock", companyStock);

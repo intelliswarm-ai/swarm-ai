@@ -131,6 +131,7 @@ public class Swarm {
         return switch (processType) {
             case SEQUENTIAL -> new ai.intelliswarm.swarmai.process.SequentialProcess(agents, eventPublisher);
             case HIERARCHICAL -> new ai.intelliswarm.swarmai.process.HierarchicalProcess(agents, managerAgent, eventPublisher);
+            case PARALLEL -> new ai.intelliswarm.swarmai.process.ParallelProcess(agents, eventPublisher);
         };
     }
 

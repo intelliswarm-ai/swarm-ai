@@ -1,14 +1,15 @@
 /*
  * SwarmAI Framework - A Java implementation inspired by CrewAI
- * 
+ *
  * This file is part of SwarmAI, a derivative work based on CrewAI.
  * Original CrewAI: Copyright (c) 2025 crewAI, Inc. (MIT License)
  * SwarmAI adaptations: Copyright (c) 2025 IntelliSwarm.ai (MIT License)
- * 
+ *
  * Licensed under the MIT License. See LICENSE file for details.
  */
 package ai.intelliswarm.swarmai;
 
+import ai.intelliswarm.swarmai.examples.duediligence.DueDiligenceWorkflow;
 import ai.intelliswarm.swarmai.examples.research.CompetitiveAnalysisWorkflow;
 import ai.intelliswarm.swarmai.examples.stock.StockAnalysisWorkflow;
 import org.springframework.boot.CommandLineRunner;
@@ -16,17 +17,20 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class SwarmAIWorkflowRunner implements CommandLineRunner {
-    
+
     private final CompetitiveAnalysisWorkflow competitiveAnalysisWorkflow;
     private final StockAnalysisWorkflow stockAnalysisWorkflow;
-    
+    private final DueDiligenceWorkflow dueDiligenceWorkflow;
+
     public SwarmAIWorkflowRunner(
             CompetitiveAnalysisWorkflow competitiveAnalysisWorkflow,
-            StockAnalysisWorkflow stockAnalysisWorkflow) {
+            StockAnalysisWorkflow stockAnalysisWorkflow,
+            DueDiligenceWorkflow dueDiligenceWorkflow) {
         this.competitiveAnalysisWorkflow = competitiveAnalysisWorkflow;
         this.stockAnalysisWorkflow = stockAnalysisWorkflow;
+        this.dueDiligenceWorkflow = dueDiligenceWorkflow;
     }
-    
+
     @Override
     public void run(String... args) throws Exception {
         // Filter out Spring Boot args (--spring.*, --logging.*, etc.)
@@ -44,23 +48,24 @@ public class SwarmAIWorkflowRunner implements CommandLineRunner {
 
         String workflowType = filteredArgs.get(0).toLowerCase();
         String[] workflowArgs = filteredArgs.subList(1, filteredArgs.size()).toArray(new String[0]);
-        
+
         switch (workflowType) {
             case "competitive-analysis":
-                System.out.println("🚀 Starting Competitive Analysis Workflow...");
                 competitiveAnalysisWorkflow.run(workflowArgs);
                 break;
             case "stock-analysis":
-                System.out.println("📊 Starting Stock Analysis Workflow...");
                 stockAnalysisWorkflow.run(workflowArgs);
                 break;
+            case "due-diligence":
+                dueDiligenceWorkflow.run(workflowArgs);
+                break;
             default:
-                System.err.println("❌ Unknown workflow type: " + workflowType);
+                System.err.println("Unknown workflow type: " + workflowType);
                 showUsage();
                 System.exit(1);
         }
     }
-    
+
     private void showUsage() {
         System.out.println("SwarmAI Framework - Multi-Agent Workflow System");
         System.out.println("===============================================");
@@ -68,13 +73,14 @@ public class SwarmAIWorkflowRunner implements CommandLineRunner {
         System.out.println("Usage: java -jar swarmai-framework.jar <workflow-type> [options]");
         System.out.println();
         System.out.println("Available workflows:");
-        System.out.println("  competitive-analysis  - Multi-agent competitive analysis research");
-        System.out.println("  stock-analysis <TICKER> - Financial stock analysis (default: AAPL)");
+        System.out.println("  stock-analysis <TICKER>     - Financial stock analysis (default: AAPL)");
+        System.out.println("  competitive-analysis <QUERY> - Multi-agent research on any topic");
+        System.out.println("  due-diligence <TICKER>      - Comprehensive company due diligence");
         System.out.println();
         System.out.println("Examples:");
-        System.out.println("  java -jar swarmai-framework.jar competitive-analysis");
         System.out.println("  java -jar swarmai-framework.jar stock-analysis TSLA");
-        System.out.println("  java -jar swarmai-framework.jar stock-analysis GOOGL");
+        System.out.println("  java -jar swarmai-framework.jar competitive-analysis \"AI trends 2026\"");
+        System.out.println("  java -jar swarmai-framework.jar due-diligence MSFT");
         System.out.println();
     }
 }

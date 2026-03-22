@@ -1,5 +1,6 @@
 package ai.intelliswarm.swarmai.agent;
 
+import ai.intelliswarm.swarmai.config.ModelContextConfig;
 import ai.intelliswarm.swarmai.memory.Memory;
 import ai.intelliswarm.swarmai.knowledge.Knowledge;
 import ai.intelliswarm.swarmai.tool.base.BaseTool;
@@ -26,8 +27,6 @@ public class Agent {
     private static final Logger logger = LoggerFactory.getLogger(Agent.class);
     private static final int DEFAULT_MAX_RETRIES = 3;
     private static final int DEFAULT_TIMEOUT_MS = 300_000; // 5 minutes
-    private static final int MAX_CONTEXT_LENGTH = 2000;
-    private static final int MAX_PROMPT_LENGTH = 100_000; // ~25K tokens, fits in 128K context models
 
     @NotNull
     private final String id;
@@ -53,12 +52,17 @@ public class Agent {
     
     @JsonIgnore
     private ChatClient chatClient;
-    
+
     @JsonIgnore
     private Memory memory;
-    
+
     @JsonIgnore
     private Knowledge knowledge;
+
+    private final String modelName;
+
+    @JsonIgnore
+    private final ModelContextConfig contextConfig;
     
     private final LocalDateTime createdAt;
     private final Map<String, Object> metadata;
@@ -81,6 +85,8 @@ public class Agent {
         this.chatClient = builder.chatClient;
         this.memory = builder.memory;
         this.knowledge = builder.knowledge;
+        this.modelName = builder.modelName;
+        this.contextConfig = ModelContextConfig.forModel(builder.modelName);
         this.createdAt = LocalDateTime.now();
         this.metadata = new HashMap<>(builder.metadata);
     }
@@ -97,17 +103,21 @@ public class Agent {
             String systemPrompt = buildSystemPrompt();
             String userPrompt = buildUserPrompt(task, context);
 
-            // Safety: truncate prompt if too large for model context window
-            if (userPrompt.length() > MAX_PROMPT_LENGTH) {
-                logger.warn("Agent [{}] prompt too large ({} chars), truncating to {} chars",
-                        role, userPrompt.length(), MAX_PROMPT_LENGTH);
-                userPrompt = userPrompt.substring(0, MAX_PROMPT_LENGTH)
-                        + "\n\n[... content truncated due to length ...]";
+            // Dynamic context management: truncate prompt based on model's context window
+            int maxPromptChars = contextConfig.getMaxTotalPromptChars() - systemPrompt.length();
+            if (userPrompt.length() > maxPromptChars) {
+                logger.warn("Agent [{}] prompt too large ({} chars), truncating to {} chars (model: {}, context: {} tokens)",
+                        role, userPrompt.length(), maxPromptChars,
+                        modelName != null ? modelName : "default",
+                        contextConfig.getContextWindowTokens());
+                userPrompt = userPrompt.substring(0, maxPromptChars)
+                        + "\n\n[... content truncated to fit model context window ...]";
             }
 
             if (verbose) {
-                logger.info("Agent [{}] executing task ({} chars prompt): {}",
-                        role, userPrompt.length(), truncate(task.getDescription(), 80));
+                logger.info("Agent [{}] executing task ({} chars prompt, {} token context): {}",
+                        role, userPrompt.length(), contextConfig.getContextWindowTokens(),
+                        truncate(task.getDescription(), 80));
             }
 
             // Use Spring AI ChatClient fluent API with system + user messages
@@ -243,14 +253,18 @@ public class Agent {
     private String buildUserPrompt(Task task, List<TaskOutput> context) {
         StringBuilder prompt = new StringBuilder();
 
-        // Add context from previous tasks — use full output, not truncated summary
+        // Dynamic context budget based on model's context window
+        int contextBudget = contextConfig.getMaxPriorContextChars();
+
+        // Add context from previous tasks — budget shared across all prior outputs
         if (context != null && !context.isEmpty()) {
+            int perTaskBudget = Math.max(500, contextBudget / context.size());
             prompt.append("Context from previous tasks:\n");
             for (TaskOutput ctx : context) {
                 prompt.append("--- ").append(ctx.getDescription() != null ? ctx.getDescription() : "Previous task").append(" ---\n");
                 String output = ctx.getRawOutput();
                 if (output != null) {
-                    prompt.append(truncate(output, MAX_CONTEXT_LENGTH)).append("\n");
+                    prompt.append(truncate(output, perTaskBudget)).append("\n");
                 }
                 prompt.append("\n");
             }
@@ -324,6 +338,7 @@ public class Agent {
         private ChatClient chatClient;
         private Memory memory;
         private Knowledge knowledge;
+        private String modelName;
         private Map<String, Object> metadata = new HashMap<>();
 
         public Builder id(String id) {
@@ -411,6 +426,11 @@ public class Agent {
             return this;
         }
 
+        public Builder modelName(String modelName) {
+            this.modelName = modelName;
+            return this;
+        }
+
         public Builder metadata(String key, Object value) {
             this.metadata.put(key, value);
             return this;
@@ -443,6 +463,8 @@ public class Agent {
     public LocalDateTime getCreatedAt() { return createdAt; }
     public Map<String, Object> getMetadata() { return new HashMap<>(metadata); }
     public Integer getExecutionCount() { return executionCount; }
+    public String getModelName() { return modelName; }
+    public ModelContextConfig getContextConfig() { return contextConfig; }
 
     @Override
     public boolean equals(Object o) {

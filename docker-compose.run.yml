@@ -4,14 +4,14 @@
 #   1. Copy .env.example to .env and add your API key
 #   2. Run a workflow:
 #
-#      # Stock analysis (default: AAPL)
-#      docker compose -f docker-compose.run.yml run --rm stock-analysis
-#
-#      # Stock analysis for a specific ticker
+#      # Stock analysis
 #      docker compose -f docker-compose.run.yml run --rm stock-analysis TSLA
 #
 #      # Research with custom query
-#      docker compose -f docker-compose.run.yml run --rm research "how will OpenClaw affect enterprise automation in 2026"
+#      docker compose -f docker-compose.run.yml run --rm research "AI trends in 2026"
+#
+#      # Due diligence (parallel research streams)
+#      docker compose -f docker-compose.run.yml run --rm due-diligence MSFT
 
 services:
   stock-analysis:
@@ -33,6 +33,18 @@ services:
     env_file: .env
     environment:
       - WORKFLOW=competitive-analysis
+    volumes:
+      - ./output:/app/output
+    stdin_open: true
+    tty: true
+
+  due-diligence:
+    build:
+      context: .
+      dockerfile: Dockerfile.run
+    env_file: .env
+    environment:
+      - WORKFLOW=due-diligence
     volumes:
       - ./output:/app/output
     stdin_open: true

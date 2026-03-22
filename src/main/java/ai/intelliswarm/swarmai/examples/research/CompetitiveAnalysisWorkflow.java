@@ -106,6 +106,7 @@ public class CompetitiveAnalysisWorkflow {
             .allowDelegation(true)
             .maxRpm(10)
             .temperature(0.2)
+            .modelName("gpt-4o-mini")
             .build();
 
         Agent marketResearcher = Agent.builder()
@@ -124,6 +125,7 @@ public class CompetitiveAnalysisWorkflow {
             .verbose(true)
             .maxRpm(15)
             .temperature(0.3)
+            .modelName("gpt-4o-mini")
             .build();
 
         Agent dataAnalyst = Agent.builder()
@@ -140,6 +142,7 @@ public class CompetitiveAnalysisWorkflow {
             .verbose(true)
             .maxRpm(12)
             .temperature(0.1)
+            .modelName("gpt-4o-mini")
             .build();
 
         Agent strategist = Agent.builder()
@@ -155,6 +158,7 @@ public class CompetitiveAnalysisWorkflow {
             .verbose(true)
             .maxRpm(8)
             .temperature(0.4)
+            .modelName("gpt-4o-mini")
             .build();
 
         Agent reportWriter = Agent.builder()
@@ -170,6 +174,7 @@ public class CompetitiveAnalysisWorkflow {
             .verbose(true)
             .maxRpm(10)
             .temperature(0.4)
+            .modelName("gpt-4o-mini")
             .build();
 
         // =====================================================================
