@@ -26,6 +26,7 @@ public class Agent {
     private static final int DEFAULT_MAX_RETRIES = 3;
     private static final int DEFAULT_TIMEOUT_MS = 300_000; // 5 minutes
     private static final int MAX_CONTEXT_LENGTH = 2000;
+    private static final int MAX_PROMPT_LENGTH = 100_000; // ~25K tokens, fits in 128K context models
 
     @NotNull
     private final String id;
@@ -95,8 +96,17 @@ public class Agent {
             String systemPrompt = buildSystemPrompt();
             String userPrompt = buildUserPrompt(task, context);
 
+            // Safety: truncate prompt if too large for model context window
+            if (userPrompt.length() > MAX_PROMPT_LENGTH) {
+                logger.warn("Agent [{}] prompt too large ({} chars), truncating to {} chars",
+                        role, userPrompt.length(), MAX_PROMPT_LENGTH);
+                userPrompt = userPrompt.substring(0, MAX_PROMPT_LENGTH)
+                        + "\n\n[... content truncated due to length ...]";
+            }
+
             if (verbose) {
-                logger.info("Agent [{}] executing task: {}", role, truncate(task.getDescription(), 80));
+                logger.info("Agent [{}] executing task ({} chars prompt): {}",
+                        role, userPrompt.length(), truncate(task.getDescription(), 80));
             }
 
             // Use Spring AI ChatClient fluent API with system + user messages
@@ -155,6 +165,12 @@ public class Agent {
             } catch (Exception e) {
                 lastException = e;
                 Throwable cause = e.getCause() != null ? e.getCause() : e;
+                String msg = cause.getMessage() != null ? cause.getMessage() : "";
+                // Don't retry non-transient errors (bad request, auth, context length)
+                if (msg.contains("400") || msg.contains("401") || msg.contains("403")
+                        || msg.contains("context_length_exceeded") || msg.contains("NonTransient")) {
+                    throw new RuntimeException("LLM call failed (non-retryable): " + msg, e);
+                }
                 if (attempt < maxRetries) {
                     long backoffMs = (long) Math.pow(2, attempt) * 1000;
                     logger.warn("Agent [{}] LLM call attempt {}/{} failed: {}. Retrying in {} ms...",

@@ -14,6 +14,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 @Component
+@org.springframework.context.annotation.Profile("simple-example")
 public class SimpleSwarmExample implements CommandLineRunner {
 
     private final ChatClient chatClient;

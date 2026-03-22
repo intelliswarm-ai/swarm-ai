@@ -80,10 +80,15 @@ public class ReportGenerator {
         info.append(String.format("- **Accession Number:** %s\n", filing.getAccessionNumber()));
         info.append(String.format("- **Document:** [%s](%s)\n\n", filing.getPrimaryDocument(), filing.getUrl()));
         
-        // Add content if available
+        // Add content if available (truncated to keep report manageable for LLMs)
         if (filing.hasExtractedText() && filing.isContentFetched()) {
-            info.append("#### 📄 **Filing Content:**\n");
-            info.append(filing.getExtractedText()).append("\n\n");
+            info.append("#### Filing Content:\n");
+            String text = filing.getExtractedText();
+            if (text.length() > 3000) {
+                info.append(text, 0, 3000).append("\n[... content truncated ...]\n\n");
+            } else {
+                info.append(text).append("\n\n");
+            }
         } else if (filing.hasError()) {
             info.append("#### ❌ **Content Error:**\n");
             info.append(filing.getContentError()).append("\n\n");

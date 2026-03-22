@@ -1,0 +1,114 @@
+# Dockerfile.run - Build and run SwarmAI example workflows
+FROM eclipse-temurin:21-jdk-alpine
+
+WORKDIR /app
+
+RUN apk add --no-cache bash curl
+
+# Copy Maven wrapper and pom.xml for dependency caching
+COPY mvnw ./
+COPY .mvn ./.mvn
+COPY pom.xml ./
+RUN chmod +x mvnw
+
+# Download dependencies (cached layer)
+RUN ./mvnw dependency:go-offline -B || true
+
+# Copy source code
+COPY src ./src
+
+# Build the JAR (skip tests for faster builds)
+RUN ./mvnw clean package -DskipTests -B -q
+
+# Create output directory
+RUN mkdir -p /app/output
+
+# Entry point script
+COPY <<'ENTRYPOINT_SCRIPT' /app/entrypoint.sh
+#!/bin/bash
+set -e
+
+WORKFLOW="${WORKFLOW:-stock-analysis}"
+ARGS="${@:-}"
+
+echo "=========================================="
+echo "  SwarmAI Framework - Workflow Runner"
+echo "=========================================="
+echo ""
+echo "  Workflow: $WORKFLOW"
+echo "  Args:     ${ARGS:-none}"
+echo ""
+
+# Detect which LLM provider is configured
+if [ -n "$OPENAI_API_KEY" ] && [ "$OPENAI_API_KEY" != "" ]; then
+    echo "  LLM Provider: OpenAI"
+    echo "  Model: ${OPENAI_MODEL:-gpt-4o-mini}"
+elif [ -n "$ANTHROPIC_API_KEY" ] && [ "$ANTHROPIC_API_KEY" != "" ]; then
+    echo "  LLM Provider: Anthropic"
+    echo "  Model: ${ANTHROPIC_MODEL:-claude-3-sonnet-20240229}"
+elif [ -n "$OLLAMA_BASE_URL" ] && [ "$OLLAMA_BASE_URL" != "" ]; then
+    echo "  LLM Provider: Ollama"
+    echo "  Model: ${OLLAMA_MODEL:-llama3.2}"
+    echo "  Base URL: $OLLAMA_BASE_URL"
+else
+    echo ""
+    echo "  ERROR: No LLM provider configured!"
+    echo ""
+    echo "  Set one of these in your .env file:"
+    echo "    OPENAI_API_KEY=sk-..."
+    echo "    ANTHROPIC_API_KEY=sk-ant-..."
+    echo "    OLLAMA_BASE_URL=http://host.docker.internal:11434"
+    echo ""
+    echo "  See .env.example for details."
+    exit 1
+fi
+
+echo ""
+echo "=========================================="
+echo ""
+
+# Build Spring Boot args — only enable the ONE configured provider, exclude the others
+SPRING_ARGS=""
+
+# Always exclude: database, vector stores (not needed for examples)
+BASE_EXCLUDES="org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration"
+BASE_EXCLUDES="$BASE_EXCLUDES,org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration"
+BASE_EXCLUDES="$BASE_EXCLUDES,org.springframework.boot.autoconfigure.data.jpa.JpaRepositoriesAutoConfiguration"
+BASE_EXCLUDES="$BASE_EXCLUDES,org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration"
+BASE_EXCLUDES="$BASE_EXCLUDES,org.springframework.ai.autoconfigure.vectorstore.chroma.ChromaVectorStoreAutoConfiguration"
+BASE_EXCLUDES="$BASE_EXCLUDES,org.springframework.ai.autoconfigure.vectorstore.pgvector.PgVectorStoreAutoConfiguration"
+
+# Exclude unused LLM providers (Spring AI needs exactly one ChatModel bean)
+if [ -n "$OPENAI_API_KEY" ] && [ "$OPENAI_API_KEY" != "" ]; then
+    SPRING_ARGS="$SPRING_ARGS --spring.ai.openai.api-key=$OPENAI_API_KEY"
+    SPRING_ARGS="$SPRING_ARGS --spring.ai.openai.chat.options.model=${OPENAI_MODEL:-gpt-4o-mini}"
+    PROVIDER_EXCLUDES="org.springframework.ai.autoconfigure.anthropic.AnthropicAutoConfiguration,org.springframework.ai.autoconfigure.ollama.OllamaAutoConfiguration"
+elif [ -n "$ANTHROPIC_API_KEY" ] && [ "$ANTHROPIC_API_KEY" != "" ]; then
+    SPRING_ARGS="$SPRING_ARGS --spring.ai.anthropic.api-key=$ANTHROPIC_API_KEY"
+    SPRING_ARGS="$SPRING_ARGS --spring.ai.anthropic.chat.options.model=${ANTHROPIC_MODEL:-claude-3-sonnet-20240229}"
+    PROVIDER_EXCLUDES="org.springframework.ai.autoconfigure.openai.OpenAiAutoConfiguration,org.springframework.ai.autoconfigure.ollama.OllamaAutoConfiguration"
+elif [ -n "$OLLAMA_BASE_URL" ] && [ "$OLLAMA_BASE_URL" != "" ]; then
+    SPRING_ARGS="$SPRING_ARGS --spring.ai.ollama.base-url=$OLLAMA_BASE_URL"
+    SPRING_ARGS="$SPRING_ARGS --spring.ai.ollama.chat.options.model=${OLLAMA_MODEL:-llama3.2}"
+    PROVIDER_EXCLUDES="org.springframework.ai.autoconfigure.openai.OpenAiAutoConfiguration,org.springframework.ai.autoconfigure.anthropic.AnthropicAutoConfiguration"
+fi
+
+EXCLUDE_LIST="$BASE_EXCLUDES,$PROVIDER_EXCLUDES"
+
+# Run the workflow
+java -Xmx2g -jar target/swarmai-framework-*.jar \
+    $WORKFLOW $ARGS \
+    $SPRING_ARGS \
+    --spring.profiles.active=run \
+    --spring.autoconfigure.exclude=$EXCLUDE_LIST
+
+echo ""
+echo "=========================================="
+echo "  Workflow complete!"
+echo "  Output files saved to ./output/"
+echo "=========================================="
+ENTRYPOINT_SCRIPT
+
+RUN chmod +x /app/entrypoint.sh
+
+ENTRYPOINT ["/app/entrypoint.sh"]

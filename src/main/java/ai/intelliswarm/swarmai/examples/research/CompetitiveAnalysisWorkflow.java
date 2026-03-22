@@ -78,143 +78,213 @@ public class CompetitiveAnalysisWorkflow {
     }
 
     private void runCompetitiveAnalysisWorkflow() {
-        // Use injected Spring bean tools
-
-        // Create ChatClient instance
         ChatClient chatClient = chatClientBuilder.build();
 
-        // 1. PROJECT MANAGER AGENT - Coordinates the entire workflow
+        // =====================================================================
+        // AGENTS - Accuracy-focused goals with data grounding requirements
+        // =====================================================================
+
         Agent projectManager = Agent.builder()
-            .role("Senior Project Manager")
-            .goal("Coordinate a comprehensive competitive analysis of AI/ML platforms and provide strategic recommendations")
-            .backstory("You are an experienced project manager with 10+ years in tech strategy consulting. " +
-                      "You excel at breaking down complex analysis projects and coordinating diverse teams of specialists.")
+            .role("Senior Strategy Program Manager")
+            .goal("Coordinate a rigorous competitive analysis that produces data-backed strategic " +
+                  "recommendations. Ensure each specialist delivers quantified findings with sources. " +
+                  "Reject generic advice that lacks supporting evidence.")
+            .backstory("You are a strategy program manager with 10+ years at McKinsey and BCG. " +
+                      "You demand evidence-backed analysis from your team. You reject deliverables " +
+                      "that contain unsubstantiated market claims or generic consulting jargon. " +
+                      "Every recommendation must tie back to a specific data point or competitive insight.")
             .chatClient(chatClient)
             .verbose(true)
             .allowDelegation(true)
             .maxRpm(10)
-            .temperature(0.3) // Lower temperature for consistent project management
+            .temperature(0.2)
             .build();
 
-        // 2. MARKET RESEARCH AGENT - Gathers intelligence
         Agent marketResearcher = Agent.builder()
-            .role("Senior Market Research Analyst")
-            .goal("Conduct comprehensive market research on AI/ML platform competitors")
-            .backstory("You are a market research specialist with expertise in the AI/ML industry. " +
-                      "You have 8+ years of experience analyzing tech companies, market trends, and competitive landscapes. " +
-                      "You're skilled at finding reliable data sources and identifying key market indicators.")
+            .role("Senior Market Intelligence Analyst")
+            .goal("Gather verifiable competitive intelligence on AI/ML platforms including funding, " +
+                  "revenue estimates, product capabilities, and pricing. Cite the source for every " +
+                  "data point. Distinguish between confirmed data and analyst estimates.")
+            .backstory("You are a market intelligence analyst with 8 years covering enterprise AI. " +
+                      "You specialize in building competitor profiles backed by public data: SEC filings, " +
+                      "press releases, Crunchbase, analyst reports. You never present rumors as facts. " +
+                      "When citing estimates, you name the source and date.")
             .chatClient(chatClient)
             .tool(webSearchTool)
             .verbose(true)
             .maxRpm(15)
-            .temperature(0.4)
+            .temperature(0.3)
             .build();
 
-        // 3. DATA ANALYST AGENT - Processes and analyzes data
         Agent dataAnalyst = Agent.builder()
-            .role("Senior Data Analyst")
-            .goal("Analyze market data and competitor metrics to identify patterns and insights")
-            .backstory("You are a data analysis expert with advanced skills in statistical analysis and data interpretation. " +
-                      "With 6+ years in business intelligence, you excel at transforming raw data into actionable insights. " +
-                      "You're particularly skilled at financial analysis and market sizing.")
+            .role("Senior Competitive Intelligence Analyst")
+            .goal("Transform raw market research into quantitative competitor comparisons. " +
+                  "Create structured comparison matrices with specific numbers. " +
+                  "State confidence level for each estimate. Flag data gaps explicitly.")
+            .backstory("You are a competitive intelligence analyst with 6 years in enterprise " +
+                      "software. You build decision-grade comparison frameworks. Every cell in your " +
+                      "comparison matrices has a value and a source. You use consistent scoring " +
+                      "rubrics (1-5 or 1-10) and explain your methodology. When data is missing, " +
+                      "you write 'N/A (no public data)' rather than guessing.")
             .chatClient(chatClient)
             .tool(dataAnalysisTool)
             .verbose(true)
             .maxRpm(12)
-            .temperature(0.2) // Very low temperature for analytical precision
+            .temperature(0.1)
             .build();
 
-        // 4. STRATEGY CONSULTANT AGENT - Provides strategic insights
         Agent strategist = Agent.builder()
             .role("Senior Strategy Consultant")
-            .goal("Develop strategic recommendations based on competitive analysis findings")
-            .backstory("You are a strategy consultant with 12+ years at top-tier consulting firms. " +
-                      "You specialize in technology sector strategy and have helped numerous companies navigate competitive landscapes. " +
-                      "You're known for your ability to identify strategic opportunities and threats.")
+            .goal("Develop 3-5 specific, prioritized strategic recommendations. Each recommendation " +
+                  "must reference specific data from prior analyses and include estimated effort, " +
+                  "timeline, and expected impact. Avoid generic strategy frameworks without data backing.")
+            .backstory("You are a strategy consultant with 12 years at top-tier firms specializing " +
+                      "in technology sector strategy. You are known for actionable recommendations: " +
+                      "each one includes a specific 'what', 'why' (tied to competitive data), 'how' " +
+                      "(implementation steps), and 'when' (timeline). You prioritize recommendations " +
+                      "by expected ROI and feasibility.")
             .chatClient(chatClient)
             .verbose(true)
             .maxRpm(8)
-            .temperature(0.5) // Higher temperature for creative strategic thinking
+            .temperature(0.4)
             .build();
 
-        // 5. REPORT WRITER AGENT - Creates comprehensive reports
         Agent reportWriter = Agent.builder()
-            .role("Senior Business Report Writer")
-            .goal("Create professional, comprehensive reports that communicate findings clearly to executives")
-            .backstory("You are an expert business writer with 7+ years of experience creating executive-level reports. " +
-                      "You excel at synthesizing complex information into clear, actionable recommendations. " +
-                      "Your reports are known for their clarity, professional formatting, and strategic focus.")
+            .role("Senior Executive Communications Specialist")
+            .goal("Synthesize all prior analyses into a structured executive report. Use ONLY data " +
+                  "from prior task outputs. Include an executive summary with 5 key takeaways, each " +
+                  "backed by a specific data point from the analysis.")
+            .backstory("You are an executive communications specialist with 7 years creating " +
+                      "board-level strategy documents. You follow a strict rule: every claim in the " +
+                      "executive summary must cross-reference a finding from the detailed analysis " +
+                      "sections. You write concisely and lead with insights, not methodology.")
             .chatClient(chatClient)
             .tool(reportGeneratorTool)
             .verbose(true)
             .maxRpm(10)
-            .temperature(0.6) // Moderate temperature for engaging writing
+            .temperature(0.4)
             .build();
 
-        // CREATE TASKS WITH DEPENDENCIES
-        
-        // Task 1: Market Research & Data Collection
+        // =====================================================================
+        // TASKS - Numbered requirements with quality rubrics
+        // =====================================================================
+
         Task marketResearchTask = Task.builder()
-            .description("Conduct comprehensive market research on AI/ML platforms including:\n" +
-                        "- Identify top 5-7 competitors in the AI/ML platform space\n" +
-                        "- Gather information on their products, pricing, target markets\n" +
-                        "- Collect recent news, funding rounds, partnerships\n" +
-                        "- Research market size, growth trends, and key metrics\n" +
-                        "- Focus on platforms like OpenAI, Anthropic, Google AI, Microsoft AI, AWS Bedrock")
-            .expectedOutput("Detailed market research report with competitor profiles, market data, and key findings")
+            .description("Conduct competitive intelligence research on AI/ML platforms.\n\n" +
+                        "REQUIRED DELIVERABLES (address each numbered item):\n" +
+                        "1. Competitor Profiles (5-7 companies): For each, provide:\n" +
+                        "   - Company name, founding year, headquarters\n" +
+                        "   - Primary products/services with brief descriptions\n" +
+                        "   - Funding raised or public market cap (cite source)\n" +
+                        "   - Revenue or ARR estimate if available (cite source)\n" +
+                        "   - Target customer segment (enterprise, SMB, developer, consumer)\n" +
+                        "2. Market Size: Total addressable market estimate with source and year\n" +
+                        "3. Growth Rate: Market CAGR with source\n" +
+                        "4. Recent Developments: 2-3 significant events per competitor (with dates)\n" +
+                        "5. Pricing: Published pricing tiers for at least 3 competitors\n\n" +
+                        "FOCUS ON: OpenAI, Anthropic, Google (Vertex AI/Gemini), Microsoft (Azure AI), " +
+                        "AWS Bedrock, Meta AI, Cohere\n\n" +
+                        "DATA RULES:\n" +
+                        "- Cite the source for every data point\n" +
+                        "- Mark estimates with [ESTIMATE] and confirmed data with [CONFIRMED]\n" +
+                        "- If data is unavailable, write 'N/A (no public data)'\n" +
+                        "- Do NOT invent funding amounts, revenue figures, or market share numbers")
+            .expectedOutput("Markdown report with:\n" +
+                        "1. Competitor Profile Table (name, founded, funding, revenue, target segment)\n" +
+                        "2. Market Size & Growth section with cited figures\n" +
+                        "3. Recent Developments timeline (dated events)\n" +
+                        "4. Pricing Comparison Table\n" +
+                        "5. Data Availability Notes")
             .agent(marketResearcher)
             .outputFormat(OutputFormat.MARKDOWN)
-            .maxExecutionTime(120000) // 2 minutes
+            .maxExecutionTime(120000)
             .build();
 
-        // Task 2: Data Analysis & Pattern Recognition
         Task dataAnalysisTask = Task.builder()
-            .description("Analyze the market research data to identify:\n" +
-                        "- Market share and positioning of each competitor\n" +
-                        "- Pricing strategy analysis and comparison\n" +
-                        "- Product feature comparison matrix\n" +
-                        "- Growth trends and market dynamics\n" +
-                        "- Strengths and weaknesses analysis\n" +
-                        "- Market gaps and opportunities")
-            .expectedOutput("Analytical report with data visualizations, comparison matrices, and quantified insights")
+            .description("Analyze the market research data from the prior task to produce structured comparisons.\n\n" +
+                        "REQUIRED DELIVERABLES:\n" +
+                        "1. Feature Comparison Matrix: Compare 5+ competitors across 8+ capabilities\n" +
+                        "   - Use a consistent scoring rubric (1-5 scale) with clear criteria for each level\n" +
+                        "   - Explain scoring methodology in a footnote\n" +
+                        "2. Market Positioning Map: Categorize competitors by:\n" +
+                        "   - Horizontal axis: Breadth of offering (narrow specialist vs. full platform)\n" +
+                        "   - Vertical axis: Target market (developer/SMB vs. enterprise)\n" +
+                        "3. Pricing Analysis: Normalize pricing across competitors to a common unit ($/1M tokens or $/seat/month)\n" +
+                        "4. SWOT Summary: For the top 3 competitors, provide 2 items per quadrant\n" +
+                        "5. Market Gaps: Identify 3+ underserved segments or capability gaps\n\n" +
+                        "DATA RULES:\n" +
+                        "- Base ALL analysis on data from the prior Market Research task\n" +
+                        "- Do NOT introduce new data points not present in the research\n" +
+                        "- Clearly mark any inferences vs. direct data")
+            .expectedOutput("Analytical report with:\n" +
+                        "1. Feature Comparison Matrix (table, 5+ companies, 8+ features, scored 1-5)\n" +
+                        "2. Market Positioning description\n" +
+                        "3. Normalized Pricing Table\n" +
+                        "4. SWOT Summaries for top 3\n" +
+                        "5. Market Gaps (3+ identified)")
             .agent(dataAnalyst)
             .dependsOn(marketResearchTask)
             .outputFormat(OutputFormat.MARKDOWN)
-            .maxExecutionTime(180000) // 3 minutes
+            .maxExecutionTime(180000)
             .build();
 
-        // Task 3: Strategic Analysis & Recommendations
         Task strategyTask = Task.builder()
-            .description("Based on the market research and data analysis, develop:\n" +
-                        "- Strategic positioning recommendations\n" +
-                        "- Competitive differentiation opportunities\n" +
-                        "- Market entry or expansion strategies\n" +
-                        "- Risk assessment and mitigation strategies\n" +
-                        "- Short-term and long-term strategic recommendations\n" +
-                        "- Key success factors for competing in this market")
-            .expectedOutput("Strategic analysis with actionable recommendations and implementation roadmap")
+            .description("Develop strategic recommendations based on the market research and data analysis.\n\n" +
+                        "REQUIRED DELIVERABLES:\n" +
+                        "1. Strategic Positioning: Recommend where to position (which market gaps to target)\n" +
+                        "   - Reference specific gaps identified in the Data Analysis\n" +
+                        "2. Competitive Differentiation: 3 specific differentiators to pursue\n" +
+                        "   - For each: what it is, why it matters (cite competitor weakness), how to build it\n" +
+                        "3. Go-to-Market Strategy: Target segment, pricing approach, channel strategy\n" +
+                        "   - Reference pricing data from the analysis\n" +
+                        "4. Prioritized Roadmap: 3-5 strategic initiatives ranked by impact and feasibility\n" +
+                        "   - Each with: description, estimated timeline (Q1-Q4), required investment (Low/Med/High)\n" +
+                        "5. Risk Assessment: 3 strategic risks with mitigation strategies\n\n" +
+                        "RULES:\n" +
+                        "- Every recommendation must reference a specific finding from prior tasks\n" +
+                        "- Avoid generic frameworks (Porter's Five Forces, etc.) unless populated with actual data\n" +
+                        "- Prioritize actionability over comprehensiveness")
+            .expectedOutput("Strategic plan with:\n" +
+                        "1. Positioning Recommendation (with data references)\n" +
+                        "2. Differentiation Strategy (3 differentiators with evidence)\n" +
+                        "3. Go-to-Market Plan (segment, pricing, channels)\n" +
+                        "4. Prioritized Roadmap Table (initiatives, timeline, investment)\n" +
+                        "5. Risk Matrix (risks, likelihood, impact, mitigation)")
             .agent(strategist)
             .dependsOn(dataAnalysisTask)
             .outputFormat(OutputFormat.MARKDOWN)
-            .maxExecutionTime(180000) // 3 minutes
+            .maxExecutionTime(180000)
             .build();
 
-        // Task 4: Executive Report Generation
         Task reportTask = Task.builder()
-            .description("Create a comprehensive executive report that includes:\n" +
-                        "- Executive summary with key findings\n" +
-                        "- Market overview and competitive landscape\n" +
-                        "- Detailed competitor analysis\n" +
-                        "- Strategic recommendations with rationale\n" +
-                        "- Implementation timeline and resource requirements\n" +
-                        "- Risk assessment and success metrics\n" +
-                        "- Professional formatting suitable for C-level presentation")
-            .expectedOutput("Professional executive report in markdown format, ready for presentation")
+            .description("Create the final executive report by synthesizing ALL prior task outputs.\n\n" +
+                        "REQUIRED STRUCTURE:\n" +
+                        "1. Executive Summary (max 300 words):\n" +
+                        "   - 5 key takeaways, each backed by a specific data point\n" +
+                        "   - Overall strategic recommendation in one sentence\n" +
+                        "2. Market Landscape (from Market Research task):\n" +
+                        "   - Market size, growth, key players\n" +
+                        "3. Competitive Analysis (from Data Analysis task):\n" +
+                        "   - Feature comparison highlights\n" +
+                        "   - Key competitive gaps identified\n" +
+                        "4. Strategic Recommendations (from Strategy task):\n" +
+                        "   - Prioritized initiatives with timelines\n" +
+                        "5. Risk Assessment:\n" +
+                        "   - Top 3 risks with mitigation plans\n" +
+                        "6. Appendix: Full comparison tables from the analysis\n\n" +
+                        "RULES:\n" +
+                        "- Use ONLY information from prior task outputs\n" +
+                        "- Cross-reference sections (e.g., 'As identified in the Competitive Analysis...')\n" +
+                        "- Write for a C-level audience: lead with insights, minimize methodology\n" +
+                        "- Include page/section references for every key claim")
+            .expectedOutput("Professional executive report in markdown with:\n" +
+                        "Executive Summary (5 takeaways), Market Landscape, Competitive Analysis, " +
+                        "Strategic Recommendations, Risk Assessment, Appendix with data tables")
             .agent(reportWriter)
             .dependsOn(strategyTask)
             .outputFormat(OutputFormat.MARKDOWN)
             .outputFile("competitive_analysis_report.md")
-            .maxExecutionTime(240000) // 4 minutes
+            .maxExecutionTime(240000)
             .build();
 
         // CREATE SWARM WITH HIERARCHICAL PROCESS

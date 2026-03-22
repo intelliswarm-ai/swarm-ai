@@ -33,7 +33,7 @@ import java.util.Map;
  * that Spring AI can discover and use for function calling.
  */
 @Configuration
-@Profile({"local", "docker"})
+@Profile({"local", "docker", "run", "default"})
 public class ResearchToolsConfiguration {
 
     private static final Logger logger = LoggerFactory.getLogger(ResearchToolsConfiguration.class);

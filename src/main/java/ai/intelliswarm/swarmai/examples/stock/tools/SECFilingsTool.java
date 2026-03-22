@@ -89,10 +89,18 @@ public class SECFilingsTool implements BaseTool {
             
             // 5. Generate comprehensive report
             String report = reportGenerator.generateAnalysisReport(parsedInput.ticker(), cik, parsedInput.query(), recentFilings);
-            
-            logger.info("Successfully generated SEC filings analysis for {} with {} characters", 
+
+            logger.info("Successfully generated SEC filings analysis for {} with {} characters",
                 parsedInput.ticker(), report.length());
-            
+
+            // Cap report size to avoid exceeding LLM context windows
+            int maxLen = getMaxResponseLength();
+            if (report.length() > maxLen) {
+                logger.info("Truncating SEC report from {} to {} chars for LLM consumption", report.length(), maxLen);
+                report = report.substring(0, maxLen) + "\n\n[Report truncated from " + report.length() + " chars. " +
+                        "Key filings and financial data are included above.]";
+            }
+
             return report;
             
         } catch (Exception e) {
@@ -151,6 +159,11 @@ public class SECFilingsTool implements BaseTool {
     @Override
     public boolean isAsync() {
         return false;
+    }
+
+    @Override
+    public int getMaxResponseLength() {
+        return 15000; // SEC filings need more room for financial data
     }
     
     // Helper record for parsed input

@@ -76,119 +76,191 @@ public class StockAnalysisWorkflow {
     }
     
     private void runStockAnalysisWorkflow(String companyStock) {
-        logger.info("🔍 Analyzing stock: {}", companyStock);
-        
-        // Create ChatClient instance
+        logger.info("Analyzing stock: {}", companyStock);
+
         ChatClient chatClient = chatClientBuilder.build();
 
         String toolEvidence = buildToolEvidence(companyStock);
         logEvidenceWarnings(toolEvidence, companyStock);
-        
-        // Create Portfolio Manager Agent (coordinates the workflow)
+
+        // =====================================================================
+        // AGENTS - Each agent has an accuracy-focused goal and rigorous backstory
+        // =====================================================================
+
         Agent portfolioManager = Agent.builder()
                 .role("Senior Portfolio Manager")
-                .goal("Coordinate comprehensive stock analysis and provide strategic investment guidance")
-                .backstory("You are an experienced portfolio manager with 15+ years in investment management. You excel at coordinating financial analysis teams and synthesizing complex investment research into actionable recommendations.")
+                .goal("Coordinate a rigorous, evidence-based stock analysis workflow. " +
+                      "Ensure each specialist provides quantitative data with cited sources. " +
+                      "Reject vague or unsubstantiated claims in the final synthesis.")
+                .backstory("You are a CFA charterholder with 15 years managing institutional equity portfolios. " +
+                           "You are known for demanding analytical rigor from your team. " +
+                           "You reject reports that contain unsubstantiated claims or generic filler. " +
+                           "Every number must have a source, and every recommendation must have a confidence level.")
                 .chatClient(chatClient)
                 .verbose(true)
                 .allowDelegation(true)
                 .maxRpm(10)
-                .temperature(0.3)
+                .temperature(0.2)
                 .build();
-        
-        // Create Financial Analyst Agent
+
         Agent financialAnalyst = Agent.builder()
-                .role("The Best Financial Analyst")
-                .goal("Impress all customers with your financial data and market trends analysis")
-                .backstory("The most seasoned financial analyst with lots of expertise in stock market analysis and investment strategies that is working for a super important customer.")
+                .role("Senior Financial Analyst")
+                .goal("Produce accurate, evidence-based financial analysis using quantitative data " +
+                      "from SEC filings and market sources. Every claim must cite its data source. " +
+                      "When data is unavailable, state it explicitly rather than estimating.")
+                .backstory("You are a CFA-certified equity research analyst with 10 years of experience " +
+                           "covering technology and large-cap stocks. You prioritize accuracy over narrative appeal. " +
+                           "You never fabricate numbers or present estimates as facts. " +
+                           "Your reports are trusted because they clearly distinguish between hard data, " +
+                           "analyst estimates, and your own assumptions.")
                 .chatClient(chatClient)
                 .tool(calculatorTool)
                 .tool(webSearchTool)
                 .tool(secFilingsTool)
                 .verbose(true)
                 .maxRpm(10)
-                .temperature(0.1) // Conservative for financial analysis
+                .temperature(0.1)
                 .build();
-        
-        // Create Research Analyst Agent
+
         Agent researchAnalyst = Agent.builder()
-                .role("Staff Research Analyst")
-                .goal("Being the best at gathering, interpreting data and amazing your customer with it")
-                .backstory("Known as the BEST research analyst, you're skilled in sifting through news, company announcements, and market sentiments. Now you're working on a super important customer.")
+                .role("Senior Equity Research Analyst")
+                .goal("Gather, verify, and summarize recent market intelligence including news, " +
+                      "analyst opinions, and industry developments. Cite the source and date for " +
+                      "every factual claim. Distinguish between confirmed facts and market speculation.")
+                .backstory("You are a research analyst with 8 years of experience in equity research " +
+                           "at a top-tier investment bank. You are methodical and skeptical: you only report " +
+                           "information that has a verifiable source. You always note the date and origin " +
+                           "of each piece of information. You clearly separate confirmed facts from " +
+                           "analyst opinions and market rumors.")
                 .chatClient(chatClient)
                 .tool(webSearchTool)
                 .tool(secFilingsTool)
                 .verbose(true)
                 .maxRpm(12)
-                .temperature(0.3) // Moderate creativity for research
+                .temperature(0.2)
                 .build();
-        
-        // Create Investment Advisor Agent
+
         Agent investmentAdvisor = Agent.builder()
-                .role("Private Investment Advisor")
-                .goal("Impress your customers with full analyses over stocks and complete investment recommendations")
-                .backstory("You're the most experienced investment advisor and you combine various analytical insights to formulate strategic investment advice. You are now working for a super important customer you need to impress.")
+                .role("Senior Investment Advisor")
+                .goal("Synthesize financial analysis, research findings, and SEC filing data into a " +
+                      "calibrated investment recommendation. Ground every recommendation in specific " +
+                      "evidence from prior analyses. State confidence levels explicitly.")
+                .backstory("You are a Series 65 licensed investment advisor with 12 years of experience " +
+                           "in wealth management. You provide calibrated assessments: you state your " +
+                           "confidence level (HIGH/MEDIUM/LOW) for each recommendation. You never overstate " +
+                           "certainty or understate risk. You always reference the specific data points that " +
+                           "support your conclusions, citing which prior analysis they came from.")
                 .chatClient(chatClient)
                 .tool(calculatorTool)
                 .tool(webSearchTool)
+                .tool(secFilingsTool)
                 .verbose(true)
                 .maxRpm(10)
-                .temperature(0.2) // Balanced for recommendations
+                .temperature(0.2)
                 .build();
-        
-        // Create Tasks
+
+        // =====================================================================
+        // TASKS - Specific, numbered requirements with data grounding rules
+        // =====================================================================
+
         Task financialAnalysisTask = Task.builder()
                 .description(String.format(
-                        "Conduct a thorough analysis of %s's stock financial health and market performance. " +
-                        "Use the tool evidence below as your factual basis. " +
-                        "If the evidence contains configuration notes or errors, include a 'Data Availability' section " +
-                        "explaining what is missing and how it impacts the analysis. " +
-                        "Avoid generic AI disclaimers.\n\n" +
-                        "Tool evidence:\n%s",
+                        "Analyze %s's financial health using ONLY the tool evidence provided below.\n\n" +
+                        "REQUIRED ANALYSIS (address each numbered item):\n" +
+                        "1. Revenue and net income for the most recent reported period, with year-over-year change\n" +
+                        "2. Key ratios: P/E, P/B, debt-to-equity, current ratio, ROE (cite the filing or source for each)\n" +
+                        "3. Free cash flow trend: positive/negative, growing/shrinking\n" +
+                        "4. Comparison with 2-3 industry peers on at least 3 financial metrics\n" +
+                        "5. Top 3 financial risks with specific supporting evidence\n\n" +
+                        "DATA RULES:\n" +
+                        "- Use ONLY data from the tool evidence below\n" +
+                        "- If a metric is unavailable, write \"DATA NOT AVAILABLE: [metric name]\" instead of guessing\n" +
+                        "- Cite the source for every number (e.g., \"per 10-K filing dated 2024-11-01\")\n" +
+                        "- Do NOT use phrases like \"as an AI\" or generic disclaimers\n\n" +
+                        "TOOL EVIDENCE:\n%s",
                         companyStock, toolEvidence))
-                .expectedOutput("Provide a structured report with sections: Executive Summary, Financial Metrics, Peer Comparison, Risks, Data Availability. Use only facts from the tool evidence and clearly mark any assumptions.")
+                .expectedOutput("Markdown report with exactly these sections:\n" +
+                        "1. Executive Summary (3-5 bullet points, max 100 words)\n" +
+                        "2. Financial Metrics Table (at least 5 metrics with values and sources)\n" +
+                        "3. Peer Comparison Table (2-3 peers, 3+ shared metrics)\n" +
+                        "4. Risk Assessment (3 risks, each with supporting evidence)\n" +
+                        "5. Data Gaps (list any required metrics that were unavailable)")
                 .agent(financialAnalyst)
                 .outputFormat(OutputFormat.MARKDOWN)
                 .maxExecutionTime(180000)
                 .build();
-        
+
         Task researchTask = Task.builder()
                 .description(String.format(
-                        "Collect and summarize recent news articles, press releases, and market analyses related to the %s stock and its industry. " +
-                        "Use the tool evidence below as your factual basis. " +
-                        "If the evidence contains configuration notes or errors, include a 'Data Availability' section " +
-                        "explaining what is missing and how it impacts the analysis. " +
-                        "Avoid generic AI disclaimers.\n\n" +
-                        "Tool evidence:\n%s",
-                        companyStock, toolEvidence))
-                .expectedOutput(String.format("Provide a structured report with sections: News Summary, Market Sentiment, Upcoming Events, Data Availability. Include the stock ticker %s and clearly mark any assumptions.", companyStock))
+                        "Research recent market intelligence for %s using ONLY the tool evidence below.\n\n" +
+                        "REQUIRED SECTIONS (address each numbered item):\n" +
+                        "1. Recent News: 3-5 most significant news items, each with date and source\n" +
+                        "2. Market Sentiment: Bull case vs. bear case with specific evidence for each\n" +
+                        "3. Industry Context: 2-3 industry trends affecting %s, with sources\n" +
+                        "4. Upcoming Catalysts: Earnings dates, product launches, regulatory events\n" +
+                        "5. Data Gaps: What data sources were unavailable or incomplete\n\n" +
+                        "DATA RULES:\n" +
+                        "- Only report news items that appear in the tool evidence\n" +
+                        "- For each news item, state: date, source, and relevance to investment thesis\n" +
+                        "- Distinguish between confirmed facts and analyst opinions\n" +
+                        "- Do NOT invent or assume news events not in the evidence\n\n" +
+                        "TOOL EVIDENCE:\n%s",
+                        companyStock, companyStock, toolEvidence))
+                .expectedOutput(String.format("Markdown report for %s with sections: " +
+                        "Recent News (3-5 items with dates), Bull/Bear Cases (with evidence), " +
+                        "Industry Trends (2-3 trends), Upcoming Catalysts, Data Gaps", companyStock))
                 .agent(researchAnalyst)
                 .outputFormat(OutputFormat.MARKDOWN)
                 .maxExecutionTime(180000)
                 .build();
-        
+
         Task filingsAnalysisTask = Task.builder()
                 .description(String.format(
-                        "Analyze the latest 10-Q and 10-K filings from EDGAR for the stock %s in question. " +
-                        "Use the tool evidence below as your factual basis. " +
-                        "If the evidence contains configuration notes or errors, include a 'Data Availability' section " +
-                        "explaining what is missing and how it impacts the analysis. " +
-                        "Avoid generic AI disclaimers.\n\n" +
-                        "Tool evidence:\n%s",
+                        "Analyze SEC filings data for %s from the tool evidence below.\n\n" +
+                        "REQUIRED ANALYSIS (address each numbered item):\n" +
+                        "1. Filing Inventory: List all filings found (type, date, accession number)\n" +
+                        "2. Revenue & Income Trends: Extract multi-period revenue and net income from 10-K/10-Q\n" +
+                        "3. Management Discussion: Key risks and opportunities management disclosed\n" +
+                        "4. Insider Transactions: Any insider buying/selling activity found\n" +
+                        "5. Material Changes: Significant changes from prior period filings\n\n" +
+                        "DATA RULES:\n" +
+                        "- Quote or paraphrase specific passages from filings when citing findings\n" +
+                        "- Prefix each finding with the filing type and date (e.g., \"[10-K 2024-09-28]\")\n" +
+                        "- If a filing type is missing from the evidence, state it explicitly\n" +
+                        "- Do NOT fabricate filing data or dates\n\n" +
+                        "TOOL EVIDENCE:\n%s",
                         companyStock, toolEvidence))
-                .expectedOutput("Provide a structured report with sections: Filings Overview, Key Findings, Insider Activity, Risks, Data Availability. Use only facts from the tool evidence and clearly mark any assumptions.")
+                .expectedOutput("Markdown report with sections: " +
+                        "Filing Inventory (table), Revenue/Income Trends (with periods), " +
+                        "Management Discussion Highlights, Insider Transactions, " +
+                        "Material Changes, Data Gaps")
                 .agent(financialAnalyst)
                 .outputFormat(OutputFormat.MARKDOWN)
                 .maxExecutionTime(180000)
                 .build();
-        
+
         Task recommendationTask = Task.builder()
-                .description("Review and synthesize the analyses provided by the Financial Analyst and the Research Analyst. " +
-                        "Combine these insights to form a comprehensive investment recommendation. " +
-                        "You MUST consider all aspects, including financial health, market sentiment, and qualitative data from EDGAR filings. " +
-                        "Include insider trading activity, upcoming events, and a Data Availability section if any inputs were missing. " +
-                        "Avoid generic AI disclaimers.")
-                .expectedOutput("Provide a structured report with sections: Executive Summary, Financial Analysis, Market Research, SEC Filings, Recommendation, Risks, Data Availability. Use only facts from prior task outputs and clearly mark any assumptions.")
+                .description("Synthesize ALL prior task outputs into a final investment recommendation.\n\n" +
+                        "REQUIRED (address each numbered item):\n" +
+                        "1. Reference specific findings from each prior task by section name\n" +
+                        "2. State a clear recommendation: STRONG BUY / BUY / HOLD / SELL / STRONG SELL\n" +
+                        "3. State a confidence level: HIGH / MEDIUM / LOW with justification\n" +
+                        "4. Provide a risk/reward assessment with at least 3 risks and 3 opportunities\n" +
+                        "5. State a 12-month outlook or explain why one cannot be justified from available data\n\n" +
+                        "RULES:\n" +
+                        "- Do NOT introduce new data not present in prior task outputs\n" +
+                        "- Cross-reference findings between tasks (e.g., \"The revenue growth of X% noted in " +
+                        "the Financial Analysis is consistent with the positive sentiment in the Research report\")\n" +
+                        "- If prior tasks had Data Gaps, assess how those gaps affect recommendation confidence\n" +
+                        "- Do NOT use phrases like \"as a language model\" or provide generic disclaimers")
+                .expectedOutput("Markdown report with sections:\n" +
+                        "1. Executive Summary (recommendation + confidence level + 1-paragraph rationale)\n" +
+                        "2. Financial Analysis Summary (key metrics from prior analysis, cross-referenced)\n" +
+                        "3. Market & News Assessment (key findings from research, cross-referenced)\n" +
+                        "4. SEC Filings Assessment (key findings from filings analysis, cross-referenced)\n" +
+                        "5. Investment Recommendation (BUY/HOLD/SELL with detailed justification)\n" +
+                        "6. Risk/Reward Matrix (3+ risks, 3+ opportunities, each with likelihood and impact)\n" +
+                        "7. Data Gaps & Confidence Impact (how missing data affects the recommendation)")
                 .agent(investmentAdvisor)
                 .outputFormat(OutputFormat.MARKDOWN)
                 .outputFile("stock_analysis_report.md")
@@ -253,7 +325,7 @@ public class StockAnalysisWorkflow {
         logger.info("✅ STOCK ANALYSIS WORKFLOW COMPLETED");
         logger.info("=".repeat(80));
         logger.info("📊 Stock Analyzed: {}", companyStock);
-        logger.info("⏱️ Duration: {:.1f} minutes", durationMinutes);
+        logger.info("Duration: {} seconds", (endTime - startTime) / 1000);
         logger.info("📈 Final Investment Recommendation:\n{}", result.getFinalOutput());
         logger.info("=".repeat(80));
 
@@ -261,13 +333,29 @@ public class StockAnalysisWorkflow {
         displayObservabilitySummary(correlationId);
     }
 
+    private static final int MAX_EVIDENCE_PER_SOURCE = 15000; // ~4K tokens per source
+
     private String buildToolEvidence(String companyStock) {
         StringBuilder evidence = new StringBuilder();
-        evidence.append("WEB_SEARCH\n");
-        evidence.append(callWebSearch(companyStock));
-        evidence.append("\n\nSEC_FILINGS\n");
-        evidence.append(callSecFilings(companyStock));
+        evidence.append("=== WEB SEARCH RESULTS ===\n");
+        evidence.append("Query: \"").append(companyStock).append(" stock analysis\"\n");
+        evidence.append("Retrieved: ").append(java.time.LocalDateTime.now()).append("\n\n");
+        evidence.append(truncateEvidence(callWebSearch(companyStock), MAX_EVIDENCE_PER_SOURCE));
+        evidence.append("\n\n=== SEC FILINGS DATA (EDGAR) ===\n");
+        evidence.append("Company: ").append(companyStock).append("\n");
+        evidence.append("Source: SEC EDGAR (public, no API key required)\n");
+        evidence.append("Retrieved: ").append(java.time.LocalDateTime.now()).append("\n\n");
+        evidence.append(truncateEvidence(callSecFilings(companyStock), MAX_EVIDENCE_PER_SOURCE));
+        evidence.append("\n\n=== END OF TOOL EVIDENCE ===");
         return evidence.toString();
+    }
+
+    private String truncateEvidence(String evidence, int maxLength) {
+        if (evidence == null || evidence.length() <= maxLength) {
+            return evidence;
+        }
+        logger.info("Truncating tool evidence from {} to {} chars", evidence.length(), maxLength);
+        return evidence.substring(0, maxLength) + "\n\n[... truncated, " + evidence.length() + " total chars ...]";
     }
 
     private String callWebSearch(String companyStock) {

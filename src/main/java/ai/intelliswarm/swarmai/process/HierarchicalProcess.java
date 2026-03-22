@@ -116,8 +116,10 @@ public class HierarchicalProcess implements Process {
             }
 
             // Step 3: Manager synthesizes all results into final output
+            // Don't pass context separately — the synthesis task description already contains worker outputs
+            // This avoids duplication that would eat up the context window
             Task synthesisTask = createSynthesisTask(allOutputs);
-            TaskOutput finalOutput = managerAgent.executeTask(synthesisTask, allOutputs);
+            TaskOutput finalOutput = managerAgent.executeTask(synthesisTask, Collections.emptyList());
             allOutputs.add(finalOutput);
 
             LocalDateTime endTime = LocalDateTime.now();
@@ -149,7 +151,12 @@ public class HierarchicalProcess implements Process {
         description.append("Tasks to coordinate:\n");
         for (int i = 0; i < tasks.size(); i++) {
             Task task = tasks.get(i);
-            description.append(String.format("%d. %s\n", i + 1, task.getDescription()));
+            // Truncate task descriptions for the manager — it needs summaries, not full evidence
+            String taskDesc = task.getDescription();
+            if (taskDesc.length() > 500) {
+                taskDesc = taskDesc.substring(0, 500) + "...";
+            }
+            description.append(String.format("%d. %s\n", i + 1, taskDesc));
             if (task.getExpectedOutput() != null) {
                 description.append("   Expected Output: ").append(task.getExpectedOutput()).append("\n");
             }

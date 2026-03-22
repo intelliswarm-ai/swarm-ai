@@ -21,4 +21,13 @@ public interface BaseTool {
     default boolean isCacheable() {
         return false;
     }
+
+    /**
+     * Maximum response length in characters. Tool output will be truncated to this limit
+     * to prevent exceeding LLM context windows. Override to customize per tool.
+     * Default: 8000 chars (~2000 tokens).
+     */
+    default int getMaxResponseLength() {
+        return 8000;
+    }
 }

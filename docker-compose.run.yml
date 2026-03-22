@@ -1,0 +1,46 @@
+# docker-compose.run.yml - Run SwarmAI example workflows
+#
+# QUICK START:
+#   1. Copy .env.example to .env and add your API key
+#   2. Run a workflow:
+#
+#      # Stock analysis (default: AAPL)
+#      docker compose -f docker-compose.run.yml run --rm stock-analysis
+#
+#      # Stock analysis for a specific ticker
+#      docker compose -f docker-compose.run.yml run --rm stock-analysis TSLA
+#
+#      # Competitive analysis
+#      docker compose -f docker-compose.run.yml run --rm competitive-analysis
+
+services:
+  # Base build (shared across all run targets)
+  app-base:
+    build:
+      context: .
+      dockerfile: Dockerfile.run
+    profiles: ["never"]  # Never started directly
+
+  stock-analysis:
+    build:
+      context: .
+      dockerfile: Dockerfile.run
+    env_file: .env
+    environment:
+      - WORKFLOW=stock-analysis
+    volumes:
+      - ./output:/app/output
+    stdin_open: true
+    tty: true
+
+  competitive-analysis:
+    build:
+      context: .
+      dockerfile: Dockerfile.run
+    env_file: .env
+    environment:
+      - WORKFLOW=competitive-analysis
+    volumes:
+      - ./output:/app/output
+    stdin_open: true
+    tty: true
