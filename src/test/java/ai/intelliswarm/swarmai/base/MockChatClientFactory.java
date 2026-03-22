@@ -13,23 +13,39 @@ import static org.mockito.Mockito.*;
 
 /**
  * Factory for creating mock ChatClient instances for testing.
- * Provides various configurations for simulating different LLM responses.
+ * Supports the system+user message pattern used by Agent.
  */
 public class MockChatClientFactory {
 
     /**
      * Creates a mock ChatClient that returns a fixed response.
-     * Uses deep stubs to handle Spring AI's fluent API chain.
+     * Handles both system+user and user-only prompt patterns.
      */
     public static ChatClient withResponse(String response) {
         ChatClient mockClient = mock(ChatClient.class, Mockito.RETURNS_DEEP_STUBS);
 
+        // system(s).user(u).call().content()
+        when(mockClient.prompt()
+                .system(anyString())
+                .user(anyString())
+                .call()
+                .content()).thenReturn(response);
+
+        // system(s).user(u).functions(...).call().content()
+        when(mockClient.prompt()
+                .system(anyString())
+                .user(anyString())
+                .functions(any(String[].class))
+                .call()
+                .content()).thenReturn(response);
+
+        // user(u).call().content() (backward compat)
         when(mockClient.prompt()
                 .user(anyString())
                 .call()
                 .content()).thenReturn(response);
 
-        // Also handle case with functions
+        // user(u).functions(...).call().content() (backward compat)
         when(mockClient.prompt()
                 .user(anyString())
                 .functions(any(String[].class))
@@ -41,7 +57,6 @@ public class MockChatClientFactory {
 
     /**
      * Creates a mock ChatClient that returns responses sequentially.
-     * Each call to the client returns the next response in the list.
      */
     public static ChatClient withResponses(String... responses) {
         return withResponses(List.of(responses));
@@ -54,15 +69,29 @@ public class MockChatClientFactory {
         ChatClient mockClient = mock(ChatClient.class, Mockito.RETURNS_DEEP_STUBS);
         AtomicInteger callCount = new AtomicInteger(0);
 
-        // Answer that cycles through responses
         org.mockito.stubbing.Answer<String> responseAnswer = invocation -> {
             int index = callCount.getAndIncrement();
             if (index < responses.size()) {
                 return responses.get(index);
             }
-            return responses.get(responses.size() - 1); // Return last response if exceeded
+            return responses.get(responses.size() - 1);
         };
 
+        // system+user pattern
+        when(mockClient.prompt()
+                .system(anyString())
+                .user(anyString())
+                .call()
+                .content()).thenAnswer(responseAnswer);
+
+        when(mockClient.prompt()
+                .system(anyString())
+                .user(anyString())
+                .functions(any(String[].class))
+                .call()
+                .content()).thenAnswer(responseAnswer);
+
+        // user-only pattern
         when(mockClient.prompt()
                 .user(anyString())
                 .call()
@@ -82,6 +111,19 @@ public class MockChatClientFactory {
      */
     public static ChatClient withError(Exception exception) {
         ChatClient mockClient = mock(ChatClient.class, Mockito.RETURNS_DEEP_STUBS);
+
+        when(mockClient.prompt()
+                .system(anyString())
+                .user(anyString())
+                .call()
+                .content()).thenThrow(exception);
+
+        when(mockClient.prompt()
+                .system(anyString())
+                .user(anyString())
+                .functions(any(String[].class))
+                .call()
+                .content()).thenThrow(exception);
 
         when(mockClient.prompt()
                 .user(anyString())
@@ -116,6 +158,19 @@ public class MockChatClientFactory {
         };
 
         when(mockClient.prompt()
+                .system(anyString())
+                .user(anyString())
+                .call()
+                .content()).thenAnswer(delayedAnswer);
+
+        when(mockClient.prompt()
+                .system(anyString())
+                .user(anyString())
+                .functions(any(String[].class))
+                .call()
+                .content()).thenAnswer(delayedAnswer);
+
+        when(mockClient.prompt()
                 .user(anyString())
                 .call()
                 .content()).thenAnswer(delayedAnswer);
@@ -138,7 +193,6 @@ public class MockChatClientFactory {
 
     /**
      * A ChatClient wrapper that captures prompts for verification.
-     * Uses deep stubs with an ArgumentCaptor-like approach.
      */
     public static class CapturingChatClient {
         private final ChatClient mockClient;
@@ -148,20 +202,30 @@ public class MockChatClientFactory {
 
         private CapturingChatClient(String response) {
             this.response = response;
-            // Use deep stubs for the base mock
             this.mockClient = mock(ChatClient.class, Mockito.RETURNS_DEEP_STUBS);
             setupMock();
         }
 
         private void setupMock() {
-            // Answer that captures and responds
             org.mockito.stubbing.Answer<String> contentAnswer = inv -> {
                 callCount.incrementAndGet();
                 return response;
             };
 
-            // Set up the chain for both with and without functions()
             try {
+                when(mockClient.prompt()
+                        .system(anyString())
+                        .user(anyString())
+                        .call()
+                        .content()).thenAnswer(contentAnswer);
+
+                when(mockClient.prompt()
+                        .system(anyString())
+                        .user(anyString())
+                        .functions(any(String[].class))
+                        .call()
+                        .content()).thenAnswer(contentAnswer);
+
                 when(mockClient.prompt()
                         .user(anyString())
                         .call()
@@ -182,14 +246,10 @@ public class MockChatClientFactory {
         }
 
         public List<String> getCapturedPrompts() {
-            // Note: With deep stubs, we can't easily capture the prompts
-            // Use the call count instead
             return new java.util.ArrayList<>(capturedPrompts);
         }
 
         public String getLastPrompt() {
-            // With deep stubs, prompt capture is not reliable
-            // Tests using this should check callCount instead
             return capturedPrompts.isEmpty() ? null : capturedPrompts.get(capturedPrompts.size() - 1);
         }
 

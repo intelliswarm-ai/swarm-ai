@@ -80,6 +80,9 @@ public class StockAnalysisWorkflow {
         
         // Create ChatClient instance
         ChatClient chatClient = chatClientBuilder.build();
+
+        String toolEvidence = buildToolEvidence(companyStock);
+        logEvidenceWarnings(toolEvidence, companyStock);
         
         // Create Portfolio Manager Agent (coordinates the workflow)
         Agent portfolioManager = Agent.builder()
@@ -135,36 +138,64 @@ public class StockAnalysisWorkflow {
         
         // Create Tasks
         Task financialAnalysisTask = Task.builder()
-                .description(String.format("Conduct a thorough analysis of %s's stock financial health and market performance. This includes examining key financial metrics such as P/E ratio, EPS growth, revenue trends, and debt-to-equity ratio. Also, analyze the stock's performance in comparison to its industry peers and overall market trends.", companyStock))
-                .expectedOutput("The final report must expand on the summary provided but now including a clear assessment of the stock's financial standing, its strengths and weaknesses, and how it fares against its competitors in the current market scenario. Make sure to use the most recent data possible.")
+                .description(String.format(
+                        "Conduct a thorough analysis of %s's stock financial health and market performance. " +
+                        "Use the tool evidence below as your factual basis. " +
+                        "If the evidence contains configuration notes or errors, include a 'Data Availability' section " +
+                        "explaining what is missing and how it impacts the analysis. " +
+                        "Avoid generic AI disclaimers.\n\n" +
+                        "Tool evidence:\n%s",
+                        companyStock, toolEvidence))
+                .expectedOutput("Provide a structured report with sections: Executive Summary, Financial Metrics, Peer Comparison, Risks, Data Availability. Use only facts from the tool evidence and clearly mark any assumptions.")
                 .agent(financialAnalyst)
                 .outputFormat(OutputFormat.MARKDOWN)
                 .maxExecutionTime(180000)
                 .build();
         
         Task researchTask = Task.builder()
-                .description(String.format("Collect and summarize recent news articles, press releases, and market analyses related to the %s stock and its industry. Pay special attention to any significant events, market sentiments, and analysts' opinions. Also include upcoming events like earnings and others.", companyStock))
-                .expectedOutput(String.format("A report that includes a comprehensive summary of the latest news, any notable shifts in market sentiment, and potential impacts on the stock. Also make sure to return the stock ticker as %s. Make sure to use the most recent data as possible.", companyStock))
+                .description(String.format(
+                        "Collect and summarize recent news articles, press releases, and market analyses related to the %s stock and its industry. " +
+                        "Use the tool evidence below as your factual basis. " +
+                        "If the evidence contains configuration notes or errors, include a 'Data Availability' section " +
+                        "explaining what is missing and how it impacts the analysis. " +
+                        "Avoid generic AI disclaimers.\n\n" +
+                        "Tool evidence:\n%s",
+                        companyStock, toolEvidence))
+                .expectedOutput(String.format("Provide a structured report with sections: News Summary, Market Sentiment, Upcoming Events, Data Availability. Include the stock ticker %s and clearly mark any assumptions.", companyStock))
                 .agent(researchAnalyst)
                 .outputFormat(OutputFormat.MARKDOWN)
                 .maxExecutionTime(180000)
                 .build();
         
         Task filingsAnalysisTask = Task.builder()
-                .description(String.format("Analyze the latest 10-Q and 10-K filings from EDGAR for the stock %s in question. Focus on key sections like Management's Discussion and analysis, financial statements, insider trading activity, and any disclosed risks. Extract relevant data and insights that could influence the stock's future performance.", companyStock))
-                .expectedOutput("Final answer must be an expanded report that now also highlights significant findings from these filings including any red flags or positive indicators for your customer.")
+                .description(String.format(
+                        "Analyze the latest 10-Q and 10-K filings from EDGAR for the stock %s in question. " +
+                        "Use the tool evidence below as your factual basis. " +
+                        "If the evidence contains configuration notes or errors, include a 'Data Availability' section " +
+                        "explaining what is missing and how it impacts the analysis. " +
+                        "Avoid generic AI disclaimers.\n\n" +
+                        "Tool evidence:\n%s",
+                        companyStock, toolEvidence))
+                .expectedOutput("Provide a structured report with sections: Filings Overview, Key Findings, Insider Activity, Risks, Data Availability. Use only facts from the tool evidence and clearly mark any assumptions.")
                 .agent(financialAnalyst)
                 .outputFormat(OutputFormat.MARKDOWN)
                 .maxExecutionTime(180000)
                 .build();
         
         Task recommendationTask = Task.builder()
-                .description("Review and synthesize the analyses provided by the Financial Analyst and the Research Analyst. Combine these insights to form a comprehensive investment recommendation. You MUST Consider all aspects, including financial health, market sentiment, and qualitative data from EDGAR filings. Make sure to include a section that shows insider trading activity, and upcoming events like earnings.")
-                .expectedOutput("Your final answer MUST be a recommendation for your customer. It should be a full super detailed report, providing a clear investment stance and strategy with supporting evidence. Make it pretty and well formatted for your customer.")
+                .description("Review and synthesize the analyses provided by the Financial Analyst and the Research Analyst. " +
+                        "Combine these insights to form a comprehensive investment recommendation. " +
+                        "You MUST consider all aspects, including financial health, market sentiment, and qualitative data from EDGAR filings. " +
+                        "Include insider trading activity, upcoming events, and a Data Availability section if any inputs were missing. " +
+                        "Avoid generic AI disclaimers.")
+                .expectedOutput("Provide a structured report with sections: Executive Summary, Financial Analysis, Market Research, SEC Filings, Recommendation, Risks, Data Availability. Use only facts from prior task outputs and clearly mark any assumptions.")
                 .agent(investmentAdvisor)
                 .outputFormat(OutputFormat.MARKDOWN)
                 .outputFile("stock_analysis_report.md")
                 .maxExecutionTime(240000)
+                .dependsOn(financialAnalysisTask)
+                .dependsOn(researchTask)
+                .dependsOn(filingsAnalysisTask)
                 .build();
         
         // Create Swarm with Hierarchical Process
@@ -228,6 +259,48 @@ public class StockAnalysisWorkflow {
 
         // Display observability summary
         displayObservabilitySummary(correlationId);
+    }
+
+    private String buildToolEvidence(String companyStock) {
+        StringBuilder evidence = new StringBuilder();
+        evidence.append("WEB_SEARCH\n");
+        evidence.append(callWebSearch(companyStock));
+        evidence.append("\n\nSEC_FILINGS\n");
+        evidence.append(callSecFilings(companyStock));
+        return evidence.toString();
+    }
+
+    private String callWebSearch(String companyStock) {
+        try {
+            Object result = webSearchTool.execute(Map.of("query", companyStock + " stock analysis"));
+            return result != null ? result.toString() : "No web search output.";
+        } catch (Exception e) {
+            return "Web search error: " + e.getMessage();
+        }
+    }
+
+    private String callSecFilings(String companyStock) {
+        try {
+            Object result = secFilingsTool.execute(Map.of("input", companyStock + ":recent filings summary"));
+            return result != null ? result.toString() : "No SEC filings output.";
+        } catch (Exception e) {
+            return "SEC filings error: " + e.getMessage();
+        }
+    }
+
+    private void logEvidenceWarnings(String toolEvidence, String companyStock) {
+        if (toolEvidence == null || toolEvidence.isEmpty()) {
+            logger.warn("Tool evidence is empty for {}", companyStock);
+            return;
+        }
+
+        String evidenceLower = toolEvidence.toLowerCase();
+        if (evidenceLower.contains("configure") || evidenceLower.contains("api key")) {
+            logger.warn("Tool evidence indicates missing API configuration for {}", companyStock);
+        }
+        if (evidenceLower.contains("error")) {
+            logger.warn("Tool evidence contains errors for {}", companyStock);
+        }
     }
 
     /**

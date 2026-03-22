@@ -66,7 +66,7 @@ class HierarchicalProcessTest extends BaseSwarmTest {
                     .agent(workerAgents.get(0))
                     .build();
 
-            SwarmOutput output = process.execute(List.of(task), Map.of());
+            SwarmOutput output = process.execute(List.of(task), Map.of(), "test-swarm");
 
             assertNotNull(output);
             // Manager coordination + worker task + final coordination
@@ -89,7 +89,7 @@ class HierarchicalProcessTest extends BaseSwarmTest {
                             .build()
             );
 
-            SwarmOutput output = process.execute(tasks, Map.of());
+            SwarmOutput output = process.execute(tasks, Map.of(), "test-swarm");
 
             assertNotNull(output);
             assertTrue(output.isSuccessful());
@@ -103,7 +103,7 @@ class HierarchicalProcessTest extends BaseSwarmTest {
                     .agent(workerAgents.get(0))
                     .build();
 
-            SwarmOutput output = process.execute(List.of(task), Map.of());
+            SwarmOutput output = process.execute(List.of(task), Map.of(), "test-swarm");
 
             assertNotNull(output.getFinalOutput());
             assertFalse(output.getFinalOutput().isEmpty());
@@ -117,7 +117,7 @@ class HierarchicalProcessTest extends BaseSwarmTest {
                     .agent(workerAgents.get(0))
                     .build();
 
-            process.execute(List.of(task), Map.of());
+            process.execute(List.of(task), Map.of(), "test-swarm");
 
             assertEventPublished(SwarmEvent.Type.PROCESS_STARTED);
             assertEventPublished(SwarmEvent.Type.TASK_STARTED);
@@ -132,11 +132,11 @@ class HierarchicalProcessTest extends BaseSwarmTest {
                     .agent(workerAgents.get(0))
                     .build();
 
-            SwarmOutput output = process.execute(List.of(task), Map.of());
+            SwarmOutput output = process.execute(List.of(task), Map.of(), "test-swarm");
 
             assertNotNull(output.getUsageMetrics());
             assertTrue(output.getUsageMetrics().containsKey("totalTasks"));
-            assertTrue(output.getUsageMetrics().containsKey("delegatedTasks"));
+            assertTrue(output.getUsageMetrics().containsKey("workerTasks"));
             assertTrue(output.getUsageMetrics().containsKey("managerTasks"));
         }
     }
@@ -161,7 +161,7 @@ class HierarchicalProcessTest extends BaseSwarmTest {
                     .agent(agentWithTools)
                     .build();
 
-            SwarmOutput output = toolProcess.execute(List.of(taskWithTools), Map.of());
+            SwarmOutput output = toolProcess.execute(List.of(taskWithTools), Map.of(), "test-swarm");
 
             assertNotNull(output);
         }
@@ -185,7 +185,7 @@ class HierarchicalProcessTest extends BaseSwarmTest {
                     .agent(dataAgent)
                     .build();
 
-            SwarmOutput output = expertiseProcess.execute(List.of(dataTask), Map.of());
+            SwarmOutput output = expertiseProcess.execute(List.of(dataTask), Map.of(), "test-swarm");
 
             assertNotNull(output);
         }
@@ -199,7 +199,7 @@ class HierarchicalProcessTest extends BaseSwarmTest {
         @DisplayName("throws exception with empty tasks")
         void validateTasks_withEmptyTasks_throwsException() {
             RuntimeException exception = assertThrows(RuntimeException.class, () ->
-                    process.execute(Collections.emptyList(), Map.of()));
+                    process.execute(Collections.emptyList(), Map.of(), "test-swarm"));
 
             String message = exception.getMessage() != null ? exception.getMessage() : "";
             Throwable cause = exception.getCause();
@@ -221,7 +221,7 @@ class HierarchicalProcessTest extends BaseSwarmTest {
                     .build();
 
             RuntimeException exception = assertThrows(RuntimeException.class, () ->
-                    noWorkersProcess.execute(List.of(task), Map.of()));
+                    noWorkersProcess.execute(List.of(task), Map.of(), "test-swarm"));
 
             String message = exception.getMessage() != null ? exception.getMessage() : "";
             Throwable cause = exception.getCause();
@@ -232,33 +232,10 @@ class HierarchicalProcessTest extends BaseSwarmTest {
         }
 
         @Test
-        @DisplayName("throws exception when manager doesn't allow delegation")
-        void validateTasks_managerNoDelegation_throwsException() {
-            Agent noDelegationManager = Agent.builder()
-                    .role("Manager")
-                    .goal("Manage")
-                    .backstory("Backstory")
-                    .chatClient(mockChatClient)
-                    .allowDelegation(false)
-                    .build();
-
-            HierarchicalProcess noDelegationProcess = new HierarchicalProcess(
-                    workerAgents, noDelegationManager, mockEventPublisher);
-
-            Task task = Task.builder()
-                    .description("Test")
-                    .agent(workerAgents.get(0))
-                    .build();
-
-            RuntimeException exception = assertThrows(RuntimeException.class, () ->
-                    noDelegationProcess.execute(List.of(task), Map.of()));
-
-            String message = exception.getMessage() != null ? exception.getMessage() : "";
-            Throwable cause = exception.getCause();
-            String causeMessage = cause != null && cause.getMessage() != null ? cause.getMessage() : "";
-            assertTrue(message.contains("delegation") || message.contains("Delegation") ||
-                       causeMessage.contains("delegation") || causeMessage.contains("Delegation"),
-                    "Expected delegation message. Got: " + message + " / " + causeMessage);
+        @DisplayName("requires non-null manager agent")
+        void validateTasks_nullManager_throwsException() {
+            assertThrows(NullPointerException.class, () ->
+                    new HierarchicalProcess(workerAgents, null, mockEventPublisher));
         }
     }
 
@@ -303,7 +280,7 @@ class HierarchicalProcessTest extends BaseSwarmTest {
                     .build();
 
             assertThrows(RuntimeException.class, () ->
-                    failingProcess.execute(List.of(task), Map.of()));
+                    failingProcess.execute(List.of(task), Map.of(), "test-swarm"));
 
             assertEventPublished(SwarmEvent.Type.PROCESS_FAILED);
         }
@@ -328,7 +305,7 @@ class HierarchicalProcessTest extends BaseSwarmTest {
                     .build();
 
             RuntimeException exception = assertThrows(RuntimeException.class, () ->
-                    failingProcess.execute(List.of(task), Map.of()));
+                    failingProcess.execute(List.of(task), Map.of(), "test-swarm"));
 
             assertTrue(exception.getMessage().contains("Hierarchical process"));
         }
@@ -361,7 +338,7 @@ class HierarchicalProcessTest extends BaseSwarmTest {
                     .agent(workerAgents.get(0))
                     .build();
 
-            SwarmOutput output = testProcess.execute(List.of(task), Map.of());
+            SwarmOutput output = testProcess.execute(List.of(task), Map.of(), "test-swarm");
             assertNotNull(output);
         }
     }

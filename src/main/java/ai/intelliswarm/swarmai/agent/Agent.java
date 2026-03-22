@@ -8,14 +8,24 @@ import ai.intelliswarm.swarmai.task.output.TaskOutput;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.function.Supplier;
 
 public class Agent {
+
+    private static final Logger logger = LoggerFactory.getLogger(Agent.class);
+    private static final int DEFAULT_MAX_RETRIES = 3;
+    private static final int DEFAULT_TIMEOUT_MS = 300_000; // 5 minutes
+    private static final int MAX_CONTEXT_LENGTH = 2000;
 
     @NotNull
     private final String id;
@@ -82,19 +92,41 @@ public class Agent {
         long startTime = System.currentTimeMillis();
 
         try {
-            String prompt = buildPrompt(task, context);
+            String systemPrompt = buildSystemPrompt();
+            String userPrompt = buildUserPrompt(task, context);
 
-            // Use Spring AI ChatClient fluent API
-            var requestBuilder = chatClient.prompt().user(prompt);
+            if (verbose) {
+                logger.info("Agent [{}] executing task: {}", role, truncate(task.getDescription(), 80));
+            }
+
+            // Use Spring AI ChatClient fluent API with system + user messages
+            var requestBuilder = chatClient.prompt()
+                    .system(systemPrompt)
+                    .user(userPrompt);
 
             if (!tools.isEmpty()) {
                 requestBuilder.functions(tools.stream()
-                    .map(tool -> tool.getFunctionName())
+                    .map(BaseTool::getFunctionName)
                     .toArray(String[]::new));
             }
 
-            String response = requestBuilder.call().content();
+            // Call LLM with retry and timeout
+            int timeoutMs = maxExecutionTime != null ? maxExecutionTime : DEFAULT_TIMEOUT_MS;
+            String response = callWithRetry(() -> requestBuilder.call().content(), DEFAULT_MAX_RETRIES, timeoutMs);
             long executionTimeMs = System.currentTimeMillis() - startTime;
+
+            // Save result to memory for future context
+            if (memory != null) {
+                memory.save(id,
+                        "Task: " + truncate(task.getDescription(), 200) +
+                        "\nResult: " + truncate(response, 500),
+                        Map.of("taskId", task.getId(), "executionTimeMs", executionTimeMs));
+            }
+
+            if (verbose) {
+                logger.info("Agent [{}] completed task in {} ms ({} chars output)",
+                        role, executionTimeMs, response != null ? response.length() : 0);
+            }
 
             return TaskOutput.builder()
                 .agentId(id)
@@ -106,46 +138,111 @@ public class Agent {
                 .build();
 
         } catch (Exception e) {
+            long executionTimeMs = System.currentTimeMillis() - startTime;
+            logger.error("Agent [{}] failed task after {} ms: {}", role, executionTimeMs, e.getMessage());
             throw new RuntimeException("Failed to execute task: " + task.getId(), e);
         }
     }
 
-    private String buildPrompt(Task task, List<TaskOutput> context) {
-        StringBuilder prompt = new StringBuilder();
-        
-        prompt.append("You are ").append(role).append(".\n");
-        prompt.append("Your goal is: ").append(goal).append("\n");
-        prompt.append("Your backstory: ").append(backstory).append("\n\n");
-        
-        if (!context.isEmpty()) {
-            prompt.append("Context from previous tasks:\n");
-            context.forEach(ctx -> {
-                prompt.append("- ").append(ctx.getSummary()).append("\n");
-            });
-            prompt.append("\n");
+    private String callWithRetry(Supplier<String> llmCall, int maxRetries, int timeoutMs) {
+        Exception lastException = null;
+        for (int attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                CompletableFuture<String> future = CompletableFuture.supplyAsync(llmCall::get);
+                return future.get(timeoutMs, TimeUnit.MILLISECONDS);
+            } catch (TimeoutException e) {
+                throw new RuntimeException("LLM call timed out after " + timeoutMs + "ms", e);
+            } catch (Exception e) {
+                lastException = e;
+                Throwable cause = e.getCause() != null ? e.getCause() : e;
+                if (attempt < maxRetries) {
+                    long backoffMs = (long) Math.pow(2, attempt) * 1000;
+                    logger.warn("Agent [{}] LLM call attempt {}/{} failed: {}. Retrying in {} ms...",
+                            role, attempt, maxRetries, cause.getMessage(), backoffMs);
+                    try {
+                        Thread.sleep(backoffMs);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException("Interrupted during retry backoff", ie);
+                    }
+                }
+            }
         }
-        
+        throw new RuntimeException("LLM call failed after " + maxRetries + " attempts", lastException);
+    }
+
+    private String buildSystemPrompt() {
+        StringBuilder system = new StringBuilder();
+        system.append("You are ").append(role).append(".\n");
+        system.append("Your goal is: ").append(goal).append("\n");
+        system.append("Your backstory: ").append(backstory).append("\n");
+        if (!tools.isEmpty()) {
+            system.append("\nYou have access to the following tools: ");
+            tools.forEach(tool -> system.append(tool.getFunctionName()).append(" (")
+                    .append(tool.getDescription()).append("), "));
+            system.setLength(system.length() - 2); // remove trailing ", "
+            system.append("\n");
+        }
+        return system.toString();
+    }
+
+    private String buildUserPrompt(Task task, List<TaskOutput> context) {
+        StringBuilder prompt = new StringBuilder();
+
+        // Add context from previous tasks — use full output, not truncated summary
+        if (context != null && !context.isEmpty()) {
+            prompt.append("Context from previous tasks:\n");
+            for (TaskOutput ctx : context) {
+                prompt.append("--- ").append(ctx.getDescription() != null ? ctx.getDescription() : "Previous task").append(" ---\n");
+                String output = ctx.getRawOutput();
+                if (output != null) {
+                    prompt.append(truncate(output, MAX_CONTEXT_LENGTH)).append("\n");
+                }
+                prompt.append("\n");
+            }
+        }
+
+        // Add memory context
+        if (memory != null) {
+            List<String> relevantMemories = memory.search(task.getDescription(), 5);
+            if (relevantMemories != null && !relevantMemories.isEmpty()) {
+                prompt.append("Relevant memories from previous executions:\n");
+                for (String mem : relevantMemories) {
+                    prompt.append("- ").append(mem).append("\n");
+                }
+                prompt.append("\n");
+            }
+        }
+
+        // Add knowledge context
         if (knowledge != null) {
             String knowledgeContext = knowledge.query(task.getDescription());
             if (StringUtils.hasText(knowledgeContext)) {
                 prompt.append("Relevant knowledge:\n").append(knowledgeContext).append("\n\n");
             }
         }
-        
+
+        // Add task description and expected output
         prompt.append("Task: ").append(task.getDescription()).append("\n");
-        
         if (StringUtils.hasText(task.getExpectedOutput())) {
             prompt.append("Expected Output: ").append(task.getExpectedOutput()).append("\n");
         }
-        
+
         return prompt.toString();
     }
 
     private String extractSummary(String response) {
-        if (response.length() <= 100) {
+        if (response == null || response.length() <= 200) {
             return response;
         }
-        return response.substring(0, 97) + "...";
+        return response.substring(0, 197) + "...";
+    }
+
+    private String truncate(String text, int maxLength) {
+        if (text == null || text.length() <= maxLength) {
+            return text;
+        }
+        return text.substring(0, maxLength - 3) + "...";
     }
 
     private synchronized void incrementExecutionCount() {

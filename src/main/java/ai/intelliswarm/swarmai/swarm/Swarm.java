@@ -12,6 +12,8 @@ import ai.intelliswarm.swarmai.observability.core.ObservabilityContext;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.LocalDateTime;
@@ -21,15 +23,17 @@ import java.util.stream.Collectors;
 
 public class Swarm {
 
+    private static final Logger logger = LoggerFactory.getLogger(Swarm.class);
+
     @NotNull
     private final String id;
-    
+
     @NotEmpty
     private final List<Agent> agents;
-    
+
     @NotEmpty
     private final List<Task> tasks;
-    
+
     private final ProcessType processType;
     private final Agent managerAgent;
     private final boolean verbose;
@@ -38,10 +42,10 @@ public class Swarm {
     private final Map<String, Object> config;
     private final Integer maxRpm;
     private final String language;
-    
+
     @JsonIgnore
     private ApplicationEventPublisher eventPublisher;
-    
+
     private final LocalDateTime createdAt;
     private SwarmOutput lastOutput;
     private SwarmStatus status = SwarmStatus.READY;
@@ -60,9 +64,8 @@ public class Swarm {
         this.language = builder.language;
         this.eventPublisher = builder.eventPublisher;
         this.createdAt = LocalDateTime.now();
-        
+
         validateConfiguration();
-        assignAgentsToTasks();
     }
 
     public SwarmOutput kickoff(Map<String, Object> inputs) {
@@ -72,14 +75,16 @@ public class Swarm {
 
         publishEvent(SwarmEvent.Type.SWARM_STARTED, "Swarm kickoff initiated");
 
-        // Handle null inputs gracefully
         Map<String, Object> safeInputs = inputs != null ? inputs : Map.of();
 
         try {
             status = SwarmStatus.RUNNING;
 
+            // Reset tasks before execution so swarm can be re-used (e.g., kickoffForEach)
+            tasks.forEach(Task::reset);
+
             Process process = createProcess();
-            SwarmOutput output = process.execute(tasks, safeInputs);
+            SwarmOutput output = process.execute(tasks, safeInputs, this.id);
 
             this.lastOutput = output;
             status = SwarmStatus.COMPLETED;
@@ -93,7 +98,6 @@ public class Swarm {
             publishEvent(SwarmEvent.Type.SWARM_FAILED, "Swarm execution failed: " + e.getMessage());
             throw new RuntimeException("Swarm execution failed", e);
         } finally {
-            // Clean up observability context
             ObservabilityContext.clear();
         }
     }
@@ -104,17 +108,19 @@ public class Swarm {
 
     public List<SwarmOutput> kickoffForEach(List<Map<String, Object>> inputsList) {
         publishEvent(SwarmEvent.Type.SWARM_STARTED, "Swarm kickoff for each initiated with " + inputsList.size() + " inputs");
-        
-        return inputsList.stream()
-            .map(this::kickoff)
-            .collect(Collectors.toList());
+
+        List<SwarmOutput> outputs = new ArrayList<>();
+        for (Map<String, Object> input : inputsList) {
+            outputs.add(kickoff(input));
+        }
+        return outputs;
     }
 
     public CompletableFuture<List<SwarmOutput>> kickoffForEachAsync(List<Map<String, Object>> inputsList) {
         List<CompletableFuture<SwarmOutput>> futures = inputsList.stream()
             .map(this::kickoffAsync)
             .collect(Collectors.toList());
-        
+
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
             .thenApply(v -> futures.stream()
                 .map(CompletableFuture::join)
@@ -132,28 +138,13 @@ public class Swarm {
         if (processType == ProcessType.HIERARCHICAL && managerAgent == null) {
             throw new IllegalStateException("Manager agent is required for hierarchical process");
         }
-        
+
         if (tasks.isEmpty()) {
             throw new IllegalStateException("At least one task is required");
         }
-        
+
         if (agents.isEmpty()) {
             throw new IllegalStateException("At least one agent is required");
-        }
-    }
-
-    private void assignAgentsToTasks() {
-        List<Task> tasksWithoutAgents = tasks.stream()
-            .filter(task -> task.getAgent() == null)
-            .collect(Collectors.toList());
-        
-        if (!tasksWithoutAgents.isEmpty() && !agents.isEmpty()) {
-            // Simple round-robin assignment for tasks without specific agents
-            for (int i = 0; i < tasksWithoutAgents.size(); i++) {
-                Agent assignedAgent = agents.get(i % agents.size());
-                // Note: This would require modifying Task to allow agent assignment post-creation
-                // or implementing a task assignment strategy
-            }
         }
     }
 
@@ -162,13 +153,6 @@ public class Swarm {
             memory.clear();
             publishEvent(SwarmEvent.Type.MEMORY_RESET, "Swarm memory has been reset");
         }
-    }
-
-    public void shareMemory(Memory sharedMemory) {
-        this.agents.forEach(agent -> {
-            // This would require agent to have a setMemory method
-            // or implementing a memory sharing strategy
-        });
     }
 
     private void publishEvent(SwarmEvent.Type type, String message) {

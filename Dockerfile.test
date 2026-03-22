@@ -17,8 +17,8 @@ RUN chmod +x mvnw
 # Download dependencies (cached layer)
 RUN ./mvnw dependency:go-offline -B || true
 
-# Copy source code
+# Copy ALL source code (main + test)
 COPY src ./src
 
-# Default command: run all tests
-CMD ["./mvnw", "test", "-DexcludedGroups="]
+# Default command: run unit tests
+CMD ["./mvnw", "test"]

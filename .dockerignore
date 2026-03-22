@@ -4,7 +4,7 @@
 
 # Maven
 target/
-.mvn/wrapper/maven-wrapper.jar
+# .mvn/wrapper/maven-wrapper.jar
 .mvn/timing.properties
 .mvn/wrapper/MavenWrapperDownloader.java
 
@@ -36,9 +36,7 @@ docker-compose*.yml
 scripts/
 examples/
 
-# Test files
-**/*Test.java
-**/*Tests.java
+# Test files (not excluded - needed by Dockerfile.test)
 
 # Node modules if any
 node_modules/

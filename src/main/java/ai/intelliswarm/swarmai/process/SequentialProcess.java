@@ -28,18 +28,21 @@ public class SequentialProcess implements Process {
     }
 
     @Override
-    public SwarmOutput execute(List<Task> tasks, Map<String, Object> inputs) {
+    public SwarmOutput execute(List<Task> tasks, Map<String, Object> inputs, String swarmId) {
         LocalDateTime startTime = LocalDateTime.now();
-        publishEvent(SwarmEvent.Type.PROCESS_STARTED, "Sequential process execution started");
-        
+        publishEvent(SwarmEvent.Type.PROCESS_STARTED, "Sequential process execution started", swarmId);
+
         try {
             validateTasks(tasks);
-            
+
+            // Interpolate inputs into task descriptions
+            interpolateTaskDescriptions(tasks, inputs);
+
             List<Task> orderedTasks = orderTasks(tasks);
             List<TaskOutput> allOutputs = new ArrayList<>();
             Set<String> completedTaskIds = new HashSet<>();
-            
-            logger.info("📋 Sequential Process: Executing {} tasks", orderedTasks.size());
+
+            logger.info("Sequential Process: Executing {} tasks", orderedTasks.size());
 
             for (Task task : orderedTasks) {
                 // Update observability context
@@ -57,10 +60,10 @@ public class SequentialProcess implements Process {
                                 agent.getTools().stream().map(t -> t.getFunctionName()).collect(Collectors.joining(", ")))
                         : "no agent assigned";
 
-                logger.info("🎯 Starting task: {} -> agent: {}",
+                logger.info("Starting task: {} -> agent: {}",
                         truncateForLog(task.getDescription(), 80), agentInfo);
 
-                publishEvent(SwarmEvent.Type.TASK_STARTED, "Starting task: " + task.getId());
+                publishEvent(SwarmEvent.Type.TASK_STARTED, "Starting task: " + task.getId(), swarmId);
 
                 List<TaskOutput> contextOutputs = getContextForTask(task, allOutputs);
                 TaskOutput output;
@@ -71,8 +74,7 @@ public class SequentialProcess implements Process {
                     output = task.execute(contextOutputs);
                 }
 
-                // Log output for debugging
-                logger.info("✅ Task completed: {} (output: {} chars, exec time: {} ms)",
+                logger.info("Task completed: {} (output: {} chars, exec time: {} ms)",
                         truncateForLog(task.getDescription(), 50),
                         output.getRawOutput() != null ? output.getRawOutput().length() : 0,
                         output.getExecutionTimeMs());
@@ -80,18 +82,18 @@ public class SequentialProcess implements Process {
                 allOutputs.add(output);
                 completedTaskIds.add(task.getId());
 
-                publishEvent(SwarmEvent.Type.TASK_COMPLETED, "Completed task: " + task.getId());
+                publishEvent(SwarmEvent.Type.TASK_COMPLETED, "Completed task: " + task.getId(), swarmId);
 
                 if (!output.isSuccessful()) {
-                    publishEvent(SwarmEvent.Type.TASK_FAILED, "Task failed: " + task.getId());
+                    publishEvent(SwarmEvent.Type.TASK_FAILED, "Task failed: " + task.getId(), swarmId);
                 }
             }
-            
+
             LocalDateTime endTime = LocalDateTime.now();
             String finalOutput = generateFinalOutput(allOutputs);
-            
+
             return SwarmOutput.builder()
-                .swarmId("sequential-" + UUID.randomUUID().toString())
+                .swarmId(swarmId)
                 .taskOutputs(allOutputs)
                 .finalOutput(finalOutput)
                 .rawOutput(finalOutput)
@@ -101,10 +103,17 @@ public class SequentialProcess implements Process {
                 .usageMetric("totalTasks", allOutputs.size())
                 .usageMetric("successfulTasks", allOutputs.stream().mapToInt(o -> o.isSuccessful() ? 1 : 0).sum())
                 .build();
-                
+
         } catch (Exception e) {
-            publishEvent(SwarmEvent.Type.PROCESS_FAILED, "Sequential process failed: " + e.getMessage());
+            publishEvent(SwarmEvent.Type.PROCESS_FAILED, "Sequential process failed: " + e.getMessage(), swarmId);
             throw new RuntimeException("Sequential process execution failed", e);
+        }
+    }
+
+    private void interpolateTaskDescriptions(List<Task> tasks, Map<String, Object> inputs) {
+        if (inputs == null || inputs.isEmpty()) return;
+        for (Task task : tasks) {
+            task.interpolateDescription(inputs);
         }
     }
 
@@ -115,7 +124,6 @@ public class SequentialProcess implements Process {
 
         Queue<Task> queue = new LinkedList<>();
 
-        // Initialize queue with tasks that have no dependencies
         for (Task task : tasks) {
             if (task.getDependencyTaskIds().isEmpty()) {
                 queue.offer(task);
@@ -128,7 +136,6 @@ public class SequentialProcess implements Process {
             ordered.add(current);
             processed.add(current.getId());
 
-            // Add tasks whose dependencies are now satisfied
             for (Task task : tasks) {
                 if (!queued.contains(task.getId()) &&
                     processed.containsAll(task.getDependencyTaskIds())) {
@@ -147,9 +154,9 @@ public class SequentialProcess implements Process {
 
     private List<TaskOutput> getContextForTask(Task task, List<TaskOutput> allOutputs) {
         if (task.getDependencyTaskIds().isEmpty()) {
-            return allOutputs; // All previous outputs as context
+            return allOutputs;
         }
-        
+
         return allOutputs.stream()
             .filter(output -> task.getDependencyTaskIds().contains(output.getTaskId()))
             .collect(Collectors.toList());
@@ -162,7 +169,7 @@ public class SequentialProcess implements Process {
     private TaskOutput executeAsyncTask(Task task, List<TaskOutput> contextOutputs) {
         try {
             CompletableFuture<TaskOutput> future = task.executeAsync(contextOutputs);
-            return future.get(); // Wait for completion
+            return future.get();
         } catch (Exception e) {
             throw new RuntimeException("Async task execution failed: " + task.getId(), e);
         }
@@ -172,14 +179,14 @@ public class SequentialProcess implements Process {
         if (outputs.isEmpty()) {
             return "No outputs generated";
         }
-        
+
         TaskOutput lastOutput = outputs.get(outputs.size() - 1);
         return lastOutput.getRawOutput();
     }
 
-    private void publishEvent(SwarmEvent.Type type, String message) {
+    private void publishEvent(SwarmEvent.Type type, String message, String swarmId) {
         if (eventPublisher != null) {
-            SwarmEvent event = new SwarmEvent(this, type, message, null);
+            SwarmEvent event = new SwarmEvent(this, type, message, swarmId);
             eventPublisher.publishEvent(event);
         }
     }
@@ -191,7 +198,7 @@ public class SequentialProcess implements Process {
 
     @Override
     public boolean isAsync() {
-        return false; // Sequential process is primarily synchronous
+        return false;
     }
 
     @Override
@@ -200,7 +207,6 @@ public class SequentialProcess implements Process {
             throw new IllegalArgumentException("Tasks list cannot be empty");
         }
 
-        // Check for circular dependencies
         Set<String> allTaskIds = tasks.stream()
             .map(Task::getId)
             .collect(Collectors.toSet());
@@ -214,7 +220,6 @@ public class SequentialProcess implements Process {
             }
         }
 
-        // Validate that all tasks have agents (if required)
         List<Task> tasksWithoutAgents = tasks.stream()
             .filter(task -> task.getAgent() == null)
             .collect(Collectors.toList());

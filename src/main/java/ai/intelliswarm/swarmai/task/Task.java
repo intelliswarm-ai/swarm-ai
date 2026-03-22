@@ -7,7 +7,13 @@ import ai.intelliswarm.swarmai.tool.base.BaseTool;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -15,12 +21,14 @@ import java.util.function.Predicate;
 
 public class Task {
 
+    private static final Logger logger = LoggerFactory.getLogger(Task.class);
+
     @NotNull
     private final String id;
-    
+
     @NotBlank
-    private final String description;
-    
+    private String description;
+
     private final String expectedOutput;
     private final List<BaseTool> tools;
     private final Agent agent;
@@ -31,7 +39,7 @@ public class Task {
     private final Integer maxExecutionTime;
     private final Predicate<String> condition;
     private final Map<String, Object> context;
-    
+
     @JsonIgnore
     private TaskOutput output;
     private TaskStatus status = TaskStatus.PENDING;
@@ -68,7 +76,6 @@ public class Task {
         setStatus(TaskStatus.RUNNING);
         startedAt = LocalDateTime.now();
 
-        // Handle null context gracefully
         List<TaskOutput> safeContext = contextOutputs != null ? contextOutputs : Collections.emptyList();
 
         try {
@@ -79,24 +86,24 @@ public class Task {
                     return createSkippedOutput();
                 }
             }
-            
+
             if (agent == null) {
                 throw new IllegalStateException("Agent is required for task execution");
             }
 
             List<TaskOutput> filteredContext = filterContextByDependencies(safeContext);
             TaskOutput result = agent.executeTask(this, filteredContext);
-            
+
             this.output = result;
             setStatus(TaskStatus.COMPLETED);
             completedAt = LocalDateTime.now();
-            
+
             if (outputFile != null) {
                 saveOutputToFile(result);
             }
-            
+
             return result;
-            
+
         } catch (Exception e) {
             setStatus(TaskStatus.FAILED);
             failureReason = e.getMessage();
@@ -105,11 +112,34 @@ public class Task {
         }
     }
 
+    /**
+     * Resets this task to PENDING state so it can be re-executed.
+     * Used by kickoffForEach() to reuse task definitions across multiple inputs.
+     */
+    public void reset() {
+        this.status = TaskStatus.PENDING;
+        this.output = null;
+        this.startedAt = null;
+        this.completedAt = null;
+        this.failureReason = null;
+    }
+
+    /**
+     * Interpolates input variables into the task description.
+     * Replaces {variable_name} placeholders with values from the inputs map.
+     */
+    public void interpolateDescription(Map<String, Object> inputs) {
+        if (inputs == null || inputs.isEmpty() || description == null) return;
+        for (Map.Entry<String, Object> entry : inputs.entrySet()) {
+            description = description.replace("{" + entry.getKey() + "}", String.valueOf(entry.getValue()));
+        }
+    }
+
     private List<TaskOutput> filterContextByDependencies(List<TaskOutput> contextOutputs) {
         if (dependencyTaskIds.isEmpty()) {
             return contextOutputs;
         }
-        
+
         return contextOutputs.stream()
             .filter(output -> dependencyTaskIds.contains(output.getTaskId()))
             .toList();
@@ -117,7 +147,7 @@ public class Task {
 
     private String buildContextString(List<TaskOutput> contextOutputs) {
         return contextOutputs.stream()
-            .map(output -> output.getRawOutput())
+            .map(TaskOutput::getRawOutput)
             .reduce("", (acc, output) -> acc + " " + output)
             .trim();
     }
@@ -133,8 +163,18 @@ public class Task {
     }
 
     private void saveOutputToFile(TaskOutput result) {
-        // Implementation for saving output to file
-        // This could integrate with Spring's file handling utilities
+        try {
+            Path path = Path.of(outputFile);
+            // Create parent directories if they don't exist
+            if (path.getParent() != null) {
+                Files.createDirectories(path.getParent());
+            }
+            String content = result.getRawOutput() != null ? result.getRawOutput() : "";
+            Files.writeString(path, content, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            logger.info("Task output saved to file: {}", outputFile);
+        } catch (IOException e) {
+            logger.warn("Failed to save task output to file {}: {}", outputFile, e.getMessage());
+        }
     }
 
     private void setStatus(TaskStatus newStatus) {
@@ -235,7 +275,7 @@ public class Task {
 
         public Task build() {
             Objects.requireNonNull(description, "Description cannot be null");
-            
+
             return new Task(this);
         }
     }

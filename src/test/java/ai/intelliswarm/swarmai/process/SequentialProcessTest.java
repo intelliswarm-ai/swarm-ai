@@ -40,7 +40,7 @@ class SequentialProcessTest extends BaseSwarmTest {
         void execute_withSingleTask_succeeds() {
             Task task = createTask(agent);
 
-            SwarmOutput output = process.execute(List.of(task), Map.of());
+            SwarmOutput output = process.execute(List.of(task), Map.of(), "test-swarm");
 
             assertNotNull(output);
             assertTrue(output.isSuccessful());
@@ -58,7 +58,7 @@ class SequentialProcessTest extends BaseSwarmTest {
             // Use dependent task chain to avoid duplicate queue issue in orderTasks
             List<Task> tasks = TestFixtures.createDependentTaskChain(3, seqAgent);
 
-            SwarmOutput output = seqProcess.execute(tasks, Map.of());
+            SwarmOutput output = seqProcess.execute(tasks, Map.of(), "test-swarm");
 
             assertEquals(3, output.getTaskOutputs().size());
             // With dependent chain, order is preserved
@@ -74,7 +74,7 @@ class SequentialProcessTest extends BaseSwarmTest {
 
             List<Task> tasks = TestFixtures.createDependentTaskChain(3, seqAgent);
 
-            SwarmOutput output = seqProcess.execute(tasks, Map.of());
+            SwarmOutput output = seqProcess.execute(tasks, Map.of(), "test-swarm");
 
             assertEquals(3, output.getTaskOutputs().size());
             assertTrue(output.isSuccessful());
@@ -99,7 +99,7 @@ class SequentialProcessTest extends BaseSwarmTest {
                     .build();
 
             RuntimeException exception = assertThrows(RuntimeException.class, () ->
-                    process.execute(List.of(task1, task2), Map.of()));
+                    process.execute(List.of(task1, task2), Map.of(), "test-swarm"));
 
             // Check that exception or cause mentions circular dependency
             String message = exception.getMessage() != null ? exception.getMessage() : "";
@@ -114,7 +114,7 @@ class SequentialProcessTest extends BaseSwarmTest {
         void execute_publishesProcessStartedEvent() {
             Task task = createTask(agent);
 
-            process.execute(List.of(task), Map.of());
+            process.execute(List.of(task), Map.of(), "test-swarm");
 
             assertEventPublished(SwarmEvent.Type.PROCESS_STARTED);
         }
@@ -125,7 +125,7 @@ class SequentialProcessTest extends BaseSwarmTest {
             // Use dependent chain to avoid orderTasks issue
             List<Task> tasks = TestFixtures.createDependentTaskChain(2, agent);
 
-            process.execute(tasks, Map.of());
+            process.execute(tasks, Map.of(), "test-swarm");
 
             List<SwarmEvent> taskStartedEvents = getCapturedEvents(SwarmEvent.Type.TASK_STARTED);
             assertEquals(2, taskStartedEvents.size());
@@ -137,7 +137,7 @@ class SequentialProcessTest extends BaseSwarmTest {
             // Use dependent chain to avoid orderTasks issue
             List<Task> tasks = TestFixtures.createDependentTaskChain(2, agent);
 
-            process.execute(tasks, Map.of());
+            process.execute(tasks, Map.of(), "test-swarm");
 
             List<SwarmEvent> taskCompletedEvents = getCapturedEvents(SwarmEvent.Type.TASK_COMPLETED);
             assertEquals(2, taskCompletedEvents.size());
@@ -153,7 +153,7 @@ class SequentialProcessTest extends BaseSwarmTest {
 
             List<Task> tasks = TestFixtures.createDependentTaskChain(2, seqAgent);
 
-            SwarmOutput output = seqProcess.execute(tasks, Map.of());
+            SwarmOutput output = seqProcess.execute(tasks, Map.of(), "test-swarm");
 
             // Both tasks executed successfully, second task received context from first
             assertEquals(2, output.getTaskOutputs().size());
@@ -166,7 +166,7 @@ class SequentialProcessTest extends BaseSwarmTest {
             // Use dependent chain to avoid orderTasks issue
             List<Task> tasks = TestFixtures.createDependentTaskChain(3, agent);
 
-            SwarmOutput output = process.execute(tasks, Map.of());
+            SwarmOutput output = process.execute(tasks, Map.of(), "test-swarm");
 
             assertTrue(output.isSuccessful());
             long successCount = output.getTaskOutputs().stream()
@@ -180,7 +180,7 @@ class SequentialProcessTest extends BaseSwarmTest {
         void execute_setsStartAndEndTime() {
             Task task = createTask(agent);
 
-            SwarmOutput output = process.execute(List.of(task), Map.of());
+            SwarmOutput output = process.execute(List.of(task), Map.of(), "test-swarm");
 
             assertNotNull(output.getStartTime());
             assertNotNull(output.getEndTime());
@@ -198,7 +198,7 @@ class SequentialProcessTest extends BaseSwarmTest {
             // Use dependent chain to avoid orderTasks issue
             List<Task> tasks = TestFixtures.createDependentTaskChain(3, seqAgent);
 
-            SwarmOutput output = seqProcess.execute(tasks, Map.of());
+            SwarmOutput output = seqProcess.execute(tasks, Map.of(), "test-swarm");
 
             // Final output comes from the last task in the chain
             assertNotNull(output.getFinalOutput());
@@ -215,7 +215,7 @@ class SequentialProcessTest extends BaseSwarmTest {
             // Single task avoids the duplicate queue issue in orderTasks algorithm
             Task task = createTask(agent);
 
-            SwarmOutput output = process.execute(List.of(task), Map.of());
+            SwarmOutput output = process.execute(List.of(task), Map.of(), "test-swarm");
 
             assertEquals(1, output.getTaskOutputs().size());
             assertTrue(output.isSuccessful());
@@ -246,7 +246,7 @@ class SequentialProcessTest extends BaseSwarmTest {
                     .build();
 
             // Pass in wrong order
-            SwarmOutput output = process.execute(List.of(task1, task2, task3), Map.of());
+            SwarmOutput output = process.execute(List.of(task1, task2, task3), Map.of(), "test-swarm");
 
             // Should be reordered: task3 -> task2 -> task1
             assertEquals(3, output.getTaskOutputs().size());
@@ -264,7 +264,7 @@ class SequentialProcessTest extends BaseSwarmTest {
         @DisplayName("throws exception with empty list")
         void validateTasks_withEmptyList_throwsException() {
             RuntimeException exception = assertThrows(RuntimeException.class, () ->
-                    process.execute(Collections.emptyList(), Map.of()));
+                    process.execute(Collections.emptyList(), Map.of(), "test-swarm"));
 
             String message = exception.getMessage() != null ? exception.getMessage() : "";
             Throwable cause = exception.getCause();
@@ -285,7 +285,7 @@ class SequentialProcessTest extends BaseSwarmTest {
                     .build();
 
             RuntimeException exception = assertThrows(RuntimeException.class, () ->
-                    process.execute(List.of(task), Map.of()));
+                    process.execute(List.of(task), Map.of(), "test-swarm"));
 
             String message = exception.getMessage() != null ? exception.getMessage() : "";
             Throwable cause = exception.getCause();
@@ -304,7 +304,7 @@ class SequentialProcessTest extends BaseSwarmTest {
             Task taskWithoutAgent = TestFixtures.createTestTaskWithoutAgent();
 
             RuntimeException exception = assertThrows(RuntimeException.class, () ->
-                    emptyProcess.execute(List.of(taskWithoutAgent), Map.of()));
+                    emptyProcess.execute(List.of(taskWithoutAgent), Map.of(), "test-swarm"));
 
             String message = exception.getMessage() != null ? exception.getMessage() : "";
             Throwable cause = exception.getCause();
@@ -345,7 +345,7 @@ class SequentialProcessTest extends BaseSwarmTest {
             Task task = createTask(failingAgent);
 
             assertThrows(RuntimeException.class, () ->
-                    failingProcess.execute(List.of(task), Map.of()));
+                    failingProcess.execute(List.of(task), Map.of(), "test-swarm"));
 
             assertEventPublished(SwarmEvent.Type.PROCESS_FAILED);
         }
@@ -361,7 +361,7 @@ class SequentialProcessTest extends BaseSwarmTest {
             Task task = createTask(failingAgent);
 
             assertThrows(RuntimeException.class, () ->
-                    failingProcess.execute(List.of(task), Map.of()));
+                    failingProcess.execute(List.of(task), Map.of(), "test-swarm"));
 
             assertEventPublished(SwarmEvent.Type.PROCESS_FAILED);
         }

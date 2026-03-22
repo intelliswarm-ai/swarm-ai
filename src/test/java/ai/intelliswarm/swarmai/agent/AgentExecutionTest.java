@@ -145,7 +145,7 @@ class AgentExecutionTest extends BaseSwarmTest {
         @Test
         @DisplayName("extracts summary from long response")
         void executeTask_extractsSummaryFromLongResponse() {
-            String longResponse = "x".repeat(200);
+            String longResponse = "x".repeat(500);
             ChatClient client = chatClientWithResponse(longResponse);
             Agent agent = TestFixtures.createTestAgent(client);
             Task task = createTask(agent);
@@ -153,7 +153,7 @@ class AgentExecutionTest extends BaseSwarmTest {
             TaskOutput output = agent.executeTask(task, Collections.emptyList());
 
             assertNotNull(output.getSummary());
-            assertTrue(output.getSummary().length() <= 100);
+            assertTrue(output.getSummary().length() <= 200);
             assertTrue(output.getSummary().endsWith("..."));
         }
 

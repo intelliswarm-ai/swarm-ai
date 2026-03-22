@@ -199,7 +199,7 @@ class ErrorHandlingTest extends BaseSwarmTest {
             SequentialProcess process = new SequentialProcess(List.of(agent), mockEventPublisher);
 
             RuntimeException exception = assertThrows(RuntimeException.class, () ->
-                    process.execute(List.of(task1, task2), Map.of()));
+                    process.execute(List.of(task1, task2), Map.of(), "test-swarm"));
 
             // Check that the exception or its cause mentions circular dependency
             String message = exception.getMessage() != null ? exception.getMessage() : "";
@@ -224,7 +224,7 @@ class ErrorHandlingTest extends BaseSwarmTest {
             SequentialProcess process = new SequentialProcess(List.of(agent), mockEventPublisher);
 
             RuntimeException exception = assertThrows(RuntimeException.class, () ->
-                    process.execute(List.of(task), Map.of()));
+                    process.execute(List.of(task), Map.of(), "test-swarm"));
 
             // Check that the exception or its cause mentions non-existent/missing dependency
             String message = exception.getMessage() != null ? exception.getMessage() : "";
