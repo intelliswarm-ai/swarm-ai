@@ -75,22 +75,37 @@ BASE_EXCLUDES="org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfigu
 BASE_EXCLUDES="$BASE_EXCLUDES,org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration"
 BASE_EXCLUDES="$BASE_EXCLUDES,org.springframework.boot.autoconfigure.data.jpa.JpaRepositoriesAutoConfiguration"
 BASE_EXCLUDES="$BASE_EXCLUDES,org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration"
+# Vector store excludes (both M4 and GA class names)
 BASE_EXCLUDES="$BASE_EXCLUDES,org.springframework.ai.autoconfigure.vectorstore.chroma.ChromaVectorStoreAutoConfiguration"
 BASE_EXCLUDES="$BASE_EXCLUDES,org.springframework.ai.autoconfigure.vectorstore.pgvector.PgVectorStoreAutoConfiguration"
+BASE_EXCLUDES="$BASE_EXCLUDES,org.springframework.ai.model.chroma.autoconfigure.ChromaVectorStoreAutoConfiguration"
+BASE_EXCLUDES="$BASE_EXCLUDES,org.springframework.ai.model.pgvector.autoconfigure.PgVectorStoreAutoConfiguration"
+BASE_EXCLUDES="$BASE_EXCLUDES,org.springframework.ai.vectorstore.chroma.autoconfigure.ChromaVectorStoreAutoConfiguration"
+BASE_EXCLUDES="$BASE_EXCLUDES,org.springframework.ai.vectorstore.pgvector.autoconfigure.PgVectorStoreAutoConfiguration"
 
 # Exclude unused LLM providers (Spring AI needs exactly one ChatModel bean)
+# Include both old (M4) and new (GA) class name patterns for compatibility
 if [ -n "$OPENAI_API_KEY" ] && [ "$OPENAI_API_KEY" != "" ]; then
     SPRING_ARGS="$SPRING_ARGS --spring.ai.openai.api-key=$OPENAI_API_KEY"
     SPRING_ARGS="$SPRING_ARGS --spring.ai.openai.chat.options.model=${OPENAI_MODEL:-gpt-4o-mini}"
-    PROVIDER_EXCLUDES="org.springframework.ai.autoconfigure.anthropic.AnthropicAutoConfiguration,org.springframework.ai.autoconfigure.ollama.OllamaAutoConfiguration"
+    PROVIDER_EXCLUDES="org.springframework.ai.autoconfigure.anthropic.AnthropicAutoConfiguration"
+    PROVIDER_EXCLUDES="$PROVIDER_EXCLUDES,org.springframework.ai.autoconfigure.ollama.OllamaAutoConfiguration"
+    PROVIDER_EXCLUDES="$PROVIDER_EXCLUDES,org.springframework.ai.model.anthropic.autoconfigure.AnthropicChatAutoConfiguration"
+    PROVIDER_EXCLUDES="$PROVIDER_EXCLUDES,org.springframework.ai.model.ollama.autoconfigure.OllamaChatAutoConfiguration"
 elif [ -n "$ANTHROPIC_API_KEY" ] && [ "$ANTHROPIC_API_KEY" != "" ]; then
     SPRING_ARGS="$SPRING_ARGS --spring.ai.anthropic.api-key=$ANTHROPIC_API_KEY"
     SPRING_ARGS="$SPRING_ARGS --spring.ai.anthropic.chat.options.model=${ANTHROPIC_MODEL:-claude-3-sonnet-20240229}"
-    PROVIDER_EXCLUDES="org.springframework.ai.autoconfigure.openai.OpenAiAutoConfiguration,org.springframework.ai.autoconfigure.ollama.OllamaAutoConfiguration"
+    PROVIDER_EXCLUDES="org.springframework.ai.autoconfigure.openai.OpenAiAutoConfiguration"
+    PROVIDER_EXCLUDES="$PROVIDER_EXCLUDES,org.springframework.ai.autoconfigure.ollama.OllamaAutoConfiguration"
+    PROVIDER_EXCLUDES="$PROVIDER_EXCLUDES,org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration"
+    PROVIDER_EXCLUDES="$PROVIDER_EXCLUDES,org.springframework.ai.model.ollama.autoconfigure.OllamaChatAutoConfiguration"
 elif [ -n "$OLLAMA_BASE_URL" ] && [ "$OLLAMA_BASE_URL" != "" ]; then
     SPRING_ARGS="$SPRING_ARGS --spring.ai.ollama.base-url=$OLLAMA_BASE_URL"
     SPRING_ARGS="$SPRING_ARGS --spring.ai.ollama.chat.options.model=${OLLAMA_MODEL:-llama3.2}"
-    PROVIDER_EXCLUDES="org.springframework.ai.autoconfigure.openai.OpenAiAutoConfiguration,org.springframework.ai.autoconfigure.anthropic.AnthropicAutoConfiguration"
+    PROVIDER_EXCLUDES="org.springframework.ai.autoconfigure.openai.OpenAiAutoConfiguration"
+    PROVIDER_EXCLUDES="$PROVIDER_EXCLUDES,org.springframework.ai.autoconfigure.anthropic.AnthropicAutoConfiguration"
+    PROVIDER_EXCLUDES="$PROVIDER_EXCLUDES,org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration"
+    PROVIDER_EXCLUDES="$PROVIDER_EXCLUDES,org.springframework.ai.model.anthropic.autoconfigure.AnthropicChatAutoConfiguration"
 fi
 
 EXCLUDE_LIST="$BASE_EXCLUDES,$PROVIDER_EXCLUDES"

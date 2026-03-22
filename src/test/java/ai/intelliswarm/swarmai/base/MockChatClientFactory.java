@@ -27,9 +27,9 @@ public class MockChatClientFactory {
         Generation generation = new Generation(message);
 
         Usage usage = mock(Usage.class);
-        when(usage.getPromptTokens()).thenReturn(100L);
-        when(usage.getGenerationTokens()).thenReturn(50L);
-        when(usage.getTotalTokens()).thenReturn(150L);
+        when(usage.getPromptTokens()).thenReturn(100);
+        when(usage.getCompletionTokens()).thenReturn(50);
+        when(usage.getTotalTokens()).thenReturn(150);
 
         ChatResponseMetadata metadata = mock(ChatResponseMetadata.class);
         when(metadata.getUsage()).thenReturn(usage);
@@ -51,23 +51,23 @@ public class MockChatClientFactory {
         when(mockClient.prompt().system(anyString()).user(anyString())
                 .call().chatResponse()).thenReturn(chatResponse);
         when(mockClient.prompt().system(anyString()).user(anyString())
-                .functions(any(String[].class)).call().chatResponse()).thenReturn(chatResponse);
+                .toolNames(any(String[].class)).call().chatResponse()).thenReturn(chatResponse);
 
         // user(u).call().chatResponse() (backward compat)
         when(mockClient.prompt().user(anyString())
                 .call().chatResponse()).thenReturn(chatResponse);
         when(mockClient.prompt().user(anyString())
-                .functions(any(String[].class)).call().chatResponse()).thenReturn(chatResponse);
+                .toolNames(any(String[].class)).call().chatResponse()).thenReturn(chatResponse);
 
         // Also mock .content() for any code that still uses it
         when(mockClient.prompt().system(anyString()).user(anyString())
                 .call().content()).thenReturn(response);
         when(mockClient.prompt().system(anyString()).user(anyString())
-                .functions(any(String[].class)).call().content()).thenReturn(response);
+                .toolNames(any(String[].class)).call().content()).thenReturn(response);
         when(mockClient.prompt().user(anyString())
                 .call().content()).thenReturn(response);
         when(mockClient.prompt().user(anyString())
-                .functions(any(String[].class)).call().content()).thenReturn(response);
+                .toolNames(any(String[].class)).call().content()).thenReturn(response);
 
         return mockClient;
     }
@@ -92,11 +92,11 @@ public class MockChatClientFactory {
         when(mockClient.prompt().system(anyString()).user(anyString())
                 .call().chatResponse()).thenAnswer(responseAnswer);
         when(mockClient.prompt().system(anyString()).user(anyString())
-                .functions(any(String[].class)).call().chatResponse()).thenAnswer(responseAnswer);
+                .toolNames(any(String[].class)).call().chatResponse()).thenAnswer(responseAnswer);
         when(mockClient.prompt().user(anyString())
                 .call().chatResponse()).thenAnswer(responseAnswer);
         when(mockClient.prompt().user(anyString())
-                .functions(any(String[].class)).call().chatResponse()).thenAnswer(responseAnswer);
+                .toolNames(any(String[].class)).call().chatResponse()).thenAnswer(responseAnswer);
 
         // Also mock .content() for backward compat
         AtomicInteger contentCount = new AtomicInteger(0);
@@ -107,11 +107,11 @@ public class MockChatClientFactory {
         when(mockClient.prompt().system(anyString()).user(anyString())
                 .call().content()).thenAnswer(contentAnswer);
         when(mockClient.prompt().system(anyString()).user(anyString())
-                .functions(any(String[].class)).call().content()).thenAnswer(contentAnswer);
+                .toolNames(any(String[].class)).call().content()).thenAnswer(contentAnswer);
         when(mockClient.prompt().user(anyString())
                 .call().content()).thenAnswer(contentAnswer);
         when(mockClient.prompt().user(anyString())
-                .functions(any(String[].class)).call().content()).thenAnswer(contentAnswer);
+                .toolNames(any(String[].class)).call().content()).thenAnswer(contentAnswer);
 
         return mockClient;
     }
@@ -125,11 +125,11 @@ public class MockChatClientFactory {
         when(mockClient.prompt().system(anyString()).user(anyString())
                 .call().chatResponse()).thenThrow(exception);
         when(mockClient.prompt().system(anyString()).user(anyString())
-                .functions(any(String[].class)).call().chatResponse()).thenThrow(exception);
+                .toolNames(any(String[].class)).call().chatResponse()).thenThrow(exception);
         when(mockClient.prompt().user(anyString())
                 .call().chatResponse()).thenThrow(exception);
         when(mockClient.prompt().user(anyString())
-                .functions(any(String[].class)).call().chatResponse()).thenThrow(exception);
+                .toolNames(any(String[].class)).call().chatResponse()).thenThrow(exception);
 
         // Also for .content()
         when(mockClient.prompt().system(anyString()).user(anyString())
@@ -159,11 +159,11 @@ public class MockChatClientFactory {
         when(mockClient.prompt().system(anyString()).user(anyString())
                 .call().chatResponse()).thenAnswer(delayedAnswer);
         when(mockClient.prompt().system(anyString()).user(anyString())
-                .functions(any(String[].class)).call().chatResponse()).thenAnswer(delayedAnswer);
+                .toolNames(any(String[].class)).call().chatResponse()).thenAnswer(delayedAnswer);
         when(mockClient.prompt().user(anyString())
                 .call().chatResponse()).thenAnswer(delayedAnswer);
         when(mockClient.prompt().user(anyString())
-                .functions(any(String[].class)).call().chatResponse()).thenAnswer(delayedAnswer);
+                .toolNames(any(String[].class)).call().chatResponse()).thenAnswer(delayedAnswer);
 
         return mockClient;
     }
@@ -198,11 +198,11 @@ public class MockChatClientFactory {
                 when(mockClient.prompt().system(anyString()).user(anyString())
                         .call().chatResponse()).thenAnswer(answer);
                 when(mockClient.prompt().system(anyString()).user(anyString())
-                        .functions(any(String[].class)).call().chatResponse()).thenAnswer(answer);
+                        .toolNames(any(String[].class)).call().chatResponse()).thenAnswer(answer);
                 when(mockClient.prompt().user(anyString())
                         .call().chatResponse()).thenAnswer(answer);
                 when(mockClient.prompt().user(anyString())
-                        .functions(any(String[].class)).call().chatResponse()).thenAnswer(answer);
+                        .toolNames(any(String[].class)).call().chatResponse()).thenAnswer(answer);
             } catch (Exception e) {
                 // Ignore mock setup errors
             }

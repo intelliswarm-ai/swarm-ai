@@ -79,6 +79,9 @@ application-*.properties
 crewAI-examples/
 crewAI/
 
+# Internal docs (commercial analysis, roadmap)
+docs/
+
 # Local configuration and secrets
 *.env
 .env.local

@@ -12,7 +12,6 @@ package ai.intelliswarm.swarmai.examples.research.config;
 import ai.intelliswarm.swarmai.examples.research.tools.DataAnalysisTool;
 import ai.intelliswarm.swarmai.examples.research.tools.ReportGeneratorTool;
 import ai.intelliswarm.swarmai.examples.research.tools.WebSearchTool;
-import org.springframework.ai.model.function.FunctionCallback;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Description;

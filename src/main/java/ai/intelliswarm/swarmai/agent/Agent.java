@@ -126,7 +126,7 @@ public class Agent {
                     .user(userPrompt);
 
             if (!tools.isEmpty()) {
-                requestBuilder.functions(tools.stream()
+                requestBuilder.toolNames(tools.stream()
                     .map(BaseTool::getFunctionName)
                     .toArray(String[]::new));
             }
@@ -136,16 +136,16 @@ public class Agent {
             ChatResponse chatResponse = callWithRetry(
                     () -> requestBuilder.call().chatResponse(), DEFAULT_MAX_RETRIES, timeoutMs);
 
-            String response = chatResponse.getResult().getOutput().getContent();
+            String response = chatResponse.getResult().getOutput().getText();
             long executionTimeMs = System.currentTimeMillis() - startTime;
 
-            // Extract token usage
+            // Extract token usage (API returns Long in some versions, Integer in others)
             Long promptTokens = null, completionTokens = null, totalTokens = null;
             if (chatResponse.getMetadata() != null && chatResponse.getMetadata().getUsage() != null) {
                 var usage = chatResponse.getMetadata().getUsage();
-                promptTokens = usage.getPromptTokens();
-                completionTokens = usage.getGenerationTokens();
-                totalTokens = usage.getTotalTokens();
+                promptTokens = toLong(usage.getPromptTokens());
+                completionTokens = toLong(usage.getCompletionTokens());
+                totalTokens = toLong(usage.getTotalTokens());
             }
 
             // Save result to memory for future context
@@ -311,6 +311,13 @@ public class Agent {
             return text;
         }
         return text.substring(0, maxLength - 3) + "...";
+    }
+
+    private static Long toLong(Object value) {
+        if (value == null) return null;
+        if (value instanceof Long l) return l;
+        if (value instanceof Number n) return n.longValue();
+        return null;
     }
 
     private synchronized void incrementExecutionCount() {
