@@ -96,11 +96,13 @@ fi
 EXCLUDE_LIST="$BASE_EXCLUDES,$PROVIDER_EXCLUDES"
 
 # Run the workflow
+# Spring args go first, then '--' separator, then workflow type and user args
+# This prevents Spring args from leaking into the workflow query
 java -Xmx2g -jar target/swarmai-framework-*.jar \
-    $WORKFLOW $ARGS \
     $SPRING_ARGS \
     --spring.profiles.active=run \
-    --spring.autoconfigure.exclude=$EXCLUDE_LIST
+    --spring.autoconfigure.exclude=$EXCLUDE_LIST \
+    $WORKFLOW $ARGS
 
 echo ""
 echo "=========================================="

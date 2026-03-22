@@ -29,14 +29,21 @@ public class SwarmAIWorkflowRunner implements CommandLineRunner {
     
     @Override
     public void run(String... args) throws Exception {
-        if (args.length == 0) {
+        // Filter out Spring Boot args (--spring.*, --logging.*, etc.)
+        java.util.List<String> filteredArgs = new java.util.ArrayList<>();
+        for (String arg : args) {
+            if (!arg.startsWith("--spring.") && !arg.startsWith("--logging.")) {
+                filteredArgs.add(arg);
+            }
+        }
+
+        if (filteredArgs.isEmpty()) {
             showUsage();
             return;
         }
-        
-        String workflowType = args[0].toLowerCase();
-        String[] workflowArgs = new String[Math.max(0, args.length - 1)];
-        System.arraycopy(args, 1, workflowArgs, 0, workflowArgs.length);
+
+        String workflowType = filteredArgs.get(0).toLowerCase();
+        String[] workflowArgs = filteredArgs.subList(1, filteredArgs.size()).toArray(new String[0]);
         
         switch (workflowType) {
             case "competitive-analysis":

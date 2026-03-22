@@ -31,7 +31,7 @@ public class DataAnalysisTool implements BaseTool {
 
     @Override
     public String getFunctionName() {
-        return "analyze_data";
+        return "data_analysis";
     }
 
     @Override

@@ -10,17 +10,10 @@
 #      # Stock analysis for a specific ticker
 #      docker compose -f docker-compose.run.yml run --rm stock-analysis TSLA
 #
-#      # Competitive analysis
-#      docker compose -f docker-compose.run.yml run --rm competitive-analysis
+#      # Research with custom query
+#      docker compose -f docker-compose.run.yml run --rm research "how will OpenClaw affect enterprise automation in 2026"
 
 services:
-  # Base build (shared across all run targets)
-  app-base:
-    build:
-      context: .
-      dockerfile: Dockerfile.run
-    profiles: ["never"]  # Never started directly
-
   stock-analysis:
     build:
       context: .
@@ -33,7 +26,7 @@ services:
     stdin_open: true
     tty: true
 
-  competitive-analysis:
+  research:
     build:
       context: .
       dockerfile: Dockerfile.run

@@ -32,7 +32,7 @@ public class ReportGeneratorTool implements BaseTool {
 
     @Override
     public String getFunctionName() {
-        return "generate_report";
+        return "report_generator";
     }
 
     @Override

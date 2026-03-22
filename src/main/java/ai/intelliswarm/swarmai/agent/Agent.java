@@ -211,6 +211,10 @@ public class Agent {
         system.append("You are ").append(role).append(".\n");
         system.append("Your goal is: ").append(goal).append("\n");
         system.append("Your backstory: ").append(backstory).append("\n");
+
+        // Date awareness
+        system.append("\nToday's date is: ").append(java.time.LocalDate.now()).append("\n");
+
         if (!tools.isEmpty()) {
             system.append("\nYou have access to the following tools: ");
             tools.forEach(tool -> system.append(tool.getFunctionName()).append(" (")
@@ -218,6 +222,21 @@ public class Agent {
             system.setLength(system.length() - 2); // remove trailing ", "
             system.append("\n");
         }
+
+        // Anti-hallucination guardrails
+        system.append("\nCRITICAL RULES YOU MUST FOLLOW:\n");
+        system.append("1. NEVER fabricate data, statistics, scores, or company information. " +
+                "If you don't have data, explicitly state: \"DATA NOT AVAILABLE\" or \"NO INFORMATION FOUND\".\n");
+        system.append("2. If a tool search returns no useful results, report that the search found nothing " +
+                "rather than inventing information. Say: \"Search returned no relevant results for [topic]\".\n");
+        system.append("3. Distinguish between facts you are confident about and estimates/opinions. " +
+                "Mark facts as [CONFIRMED] and estimates as [ESTIMATE].\n");
+        system.append("4. If the topic you are asked about does not exist or you have no knowledge of it, " +
+                "say so clearly: \"No public information found about [topic]. This may be a pre-announcement, " +
+                "internal codename, or misspelling.\"\n");
+        system.append("5. Use today's date for any timelines or recommendations. Do not reference past dates " +
+                "as future actions.\n");
+
         return system.toString();
     }
 
