@@ -10,6 +10,7 @@
 package ai.intelliswarm.swarmai;
 
 import ai.intelliswarm.swarmai.examples.duediligence.DueDiligenceWorkflow;
+import ai.intelliswarm.swarmai.examples.mcpresearch.McpResearchWorkflow;
 import ai.intelliswarm.swarmai.examples.research.CompetitiveAnalysisWorkflow;
 import ai.intelliswarm.swarmai.examples.stock.StockAnalysisWorkflow;
 import org.springframework.boot.CommandLineRunner;
@@ -21,14 +22,17 @@ public class SwarmAIWorkflowRunner implements CommandLineRunner {
     private final CompetitiveAnalysisWorkflow competitiveAnalysisWorkflow;
     private final StockAnalysisWorkflow stockAnalysisWorkflow;
     private final DueDiligenceWorkflow dueDiligenceWorkflow;
+    private final McpResearchWorkflow mcpResearchWorkflow;
 
     public SwarmAIWorkflowRunner(
             CompetitiveAnalysisWorkflow competitiveAnalysisWorkflow,
             StockAnalysisWorkflow stockAnalysisWorkflow,
-            DueDiligenceWorkflow dueDiligenceWorkflow) {
+            DueDiligenceWorkflow dueDiligenceWorkflow,
+            McpResearchWorkflow mcpResearchWorkflow) {
         this.competitiveAnalysisWorkflow = competitiveAnalysisWorkflow;
         this.stockAnalysisWorkflow = stockAnalysisWorkflow;
         this.dueDiligenceWorkflow = dueDiligenceWorkflow;
+        this.mcpResearchWorkflow = mcpResearchWorkflow;
     }
 
     @Override
@@ -59,6 +63,9 @@ public class SwarmAIWorkflowRunner implements CommandLineRunner {
             case "due-diligence":
                 dueDiligenceWorkflow.run(workflowArgs);
                 break;
+            case "mcp-research":
+                mcpResearchWorkflow.run(workflowArgs);
+                break;
             default:
                 System.err.println("Unknown workflow type: " + workflowType);
                 showUsage();
@@ -76,11 +83,13 @@ public class SwarmAIWorkflowRunner implements CommandLineRunner {
         System.out.println("  stock-analysis <TICKER>     - Financial stock analysis (default: AAPL)");
         System.out.println("  competitive-analysis <QUERY> - Multi-agent research on any topic");
         System.out.println("  due-diligence <TICKER>      - Comprehensive company due diligence");
+        System.out.println("  mcp-research <QUERY>        - Research using MCP tools (web fetch/search)");
         System.out.println();
         System.out.println("Examples:");
         System.out.println("  java -jar swarmai-framework.jar stock-analysis TSLA");
         System.out.println("  java -jar swarmai-framework.jar competitive-analysis \"AI trends 2026\"");
         System.out.println("  java -jar swarmai-framework.jar due-diligence MSFT");
+        System.out.println("  java -jar swarmai-framework.jar mcp-research \"AI agents in enterprise 2026\"");
         System.out.println();
     }
 }

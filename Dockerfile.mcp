@@ -1,0 +1,133 @@
+# Dockerfile.mcp - Build and run SwarmAI with MCP tool support
+# Includes Python + uv for running MCP servers via stdio transport
+FROM eclipse-temurin:21-jdk-alpine
+
+WORKDIR /app
+
+RUN apk add --no-cache bash curl python3 py3-pip
+
+# Install uv (Python package manager) for running MCP servers
+RUN pip3 install --break-system-packages uv
+
+# Install mcp-server-fetch via uv so it's available for stdio transport
+RUN uv tool install mcp-server-fetch || true
+
+# Ensure uvx is on PATH
+ENV PATH="/root/.local/bin:$PATH"
+
+# Copy Maven wrapper and pom.xml for dependency caching
+COPY mvnw ./
+COPY .mvn ./.mvn
+COPY pom.xml ./
+RUN chmod +x mvnw
+
+# Download dependencies (cached layer)
+RUN ./mvnw dependency:go-offline -B || true
+
+# Copy source code
+COPY src ./src
+
+# Build the JAR (skip tests)
+RUN ./mvnw clean package -DskipTests -B -q
+
+# Create output directory
+RUN mkdir -p /app/output
+
+# Copy entrypoint from Dockerfile.run
+COPY <<'ENTRYPOINT_SCRIPT' /app/entrypoint.sh
+#!/bin/bash
+set -e
+
+WORKFLOW="${WORKFLOW:-mcp-research}"
+ARGS="${@:-}"
+
+echo "=========================================="
+echo "  SwarmAI Framework - MCP Research"
+echo "=========================================="
+echo ""
+echo "  Workflow: $WORKFLOW"
+echo "  Args:     ${ARGS:-none}"
+echo ""
+
+# Detect LLM provider
+if [ -n "$OPENAI_API_KEY" ] && [ "$OPENAI_API_KEY" != "" ]; then
+    echo "  LLM Provider: OpenAI"
+    echo "  Model: ${OPENAI_MODEL:-gpt-4o-mini}"
+elif [ -n "$ANTHROPIC_API_KEY" ] && [ "$ANTHROPIC_API_KEY" != "" ]; then
+    echo "  LLM Provider: Anthropic"
+elif [ -n "$OLLAMA_BASE_URL" ] && [ "$OLLAMA_BASE_URL" != "" ]; then
+    echo "  LLM Provider: Ollama"
+else
+    echo "  ERROR: No LLM provider configured! Set OPENAI_API_KEY in .env"
+    exit 1
+fi
+
+# Check MCP tools
+if [ "$MCP_FETCH_ENABLED" = "true" ]; then
+    echo "  MCP Fetch: ENABLED (uvx mcp-server-fetch)"
+    # Verify uvx is available
+    if command -v uvx &> /dev/null; then
+        echo "  uvx: $(which uvx)"
+    else
+        echo "  WARNING: uvx not found, MCP tools will not work"
+    fi
+else
+    echo "  MCP Fetch: DISABLED"
+fi
+
+echo ""
+echo "=========================================="
+echo ""
+
+# Build Spring Boot args
+SPRING_ARGS=""
+
+BASE_EXCLUDES="org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration"
+BASE_EXCLUDES="$BASE_EXCLUDES,org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration"
+BASE_EXCLUDES="$BASE_EXCLUDES,org.springframework.boot.autoconfigure.data.jpa.JpaRepositoriesAutoConfiguration"
+BASE_EXCLUDES="$BASE_EXCLUDES,org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration"
+BASE_EXCLUDES="$BASE_EXCLUDES,org.springframework.ai.autoconfigure.vectorstore.chroma.ChromaVectorStoreAutoConfiguration"
+BASE_EXCLUDES="$BASE_EXCLUDES,org.springframework.ai.autoconfigure.vectorstore.pgvector.PgVectorStoreAutoConfiguration"
+BASE_EXCLUDES="$BASE_EXCLUDES,org.springframework.ai.vectorstore.chroma.autoconfigure.ChromaVectorStoreAutoConfiguration"
+BASE_EXCLUDES="$BASE_EXCLUDES,org.springframework.ai.vectorstore.pgvector.autoconfigure.PgVectorStoreAutoConfiguration"
+
+if [ -n "$OPENAI_API_KEY" ] && [ "$OPENAI_API_KEY" != "" ]; then
+    SPRING_ARGS="$SPRING_ARGS --spring.ai.openai.api-key=$OPENAI_API_KEY"
+    SPRING_ARGS="$SPRING_ARGS --spring.ai.openai.chat.options.model=${OPENAI_MODEL:-gpt-4o-mini}"
+    PROVIDER_EXCLUDES="org.springframework.ai.autoconfigure.anthropic.AnthropicAutoConfiguration"
+    PROVIDER_EXCLUDES="$PROVIDER_EXCLUDES,org.springframework.ai.autoconfigure.ollama.OllamaAutoConfiguration"
+    PROVIDER_EXCLUDES="$PROVIDER_EXCLUDES,org.springframework.ai.model.anthropic.autoconfigure.AnthropicChatAutoConfiguration"
+    PROVIDER_EXCLUDES="$PROVIDER_EXCLUDES,org.springframework.ai.model.ollama.autoconfigure.OllamaChatAutoConfiguration"
+elif [ -n "$ANTHROPIC_API_KEY" ] && [ "$ANTHROPIC_API_KEY" != "" ]; then
+    SPRING_ARGS="$SPRING_ARGS --spring.ai.anthropic.api-key=$ANTHROPIC_API_KEY"
+    SPRING_ARGS="$SPRING_ARGS --spring.ai.anthropic.chat.options.model=${ANTHROPIC_MODEL:-claude-3-sonnet-20240229}"
+    PROVIDER_EXCLUDES="org.springframework.ai.autoconfigure.openai.OpenAiAutoConfiguration"
+    PROVIDER_EXCLUDES="$PROVIDER_EXCLUDES,org.springframework.ai.autoconfigure.ollama.OllamaAutoConfiguration"
+    PROVIDER_EXCLUDES="$PROVIDER_EXCLUDES,org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration"
+    PROVIDER_EXCLUDES="$PROVIDER_EXCLUDES,org.springframework.ai.model.ollama.autoconfigure.OllamaChatAutoConfiguration"
+elif [ -n "$OLLAMA_BASE_URL" ] && [ "$OLLAMA_BASE_URL" != "" ]; then
+    SPRING_ARGS="$SPRING_ARGS --spring.ai.ollama.base-url=$OLLAMA_BASE_URL"
+    SPRING_ARGS="$SPRING_ARGS --spring.ai.ollama.chat.options.model=${OLLAMA_MODEL:-llama3.2}"
+    PROVIDER_EXCLUDES="org.springframework.ai.autoconfigure.openai.OpenAiAutoConfiguration"
+    PROVIDER_EXCLUDES="$PROVIDER_EXCLUDES,org.springframework.ai.autoconfigure.anthropic.AnthropicAutoConfiguration"
+    PROVIDER_EXCLUDES="$PROVIDER_EXCLUDES,org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration"
+    PROVIDER_EXCLUDES="$PROVIDER_EXCLUDES,org.springframework.ai.model.anthropic.autoconfigure.AnthropicChatAutoConfiguration"
+fi
+
+EXCLUDE_LIST="$BASE_EXCLUDES,$PROVIDER_EXCLUDES"
+
+java -Xmx2g -jar target/swarmai-framework-*.jar \
+    $SPRING_ARGS \
+    --spring.profiles.active=run \
+    --spring.autoconfigure.exclude=$EXCLUDE_LIST \
+    $WORKFLOW $ARGS
+
+echo ""
+echo "=========================================="
+echo "  MCP Research complete!"
+echo "=========================================="
+ENTRYPOINT_SCRIPT
+
+RUN chmod +x /app/entrypoint.sh
+
+ENTRYPOINT ["/app/entrypoint.sh"]

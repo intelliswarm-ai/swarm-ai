@@ -49,3 +49,18 @@ services:
       - ./output:/app/output
     stdin_open: true
     tty: true
+
+  mcp-research:
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp
+    env_file: .env
+    environment:
+      - WORKFLOW=mcp-research
+      - MCP_FETCH_ENABLED=${MCP_FETCH_ENABLED:-true}
+      - MCP_FETCH_CMD=uvx
+      - MCP_FETCH_ARGS=mcp-server-fetch
+    volumes:
+      - ./output:/app/output
+    stdin_open: true
+    tty: true

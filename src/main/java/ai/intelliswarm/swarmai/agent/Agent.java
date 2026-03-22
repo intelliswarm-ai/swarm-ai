@@ -4,6 +4,7 @@ import ai.intelliswarm.swarmai.config.ModelContextConfig;
 import ai.intelliswarm.swarmai.memory.Memory;
 import ai.intelliswarm.swarmai.knowledge.Knowledge;
 import ai.intelliswarm.swarmai.tool.base.BaseTool;
+import ai.intelliswarm.swarmai.tool.mcp.McpToolAdapter;
 import ai.intelliswarm.swarmai.task.Task;
 import ai.intelliswarm.swarmai.task.output.TaskOutput;
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -126,9 +127,41 @@ public class Agent {
                     .user(userPrompt);
 
             if (!tools.isEmpty()) {
-                requestBuilder.toolNames(tools.stream()
-                    .map(BaseTool::getFunctionName)
-                    .toArray(String[]::new));
+                // Split tools: Spring bean tools use toolNames(), MCP tools use toolCallbacks()
+                List<String> springToolNames = new ArrayList<>();
+                List<BaseTool> mcpTools = new ArrayList<>();
+
+                for (BaseTool tool : tools) {
+                    if (tool instanceof McpToolAdapter) {
+                        mcpTools.add(tool);
+                    } else {
+                        springToolNames.add(tool.getFunctionName());
+                    }
+                }
+
+                if (!springToolNames.isEmpty()) {
+                    requestBuilder.toolNames(springToolNames.toArray(new String[0]));
+                }
+
+                if (!mcpTools.isEmpty()) {
+                    // Register MCP tools as FunctionCallbacks using a record type for proper schema
+                    org.springframework.ai.tool.ToolCallback[] callbacks = mcpTools.stream()
+                            .map(tool -> org.springframework.ai.tool.function.FunctionToolCallback
+                                    .builder(tool.getFunctionName(),
+                                            (java.util.function.Function<McpToolInput, String>)
+                                                    input -> {
+                                                Map<String, Object> params = new HashMap<>();
+                                                if (input.url() != null) params.put("url", input.url());
+                                                if (input.query() != null) params.put("query", input.query());
+                                                if (input.input() != null) params.put("input", input.input());
+                                                return String.valueOf(tool.execute(params));
+                                            })
+                                    .description(tool.getDescription())
+                                    .inputType(McpToolInput.class)
+                                    .build())
+                            .toArray(org.springframework.ai.tool.ToolCallback[]::new);
+                    requestBuilder.toolCallbacks(callbacks);
+                }
             }
 
             // Call LLM with retry and timeout — capture full ChatResponse for token stats
@@ -311,6 +344,38 @@ public class Agent {
             return text;
         }
         return text.substring(0, maxLength - 3) + "...";
+    }
+
+    /**
+     * Generic input record for MCP tools. Covers common tool parameter patterns.
+     * Spring AI will generate a proper JSON schema from this record's fields.
+     */
+    public record McpToolInput(
+            @com.fasterxml.jackson.annotation.JsonProperty("url") String url,
+            @com.fasterxml.jackson.annotation.JsonProperty("query") String query,
+            @com.fasterxml.jackson.annotation.JsonProperty("input") String input
+    ) {}
+
+    private String buildToolInputSchema(BaseTool tool) {
+        // Try to get schema from the tool itself
+        Map<String, Object> schema = tool.getParameterSchema();
+        if (schema != null && !schema.isEmpty()) {
+            try {
+                return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(schema);
+            } catch (Exception e) {
+                logger.debug("Failed to serialize tool schema, using default");
+            }
+        }
+        // Default schema based on tool name — common MCP tools
+        String toolName = tool.getFunctionName();
+        return switch (toolName) {
+            case "fetch" -> """
+                {"type":"object","properties":{"url":{"type":"string","description":"URL to fetch"},"max_length":{"type":"integer","description":"Maximum content length","default":5000},"raw":{"type":"boolean","description":"Return raw content without conversion","default":false}},"required":["url"]}""";
+            case "brave_search" -> """
+                {"type":"object","properties":{"query":{"type":"string","description":"Search query"},"count":{"type":"integer","description":"Number of results","default":5}},"required":["query"]}""";
+            default -> """
+                {"type":"object","properties":{"input":{"type":"string","description":"Input for the tool"}},"required":["input"]}""";
+        };
     }
 
     private static Long toLong(Object value) {
