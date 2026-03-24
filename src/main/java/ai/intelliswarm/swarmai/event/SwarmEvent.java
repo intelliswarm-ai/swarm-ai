@@ -49,6 +49,12 @@ public class SwarmEvent extends ApplicationEvent {
         TASK_COMPLETED,
         TASK_FAILED,
         TASK_SKIPPED,
+
+        // Iteration Events
+        ITERATION_STARTED,
+        ITERATION_COMPLETED,
+        ITERATION_REVIEW_PASSED,
+        ITERATION_REVIEW_FAILED,
         
         // Agent Events
         AGENT_STARTED,

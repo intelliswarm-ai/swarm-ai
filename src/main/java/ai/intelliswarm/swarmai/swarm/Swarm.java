@@ -132,12 +132,22 @@ public class Swarm {
             case SEQUENTIAL -> new ai.intelliswarm.swarmai.process.SequentialProcess(agents, eventPublisher);
             case HIERARCHICAL -> new ai.intelliswarm.swarmai.process.HierarchicalProcess(agents, managerAgent, eventPublisher);
             case PARALLEL -> new ai.intelliswarm.swarmai.process.ParallelProcess(agents, eventPublisher);
+            case ITERATIVE -> {
+                int maxIter = config.containsKey("maxIterations") ? (int) config.get("maxIterations") : 3;
+                String criteria = config.containsKey("qualityCriteria") ? (String) config.get("qualityCriteria") : null;
+                yield new ai.intelliswarm.swarmai.process.IterativeProcess(
+                        agents, managerAgent, eventPublisher, maxIter, criteria);
+            }
         };
     }
 
     private void validateConfiguration() {
         if (processType == ProcessType.HIERARCHICAL && managerAgent == null) {
             throw new IllegalStateException("Manager agent is required for hierarchical process");
+        }
+
+        if (processType == ProcessType.ITERATIVE && managerAgent == null) {
+            throw new IllegalStateException("Manager agent (reviewer) is required for iterative process");
         }
 
         if (tasks.isEmpty()) {
