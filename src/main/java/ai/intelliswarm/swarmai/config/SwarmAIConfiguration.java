@@ -2,6 +2,7 @@ package ai.intelliswarm.swarmai.config;
 
 import ai.intelliswarm.swarmai.event.SwarmEvent;
 import ai.intelliswarm.swarmai.observability.config.ObservabilityProperties;
+import ai.intelliswarm.swarmai.observability.core.ObservabilityContext;
 import ai.intelliswarm.swarmai.observability.event.EnrichedSwarmEvent;
 import ai.intelliswarm.swarmai.observability.replay.EventStore;
 import org.slf4j.Logger;
@@ -13,6 +14,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
+
+import java.util.concurrent.ConcurrentHashMap;
 
 @Configuration
 public class SwarmAIConfiguration {
@@ -29,6 +32,11 @@ public class SwarmAIConfiguration {
 
         private final EventStore eventStore;
         private final ObservabilityProperties observabilityProperties;
+
+        // Map swarmId -> correlationId for cross-thread event correlation.
+        // When SWARM_STARTED fires on the main thread, the ObservabilityContext has
+        // the correlationId. Parallel task threads don't have it, so we look it up here.
+        private final ConcurrentHashMap<String, String> swarmToCorrelation = new ConcurrentHashMap<>();
 
         @Autowired
         public SwarmEventListener(
@@ -47,7 +55,32 @@ public class SwarmAIConfiguration {
             if (observabilityProperties != null && observabilityProperties.isReplayEnabled() && eventStore != null) {
                 try {
                     EnrichedSwarmEvent enrichedEvent = EnrichedSwarmEvent.fromSwarmEvent(event);
+
+                    // If the enriched event has a correlationId (main thread), cache the mapping
+                    if (enrichedEvent.getCorrelationId() != null && event.getSwarmId() != null) {
+                        swarmToCorrelation.put(event.getSwarmId(), enrichedEvent.getCorrelationId());
+                    }
+
+                    // If correlationId is missing (parallel thread), look it up from the cache
+                    if (enrichedEvent.getCorrelationId() == null && event.getSwarmId() != null) {
+                        String cachedCorrelation = swarmToCorrelation.get(event.getSwarmId());
+                        if (cachedCorrelation != null) {
+                            enrichedEvent = EnrichedSwarmEvent.builder(
+                                    event.getSource(), event.getType(), event.getMessage())
+                                    .swarmId(event.getSwarmId())
+                                    .baseMetadata(event.getMetadata())
+                                    .correlationId(cachedCorrelation)
+                                    .build();
+                        }
+                    }
+
                     eventStore.store(enrichedEvent);
+
+                    // Cleanup on swarm completion
+                    if ("SWARM_COMPLETED".equals(event.getType().name()) ||
+                            "SWARM_FAILED".equals(event.getType().name())) {
+                        swarmToCorrelation.remove(event.getSwarmId());
+                    }
                 } catch (Exception e) {
                     logger.debug("Failed to store enriched event: {}", e.getMessage());
                 }

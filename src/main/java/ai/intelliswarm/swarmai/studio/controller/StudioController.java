@@ -134,7 +134,10 @@ public class StudioController {
 
         Optional<DecisionTree> treeOpt = decisionTracer.getDecisionTree(correlationId);
         if (treeOpt.isEmpty()) {
-            return ResponseEntity.notFound().build();
+            return ResponseEntity.ok(Map.of(
+                    "available", false,
+                    "message", "No decision tree found for this workflow"
+            ));
         }
 
         return ResponseEntity.ok(treeOpt.get().toMap());

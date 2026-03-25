@@ -14,15 +14,12 @@
 
     <link rel="icon" href="/studio/img/logo.png" type="image/png">
     <script>
+        // Suppress harmless ResizeObserver warnings
         window.onerror = function(msg, url, line, col, err) {
-            var el = document.getElementById('mainContent');
-            if (el) el.innerHTML = '<pre style="color:#ef5350;padding:20px;font-size:14px;">JS ERROR: ' + msg + '\nFile: ' + url + ':' + line + ':' + col + '\n' + (err ? err.stack : '') + '</pre>';
+            if (msg && msg.toString().includes('ResizeObserver')) return true;
+            console.error('JS Error:', msg, url, line);
             return false;
         };
-        window.addEventListener('unhandledrejection', function(event) {
-            var el = document.getElementById('mainContent');
-            if (el) el.innerHTML = '<pre style="color:#ef5350;padding:20px;font-size:14px;">PROMISE ERROR: ' + event.reason + '\n' + (event.reason && event.reason.stack ? event.reason.stack : '') + '</pre>';
-        });
     </script>
 </head>
 <body>
