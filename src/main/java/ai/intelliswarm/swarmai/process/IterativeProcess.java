@@ -31,7 +31,7 @@ import java.util.stream.Collectors;
  * to signal the verdict. Any feedback below the verdict is passed back as context
  * for the next iteration.
  *
- * Inspired by patterns from LangGraph (cycles), CrewAI (feedback loops),
+ * Inspired by cyclic workflow patterns, feedback loops,
  * and AutoGen (iterative refinement with critic agents).
  */
 public class IterativeProcess implements Process {

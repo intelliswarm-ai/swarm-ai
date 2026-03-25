@@ -44,6 +44,10 @@ swarmai:
     enabled: true
     export-interval: 30000
 
+  # Studio Web UI for runtime inspection
+  studio:
+    enabled: ${SWARMAI_STUDIO_ENABLED:true}
+
   # Observability configuration for debugging
   observability:
     enabled: true

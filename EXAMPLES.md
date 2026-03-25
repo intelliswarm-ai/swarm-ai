@@ -33,7 +33,7 @@ docker compose -f docker-compose.run.yml run --rm iterative-memo NVDA 3
 
 ## Iterative Investment Memo (NEW)
 
-Demonstrates the **ITERATIVE** process type — a cyclic workflow inspired by LangGraph, where agents execute tasks, a reviewer evaluates quality, and the loop repeats with specific feedback.
+Demonstrates the **ITERATIVE** process type — a cyclic workflow where agents execute tasks, a reviewer evaluates quality, and the loop repeats with specific feedback until approved.
 
 ### How It Works
 

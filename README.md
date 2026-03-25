@@ -28,7 +28,7 @@ Built on Spring AI 1.0.4 GA and Spring Boot 3.4. Inspired by CrewAI, designed fo
 
 **3. Parallel Process** — Independent tasks run concurrently with automatic dependency resolution. A 4-task due diligence workflow completes in 36 seconds instead of 112 seconds.
 
-**5. Iterative Refinement** — Tasks execute, a reviewer agent evaluates output against a quality rubric, and the loop repeats with feedback until approved. Like LangGraph cycles, but with a structured review protocol.
+**5. Iterative Refinement** — Tasks execute, a reviewer agent evaluates output against a quality rubric, and the loop repeats with feedback until approved. Cyclic workflows with a structured review protocol.
 
 **4. MCP Protocol** — Connect to any MCP-compatible tool server via stdio transport. Agents automatically discover and use external tools (web fetch, search, databases).
 

@@ -14,11 +14,19 @@ import ai.intelliswarm.swarmai.examples.iterative.IterativeInvestmentMemoWorkflo
 import ai.intelliswarm.swarmai.examples.mcpresearch.McpResearchWorkflow;
 import ai.intelliswarm.swarmai.examples.research.CompetitiveAnalysisWorkflow;
 import ai.intelliswarm.swarmai.examples.stock.StockAnalysisWorkflow;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
 
 @Component
 public class SwarmAIWorkflowRunner implements CommandLineRunner {
+
+    private static final Logger logger = LoggerFactory.getLogger(SwarmAIWorkflowRunner.class);
+
+    @Value("${swarmai.studio.enabled:false}")
+    private boolean studioEnabled;
 
     private final CompetitiveAnalysisWorkflow competitiveAnalysisWorkflow;
     private final StockAnalysisWorkflow stockAnalysisWorkflow;
@@ -77,6 +85,19 @@ public class SwarmAIWorkflowRunner implements CommandLineRunner {
                 System.err.println("Unknown workflow type: " + workflowType);
                 showUsage();
                 System.exit(1);
+        }
+
+        // When Studio is enabled, keep the server alive so users can inspect results
+        if (studioEnabled) {
+            logger.info("");
+            logger.info("==========================================================");
+            logger.info("  SwarmAI Studio is running at: http://localhost:8080/studio");
+            logger.info("  Workflow complete. Inspect results in the Studio UI.");
+            logger.info("  Press Ctrl+C to stop the server.");
+            logger.info("==========================================================");
+            logger.info("");
+            // Block the CommandLineRunner thread — the web server stays alive on its own threads
+            Thread.currentThread().join();
         }
     }
 

@@ -2,19 +2,22 @@
 #
 # QUICK START:
 #   1. Copy .env.example to .env and add your API key
-#   2. Run a workflow:
+#   2. Run a workflow (Studio UI stays alive after completion):
 #
 #      # Stock analysis (PARALLEL — 3 agents analyze simultaneously)
-#      docker compose -f docker-compose.run.yml run --rm stock-analysis TSLA
+#      docker compose -f docker-compose.run.yml run --rm --service-ports stock-analysis TSLA
 #
 #      # Research with custom query (HIERARCHICAL — manager + 4 specialists)
-#      docker compose -f docker-compose.run.yml run --rm research "AI trends in 2026"
+#      docker compose -f docker-compose.run.yml run --rm --service-ports research "AI trends in 2026"
 #
 #      # Due diligence (PARALLEL — financial + news + legal streams)
-#      docker compose -f docker-compose.run.yml run --rm due-diligence MSFT
+#      docker compose -f docker-compose.run.yml run --rm --service-ports due-diligence MSFT
 #
 #      # Iterative memo (ITERATIVE — execute → review → refine loop)
-#      docker compose -f docker-compose.run.yml run --rm iterative-memo NVDA 3
+#      docker compose -f docker-compose.run.yml run --rm --service-ports iterative-memo NVDA 3
+#
+#   3. Open Studio UI: http://localhost:8080/studio
+#      The server stays alive after the workflow completes so you can inspect results.
 
 services:
   stock-analysis:
@@ -24,6 +27,8 @@ services:
     env_file: .env
     environment:
       - WORKFLOW=stock-analysis
+    ports:
+      - "8080:8080"
     volumes:
       - ./output:/app/output
     stdin_open: true
@@ -36,6 +41,8 @@ services:
     env_file: .env
     environment:
       - WORKFLOW=competitive-analysis
+    ports:
+      - "8080:8080"
     volumes:
       - ./output:/app/output
     stdin_open: true
@@ -48,6 +55,8 @@ services:
     env_file: .env
     environment:
       - WORKFLOW=due-diligence
+    ports:
+      - "8080:8080"
     volumes:
       - ./output:/app/output
     stdin_open: true
@@ -63,6 +72,8 @@ services:
       - MCP_FETCH_ENABLED=${MCP_FETCH_ENABLED:-true}
       - MCP_FETCH_CMD=uvx
       - MCP_FETCH_ARGS=mcp-server-fetch
+    ports:
+      - "8080:8080"
     volumes:
       - ./output:/app/output
     stdin_open: true
@@ -75,6 +86,8 @@ services:
     env_file: .env
     environment:
       - WORKFLOW=iterative-memo
+    ports:
+      - "8080:8080"
     volumes:
       - ./output:/app/output
     stdin_open: true

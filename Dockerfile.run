@@ -128,4 +128,7 @@ ENTRYPOINT_SCRIPT
 
 RUN chmod +x /app/entrypoint.sh
 
+# Expose Studio UI port
+EXPOSE 8080
+
 ENTRYPOINT ["/app/entrypoint.sh"]
