@@ -4,14 +4,17 @@
 #   1. Copy .env.example to .env and add your API key
 #   2. Run a workflow:
 #
-#      # Stock analysis
+#      # Stock analysis (PARALLEL — 3 agents analyze simultaneously)
 #      docker compose -f docker-compose.run.yml run --rm stock-analysis TSLA
 #
-#      # Research with custom query
+#      # Research with custom query (HIERARCHICAL — manager + 4 specialists)
 #      docker compose -f docker-compose.run.yml run --rm research "AI trends in 2026"
 #
-#      # Due diligence (parallel research streams)
+#      # Due diligence (PARALLEL — financial + news + legal streams)
 #      docker compose -f docker-compose.run.yml run --rm due-diligence MSFT
+#
+#      # Iterative memo (ITERATIVE — execute → review → refine loop)
+#      docker compose -f docker-compose.run.yml run --rm iterative-memo NVDA 3
 
 services:
   stock-analysis:
@@ -60,6 +63,18 @@ services:
       - MCP_FETCH_ENABLED=${MCP_FETCH_ENABLED:-true}
       - MCP_FETCH_CMD=uvx
       - MCP_FETCH_ARGS=mcp-server-fetch
+    volumes:
+      - ./output:/app/output
+    stdin_open: true
+    tty: true
+
+  iterative-memo:
+    build:
+      context: .
+      dockerfile: Dockerfile.run
+    env_file: .env
+    environment:
+      - WORKFLOW=iterative-memo
     volumes:
       - ./output:/app/output
     stdin_open: true

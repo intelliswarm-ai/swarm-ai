@@ -2,6 +2,106 @@
 
 This document provides comprehensive examples and tutorials for using the SwarmAI Framework, including Docker deployment with Ollama for complete local AI inference.
 
+## Run Any Example in 30 Seconds
+
+All examples run the same way via `docker-compose.run.yml`:
+
+```bash
+# 1. Configure your LLM provider
+cp .env.example .env
+# Edit .env — add OPENAI_API_KEY, ANTHROPIC_API_KEY, or OLLAMA_BASE_URL
+
+# 2. Run any example
+docker compose -f docker-compose.run.yml run --rm stock-analysis AAPL
+docker compose -f docker-compose.run.yml run --rm due-diligence TSLA
+docker compose -f docker-compose.run.yml run --rm research "AI trends in enterprise 2026"
+docker compose -f docker-compose.run.yml run --rm mcp-research "impact of AI agents"
+docker compose -f docker-compose.run.yml run --rm iterative-memo NVDA 3
+```
+
+### Available Examples
+
+| Example | Command | Process Type | What It Does |
+|---------|---------|-------------|--------------|
+| **Stock Analysis** | `run --rm stock-analysis AAPL` | PARALLEL | 3 agents analyze SEC filings + news in parallel, synthesize recommendation |
+| **Due Diligence** | `run --rm due-diligence TSLA` | PARALLEL | Financial + News + Legal streams run concurrently, director synthesizes |
+| **Research** | `run --rm research "query"` | HIERARCHICAL | Manager coordinates 4 specialists: researcher, analyst, strategist, writer |
+| **MCP Research** | `run --rm mcp-research "query"` | SEQUENTIAL | Live web fetching via MCP protocol tools |
+| **Iterative Memo** | `run --rm iterative-memo NVDA 3` | ITERATIVE | Research → Write → Review → Refine loop until MD approves |
+
+---
+
+## Iterative Investment Memo (NEW)
+
+Demonstrates the **ITERATIVE** process type — a cyclic workflow inspired by LangGraph, where agents execute tasks, a reviewer evaluates quality, and the loop repeats with specific feedback.
+
+### How It Works
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                    ITERATION LOOP                            │
+│                                                              │
+│   [Research Analyst]  ──→  [Memo Writer]  ──→  [MD Reviewer] │
+│       SEC + Web               Drafts memo       Reviews vs   │
+│       tool evidence           with evidence     7-pt rubric  │
+│                                                      │       │
+│                                  ┌───────────────────┤       │
+│                                  │                   │       │
+│                           NEEDS_REFINEMENT      APPROVED     │
+│                           + specific feedback        │       │
+│                                  │                   ↓       │
+│                                  └──→ loop back    DONE      │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Running
+
+```bash
+# Default: analyze NVDA with up to 3 review cycles
+docker compose -f docker-compose.run.yml run --rm iterative-memo NVDA 3
+
+# Tesla with 5 iterations max
+docker compose -f docker-compose.run.yml run --rm iterative-memo TSLA 5
+
+# Apple single-pass (no refinement)
+docker compose -f docker-compose.run.yml run --rm iterative-memo AAPL 1
+```
+
+### What to Watch in the Logs
+
+```
+ITERATION_STARTED    — Each review-refine cycle begins
+NEEDS_REFINEMENT     — Reviewer feedback: "Section 3 has no peer comparison table"
+APPROVED             — Reviewer satisfied; output meets quality bar
+```
+
+### Example Output
+
+```
+ITERATIVE INVESTMENT MEMO — RESULTS
+========================================
+Ticker:             NVDA
+Duration:           226 seconds
+Iterations:         3/3
+Reviewer Verdict:   MAX ITERATIONS REACHED
+Total LLM calls:    9
+
+Iteration Breakdown:
+  [RESEARCH] research-brief: 3796 chars, 35719 prompt + 1102 completion tokens
+  [MEMO]     investment-memo: 7095 chars, 8036 prompt + 1293 completion tokens
+  [REVIEW]   review-iteration-1: 1979 chars — NEEDS_REFINEMENT
+  [RESEARCH] research-brief: 3376 chars (refined with feedback)
+  [MEMO]     investment-memo: 6497 chars (refined with feedback)
+  [REVIEW]   review-iteration-2: 2171 chars — NEEDS_REFINEMENT
+  ...
+```
+
+### Code
+
+See [`examples/iterative/`](examples/iterative/) for the full Docker setup, or [`src/.../examples/iterative/IterativeInvestmentMemoWorkflow.java`](src/main/java/ai/intelliswarm/swarmai/examples/iterative/IterativeInvestmentMemoWorkflow.java) for the workflow code.
+
+---
+
 ## 🌟 Featured Example: Competitive Analysis Workflow
 
 The **Competitive Analysis Workflow** demonstrates the full power of the SwarmAI Framework through a real-world multi-agent research scenario. This example showcases:

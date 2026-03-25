@@ -1,0 +1,113 @@
+# SwarmAI Iterative Investment Memo - Configuration
+# Specialized configuration for the iterative refinement workflow
+
+# Iterative Workflow Configuration
+iterative:
+  investment-memo:
+    # Workflow settings
+    enabled: true
+    max-execution-time: 900000  # 15 minutes maximum
+    timeout-per-task: 300000    # 5 minutes per task
+    retry-attempts: 2
+
+    # Iteration settings
+    max-iterations: 3           # Maximum review-refine cycles
+    stop-on-approval: true      # Stop as soon as reviewer approves
+
+    # Output configuration
+    output:
+      directory: "/app/reports"
+      format: "markdown"
+      include-metadata: true
+      include-iteration-history: true
+
+    # Agent specialization through temperature
+    agents:
+      research-analyst:
+        temperature: 0.1       # Very precise data extraction
+        max-rpm: 12
+        description: "Extracts financial data from SEC filings and web sources"
+
+      memo-writer:
+        temperature: 0.3       # Balanced precision and readability
+        max-rpm: 10
+        description: "Drafts institutional-quality investment memos"
+
+      managing-director:
+        temperature: 0.2       # Consistent, rigorous review standards
+        max-rpm: 10
+        description: "Reviews memos against 7-point quality rubric"
+
+    # Task configuration
+    tasks:
+      research-brief:
+        max-execution-time: 180000  # 3 minutes
+        expected-output-length: 3000
+        required-sections:
+          - "Company Snapshot"
+          - "Financial Metrics"
+          - "Recent Developments"
+          - "Competitive Landscape"
+          - "Risk Factors"
+          - "Data Gaps"
+
+      investment-memo:
+        max-execution-time: 240000  # 4 minutes
+        expected-output-length: 5000
+        required-sections:
+          - "Executive Summary"
+          - "Business Overview"
+          - "Financial Analysis"
+          - "Catalyst Analysis"
+          - "Risk Assessment"
+          - "Investment Recommendation"
+          - "Data Quality Disclaimer"
+
+    # Quality criteria for the reviewer
+    review:
+      rubric-dimensions:
+        - "Thesis Clarity"
+        - "Data Grounding"
+        - "Peer Comparison"
+        - "Risk Analysis"
+        - "Catalyst Identification"
+        - "Cross-Referencing"
+        - "Completeness"
+      minimum-score: 4         # Out of 5, all dimensions must meet this
+      verdicts:
+        approved: "APPROVED"
+        needs-refinement: "NEEDS_REFINEMENT"
+
+    # Tool configuration
+    tools:
+      web-search:
+        enabled: true
+        max-results: 10
+        timeout: 30000
+
+      sec-filings:
+        enabled: true
+        timeout: 30000
+
+      calculator:
+        enabled: true
+
+# Monitoring for iterative workflows
+monitoring:
+  iterative-metrics:
+    enabled: true
+    track-iteration-count: true
+    track-review-verdicts: true
+    track-feedback-themes: true
+    track-convergence-rate: true
+    export-interval: 60000
+
+# Logging specific to iterative workflow
+logging:
+  iterative:
+    enabled: true
+    log-iteration-feedback: true
+    log-reviewer-verdicts: true
+    log-task-outputs: true
+    log-improvement-deltas: true
+    output-directory: "/app/logs"

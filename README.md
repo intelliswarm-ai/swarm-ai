@@ -16,7 +16,8 @@ Built on Spring AI 1.0.4 GA and Spring Boot 3.4. Inspired by CrewAI, designed fo
 | RAG pipeline | Yes | Advanced | Yes | Yes | Yes |
 | Dynamic context management | Model-aware | No | No | History compression | No |
 | Spring Boot native | Yes | Adapter | Native | Adapter | N/A (Python) |
-| Process types | 3 (Seq/Hier/Parallel) | 5 | Manual | 3 | 2 |
+| Iterative refinement loops | Yes (reviewer-driven) | No | No | No | No |
+| Process types | 4 (Seq/Hier/Parallel/Iterative) | 5 | Manual | 3 | 2 |
 | Language | Java 21 | Java | Java | Kotlin/Java | Python |
 
 ### What Makes SwarmAI Different
@@ -26,6 +27,8 @@ Built on Spring AI 1.0.4 GA and Spring Boot 3.4. Inspired by CrewAI, designed fo
 **2. Token Economics** — Built-in per-task token tracking with cost estimation across models (OpenAI, Anthropic, Ollama). See exactly what each agent costs.
 
 **3. Parallel Process** — Independent tasks run concurrently with automatic dependency resolution. A 4-task due diligence workflow completes in 36 seconds instead of 112 seconds.
+
+**5. Iterative Refinement** — Tasks execute, a reviewer agent evaluates output against a quality rubric, and the loop repeats with feedback until approved. Like LangGraph cycles, but with a structured review protocol.
 
 **4. MCP Protocol** — Connect to any MCP-compatible tool server via stdio transport. Agents automatically discover and use external tools (web fetch, search, databases).
 
@@ -57,6 +60,9 @@ docker compose -f docker-compose.run.yml run --rm research "AI trends in enterpr
 
 # MCP Research (with live web fetching via MCP tools)
 docker compose -f docker-compose.run.yml run --rm mcp-research "impact of AI agents on software"
+
+# Iterative Memo (execute → review → refine loop, 3 iterations max)
+docker compose -f docker-compose.run.yml run --rm iterative-memo NVDA 3
 ```
 
 ### Run Tests
@@ -79,7 +85,8 @@ Swarm (orchestrator)
 ├── Process
 │   ├── SEQUENTIAL — tasks run in dependency order
 │   ├── HIERARCHICAL — manager plans, delegates, synthesizes
-│   └── PARALLEL — independent tasks run concurrently
+│   ├── PARALLEL — independent tasks run concurrently
+│   └── ITERATIVE — execute → review → refine loop until approved
 └── SwarmOutput (results + token usage + cost estimation)
 ```
 
@@ -173,6 +180,31 @@ Agent researcher = Agent.builder()
     .build();
 ```
 
+### Iterative Refinement
+
+```java
+// Reviewer agent evaluates output against quality criteria.
+// Loop repeats with feedback until APPROVED or max iterations reached.
+Agent researcher = Agent.builder().role("Research Analyst")...build();
+Agent writer = Agent.builder().role("Memo Writer")...build();
+Agent reviewer = Agent.builder().role("Managing Director")...build(); // reviewer
+
+Task researchTask = Task.builder().id("research").agent(researcher)...build();
+Task memoTask = Task.builder().id("memo").agent(writer).dependsOn(researchTask)...build();
+
+Swarm swarm = Swarm.builder()
+    .agent(researcher).agent(writer).agent(reviewer)
+    .task(researchTask).task(memoTask)
+    .process(ProcessType.ITERATIVE)
+    .managerAgent(reviewer)          // reviewer agent
+    .config("maxIterations", 3)
+    .config("qualityCriteria", "Must have data tables, 5+ risks, peer comparison")
+    .build();
+
+SwarmOutput result = swarm.kickoff(inputs);
+// result.getUsageMetrics() → {iterations: 2, approved: true, totalTasks: 6}
+```
+
 ### Persistent Memory
 
 ```yaml
@@ -211,6 +243,7 @@ Agent agent = Agent.builder()
 | `SEQUENTIAL` | Pipeline workflows | Tasks run in dependency order. Each task gets prior outputs as context. |
 | `HIERARCHICAL` | Coordinated teams | Manager agent plans, delegates to workers, synthesizes results. |
 | `PARALLEL` | Independent research | Tasks without dependencies run concurrently. Dependency layers execute in sequence. |
+| `ITERATIVE` | Quality-gated output | Tasks execute, reviewer evaluates against rubric, loop repeats with feedback until approved or max iterations. |
 
 ## Examples
 
@@ -220,6 +253,7 @@ Agent agent = Agent.builder()
 | **Due Diligence** | PARALLEL | Financial + News + Legal streams, auto-layering | ~36s | ~$0.006 |
 | **Research** | HIERARCHICAL | Manager + 4 specialists, task dependencies | ~107s | ~$0.006 |
 | **MCP Research** | SEQUENTIAL | Live web fetching via MCP protocol | ~60s | ~$0.017 |
+| **Iterative Memo** | ITERATIVE | Reviewer-driven refinement loop, 7-point quality rubric | ~226s | ~$0.030 |
 
 ## Configuration
 

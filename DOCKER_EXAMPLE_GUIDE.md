@@ -417,11 +417,53 @@ logging:
 
 ---
 
+## 🔄 **Iterative Investment Memo Example (NEW)**
+
+The iterative example demonstrates the **ITERATIVE** process type — a cyclic workflow where agents execute tasks, a reviewer evaluates output against a quality rubric, and tasks re-execute with specific feedback until approved.
+
+### **Quick Run**
+
+```bash
+# From the project root (uses your .env API key configuration)
+docker compose -f docker-compose.run.yml run --rm iterative-memo NVDA 3
+
+# Different stock, more iterations
+docker compose -f docker-compose.run.yml run --rm iterative-memo TSLA 5
+```
+
+### **How It Works**
+
+```
+[Research Analyst] ──→ [Memo Writer] ──→ [MD Reviewer]
+     SEC + Web            Drafts memo      Reviews vs 7-pt rubric
+                                                │
+                           ┌────────────────────┤
+                           │                    │
+                    NEEDS_REFINEMENT        APPROVED
+                    + specific feedback         │
+                           │                    ↓
+                           └──→ loop back     DONE
+```
+
+**Three agents:**
+- **Research Analyst** — Gathers data from SEC filings + web search (tools: Calculator, WebSearch, SECFilings)
+- **Memo Writer** — Drafts institutional-quality investment memo
+- **Managing Director** (reviewer) — Reviews against 7-point quality rubric: thesis clarity, data grounding, peer comparison, risk analysis, catalyst identification, cross-referencing, completeness
+
+**What to watch in the logs:**
+- `ITERATION_STARTED` — Each cycle begins
+- `NEEDS_REFINEMENT` — Reviewer provides feedback ("Section 3 has no peer comparison table")
+- `APPROVED` — Output meets all quality criteria
+
+See [`examples/iterative/README.md`](examples/iterative/README.md) for the full Docker setup and configuration.
+
+---
+
 ## 🚀 **Next Steps**
 
 ### **Immediate Actions**
-1. **Run the Example**: Execute the competitive analysis workflow
-2. **Explore the Code**: Review agent configurations and tool implementations  
+1. **Run the Examples**: Try stock-analysis, due-diligence, research, or iterative-memo
+2. **Explore the Code**: Review agent configurations and tool implementations
 3. **Customize Agents**: Modify roles, goals, and model assignments
 4. **Add Tools**: Integrate with your existing APIs and data sources
 
