@@ -68,6 +68,32 @@ swarmai:
       histogram-percentiles-enabled: true
       percentiles: 0.5, 0.9, 0.95, 0.99
 
+  # Multi-tenancy support for resource isolation
+  tenant:
+    enabled: false
+    default-quota:
+      max-concurrent-workflows: 10
+      max-skills: 100
+      max-memory-entries: 10000
+      max-token-budget: 1000000
+
+  # Token/cost budget tracking per workflow
+  budget:
+    enabled: false
+    default-max-tokens: 1000000
+    default-max-cost-usd: 10.0
+    default-action: WARN  # WARN or HARD_STOP
+    warning-threshold-percent: 80.0
+
+  # Workflow governance with human-in-the-loop approval gates
+  governance:
+    enabled: false
+    default-gate-timeout-minutes: 30
+    auto-approve-on-timeout: false
+    skill-promotion:
+      requires-approval: false
+      required-approvals: 1
+
   # Studio Web UI for runtime inspection of workflow processes
   studio:
     enabled: ${SWARMAI_STUDIO_ENABLED:true}  # Enable the Studio UI at /studio

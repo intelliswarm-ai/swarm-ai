@@ -136,6 +136,14 @@ public class ObservabilityContext {
         return this;
     }
 
+    public ObservabilityContext withTenantId(String tenantId) {
+        return withAttribute("tenantId", tenantId);
+    }
+
+    public String getTenantId() {
+        return getAttribute("tenantId");
+    }
+
     // Timing operations
 
     /**
@@ -225,6 +233,10 @@ public class ObservabilityContext {
         }
         if (toolName != null) {
             mdc.put("toolName", toolName);
+        }
+        String tenantId = getTenantId();
+        if (tenantId != null) {
+            mdc.put("tenantId", tenantId);
         }
         return mdc;
     }

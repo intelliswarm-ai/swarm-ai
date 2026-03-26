@@ -1,6 +1,13 @@
 package ai.intelliswarm.swarmai.swarm;
 
 import ai.intelliswarm.swarmai.agent.Agent;
+import ai.intelliswarm.swarmai.budget.BudgetExceededException;
+import ai.intelliswarm.swarmai.budget.BudgetPolicy;
+import ai.intelliswarm.swarmai.budget.BudgetSnapshot;
+import ai.intelliswarm.swarmai.budget.BudgetTracker;
+import ai.intelliswarm.swarmai.governance.ApprovalGate;
+import ai.intelliswarm.swarmai.governance.GovernanceInterceptor;
+import ai.intelliswarm.swarmai.governance.WorkflowGovernanceEngine;
 import ai.intelliswarm.swarmai.task.Task;
 import ai.intelliswarm.swarmai.task.output.TaskOutput;
 import ai.intelliswarm.swarmai.process.Process;
@@ -9,6 +16,7 @@ import ai.intelliswarm.swarmai.memory.Memory;
 import ai.intelliswarm.swarmai.knowledge.Knowledge;
 import ai.intelliswarm.swarmai.event.SwarmEvent;
 import ai.intelliswarm.swarmai.observability.core.ObservabilityContext;
+import ai.intelliswarm.swarmai.tenant.TenantQuotaEnforcer;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -42,9 +50,21 @@ public class Swarm {
     private final Map<String, Object> config;
     private final Integer maxRpm;
     private final String language;
+    private final String tenantId;
 
     @JsonIgnore
     private ApplicationEventPublisher eventPublisher;
+
+    @JsonIgnore
+    private final BudgetTracker budgetTracker;
+    @JsonIgnore
+    private final BudgetPolicy budgetPolicy;
+    @JsonIgnore
+    private final WorkflowGovernanceEngine governance;
+    @JsonIgnore
+    private final List<ApprovalGate> approvalGates;
+    @JsonIgnore
+    private final TenantQuotaEnforcer tenantQuotaEnforcer;
 
     private final LocalDateTime createdAt;
     private SwarmOutput lastOutput;
@@ -62,7 +82,13 @@ public class Swarm {
         this.config = new HashMap<>(builder.config);
         this.maxRpm = builder.maxRpm;
         this.language = builder.language;
+        this.tenantId = builder.tenantId;
         this.eventPublisher = builder.eventPublisher;
+        this.budgetTracker = builder.budgetTracker;
+        this.budgetPolicy = builder.budgetPolicy;
+        this.governance = builder.governance;
+        this.approvalGates = builder.approvalGates != null ? new ArrayList<>(builder.approvalGates) : List.of();
+        this.tenantQuotaEnforcer = builder.tenantQuotaEnforcer;
         this.createdAt = LocalDateTime.now();
 
         validateConfiguration();
@@ -72,6 +98,22 @@ public class Swarm {
         // Initialize observability context for this workflow
         ObservabilityContext ctx = ObservabilityContext.create()
                 .withSwarmId(this.id);
+
+        // Set tenant context if configured
+        if (tenantId != null) {
+            ctx.withTenantId(tenantId);
+        }
+
+        // Enforce tenant quota if enforcer is available
+        if (tenantQuotaEnforcer != null && tenantId != null) {
+            tenantQuotaEnforcer.checkWorkflowQuota(tenantId);
+            tenantQuotaEnforcer.recordWorkflowStart(tenantId);
+        }
+
+        // Set budget policy for this workflow
+        if (budgetTracker != null && budgetPolicy != null) {
+            budgetTracker.setBudgetPolicy(this.id, budgetPolicy);
+        }
 
         publishEvent(SwarmEvent.Type.SWARM_STARTED, "Swarm kickoff initiated");
 
@@ -84,20 +126,45 @@ public class Swarm {
             tasks.forEach(Task::reset);
 
             Process process = createProcess();
+
+            // Wrap with governance interceptor if configured
+            if (governance != null && !approvalGates.isEmpty()) {
+                process = new GovernanceInterceptor(process, governance, approvalGates);
+            }
+
             SwarmOutput output = process.execute(tasks, safeInputs, this.id);
 
             this.lastOutput = output;
             status = SwarmStatus.COMPLETED;
 
+            // Log final budget snapshot
+            if (budgetTracker != null) {
+                BudgetSnapshot snapshot = budgetTracker.getSnapshot(this.id);
+                if (snapshot != null) {
+                    logger.info("Workflow {} budget: {} tokens used, ${} estimated cost",
+                        this.id, snapshot.totalTokensUsed(),
+                        String.format("%.4f", snapshot.estimatedCostUsd()));
+                }
+            }
+
             publishEvent(SwarmEvent.Type.SWARM_COMPLETED, "Swarm execution completed successfully");
 
             return output;
 
+        } catch (BudgetExceededException e) {
+            status = SwarmStatus.FAILED;
+            publishEvent(SwarmEvent.Type.BUDGET_EXCEEDED,
+                "Swarm execution stopped: budget exceeded - " + e.getMessage());
+            throw e;
         } catch (Exception e) {
             status = SwarmStatus.FAILED;
             publishEvent(SwarmEvent.Type.SWARM_FAILED, "Swarm execution failed: " + e.getMessage());
             throw new RuntimeException("Swarm execution failed", e);
         } finally {
+            // Release tenant quota
+            if (tenantQuotaEnforcer != null && tenantId != null) {
+                tenantQuotaEnforcer.recordWorkflowEnd(tenantId);
+            }
             ObservabilityContext.clear();
         }
     }
@@ -199,7 +266,13 @@ public class Swarm {
         private Map<String, Object> config = new HashMap<>();
         private Integer maxRpm;
         private String language = "en";
+        private String tenantId;
         private ApplicationEventPublisher eventPublisher;
+        private BudgetTracker budgetTracker;
+        private BudgetPolicy budgetPolicy;
+        private WorkflowGovernanceEngine governance;
+        private List<ApprovalGate> approvalGates;
+        private TenantQuotaEnforcer tenantQuotaEnforcer;
 
         public Builder id(String id) {
             this.id = id;
@@ -271,6 +344,42 @@ public class Swarm {
             return this;
         }
 
+        public Builder tenantId(String tenantId) {
+            this.tenantId = tenantId;
+            return this;
+        }
+
+        public Builder budgetTracker(BudgetTracker budgetTracker) {
+            this.budgetTracker = budgetTracker;
+            return this;
+        }
+
+        public Builder budgetPolicy(BudgetPolicy budgetPolicy) {
+            this.budgetPolicy = budgetPolicy;
+            return this;
+        }
+
+        public Builder governance(WorkflowGovernanceEngine governance) {
+            this.governance = governance;
+            return this;
+        }
+
+        public Builder approvalGates(List<ApprovalGate> approvalGates) {
+            this.approvalGates = approvalGates;
+            return this;
+        }
+
+        public Builder approvalGate(ApprovalGate gate) {
+            if (this.approvalGates == null) this.approvalGates = new ArrayList<>();
+            this.approvalGates.add(gate);
+            return this;
+        }
+
+        public Builder tenantQuotaEnforcer(TenantQuotaEnforcer tenantQuotaEnforcer) {
+            this.tenantQuotaEnforcer = tenantQuotaEnforcer;
+            return this;
+        }
+
         public Swarm build() {
             return new Swarm(this);
         }
@@ -291,6 +400,9 @@ public class Swarm {
     public LocalDateTime getCreatedAt() { return createdAt; }
     public SwarmOutput getLastOutput() { return lastOutput; }
     public SwarmStatus getStatus() { return status; }
+    public String getTenantId() { return tenantId; }
+    public BudgetTracker getBudgetTracker() { return budgetTracker; }
+    public WorkflowGovernanceEngine getGovernance() { return governance; }
 
     @Override
     public boolean equals(Object o) {

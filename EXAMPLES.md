@@ -28,6 +28,142 @@ docker compose -f docker-compose.run.yml run --rm iterative-memo NVDA 3
 | **Research** | `run --rm research "query"` | HIERARCHICAL | Manager coordinates 4 specialists: researcher, analyst, strategist, writer |
 | **MCP Research** | `run --rm mcp-research "query"` | SEQUENTIAL | Live web fetching via MCP protocol tools |
 | **Iterative Memo** | `run --rm iterative-memo NVDA 3` | ITERATIVE | Research → Write → Review → Refine loop until MD approves |
+| **Enterprise Governed** | `run --rm enterprise-governed "AI agents" acme` | SEQUENTIAL | Multi-tenancy + budget tracking + governance approval gates |
+
+---
+
+## Enterprise Governed Workflow (NEW)
+
+Demonstrates SwarmAI's **enterprise features** — multi-tenancy, budget tracking, and human-in-the-loop governance gates — in a single governed research workflow.
+
+### What Makes This Enterprise-Grade
+
+| Feature | What It Does | Why It Matters |
+|---------|-------------|----------------|
+| **Multi-Tenancy** | Each team runs in an isolated context with resource quotas | Teams can't exhaust shared resources; data stays isolated |
+| **Budget Tracking** | Real-time token/cost tracking per workflow with WARN or HARD_STOP | Predictable costs; no surprise bills from runaway workflows |
+| **Governance Gates** | Human-in-the-loop approval checkpoints pause the workflow | Compliance, quality control, and human oversight |
+
+### How It Works
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  TENANT: "acme-research"        BUDGET: 500K tokens / $5.00    │
+│                                                                 │
+│   [Research Analyst]                                            │
+│        │                                                        │
+│        ▼                                                        │
+│   ── APPROVAL GATE ──  (pauses for human review of research)   │
+│        │                                                        │
+│        ▼                                                        │
+│   [Report Writer]                                               │
+│        │                                                        │
+│        ▼                                                        │
+│   Budget Snapshot: tokens used, $ cost, utilization %           │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Running
+
+```bash
+# Default: research "AI agents in enterprise" for tenant "acme-research"
+docker compose -f docker-compose.run.yml run --rm enterprise-governed "AI agents in enterprise" acme-research
+
+# Custom topic and tenant
+docker compose -f docker-compose.run.yml run --rm enterprise-governed "cloud security trends" security-team
+```
+
+### Key Code — Wiring Enterprise Features
+
+```java
+Swarm swarm = Swarm.builder()
+    .agent(researcher)
+    .agent(writer)
+    .task(researchTask)
+    .task(reportTask)
+    .process(ProcessType.SEQUENTIAL)
+    .eventPublisher(eventPublisher)
+    // --- Enterprise features ---
+    .tenantId("acme-research")                   // Multi-tenancy
+    .tenantQuotaEnforcer(quotaEnforcer)           // Resource quotas
+    .budgetTracker(budgetTracker)                 // Cost tracking
+    .budgetPolicy(BudgetPolicy.builder()          // Budget limits
+        .maxTotalTokens(500_000)
+        .maxCostUsd(5.00)
+        .onExceeded(BudgetAction.WARN)
+        .build())
+    .governance(governance)                       // Governance engine
+    .approvalGate(ApprovalGate.builder()          // Approval gate
+        .name("Research Review")
+        .trigger(GateTrigger.AFTER_TASK)
+        .timeout(Duration.ofMinutes(30))
+        .policy(new ApprovalPolicy(1, List.of("senior-analyst"), false))
+        .build())
+    .build();
+```
+
+### What to Watch in the Logs
+
+```
+--- Tenant Context ---
+Tenant 'acme-research' quota: 5 concurrent workflows, 1000000 max tokens
+Active workflows for tenant: 0
+
+--- Budget Policy ---
+Max tokens:  500000
+Max cost:    $5.0
+On exceeded: WARN
+
+--- Governance Gates ---
+Gate: 'Research Review Gate' (trigger: AFTER_TASK, timeout: 5s, auto-approve: true)
+
+--- Budget ---
+Tokens used:      1,250 / 500,000 (0.3%)
+  Prompt:         950
+  Completion:     300
+Estimated cost:   $0.0003 / $5.0 (0.0%)
+Budget exceeded:  false
+
+--- Governance ---
+Pending approvals: 0
+Gates passed:      Research Review Gate
+```
+
+### Configuration (application.yml)
+
+All enterprise features are **disabled by default** and opt-in:
+
+```yaml
+swarmai:
+  tenant:
+    enabled: true                      # Enable multi-tenancy
+    default-quota:
+      max-concurrent-workflows: 10
+      max-skills: 100
+
+  budget:
+    enabled: true                      # Enable budget tracking
+    default-max-tokens: 1000000
+    default-max-cost-usd: 10.0
+    default-action: WARN               # WARN or HARD_STOP
+
+  governance:
+    enabled: true                      # Enable governance gates
+    default-gate-timeout-minutes: 30
+    auto-approve-on-timeout: false
+    skill-promotion:
+      requires-approval: true          # Require approval before skills are promoted
+```
+
+### Error Handling
+
+The workflow handles three enterprise-specific exceptions:
+
+| Exception | When | What Happens |
+|-----------|------|-------------|
+| `TenantQuotaExceededException` | Tenant exceeds max concurrent workflows | Workflow doesn't start; quota error logged |
+| `BudgetExceededException` | Token or cost budget exceeded (HARD_STOP mode) | Workflow stops mid-execution; partial results available |
+| `GovernanceException` | Approval gate rejects the request | Workflow stops at the gate; rejection reason logged |
 
 ---
 

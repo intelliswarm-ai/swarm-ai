@@ -74,6 +74,24 @@ public class SwarmEvent extends ApplicationEvent {
         SKILL_REUSED,
         SKILL_PROMOTED,
 
+        // Budget Events
+        BUDGET_WARNING,
+        BUDGET_EXCEEDED,
+        BUDGET_RESET,
+
+        // Governance Events
+        APPROVAL_REQUESTED,
+        APPROVAL_GRANTED,
+        APPROVAL_REJECTED,
+        APPROVAL_TIMED_OUT,
+        GOVERNANCE_GATE_ENTERED,
+        GOVERNANCE_GATE_PASSED,
+        WORKFLOW_PAUSED,
+        WORKFLOW_RESUMED,
+
+        // Tenant Events
+        TENANT_QUOTA_EXCEEDED,
+
         // Memory Events
         MEMORY_SAVED,
         MEMORY_SEARCHED,
