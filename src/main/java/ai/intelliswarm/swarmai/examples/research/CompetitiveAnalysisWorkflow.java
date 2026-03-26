@@ -15,9 +15,9 @@ import ai.intelliswarm.swarmai.swarm.SwarmOutput;
 import ai.intelliswarm.swarmai.task.Task;
 import ai.intelliswarm.swarmai.task.output.OutputFormat;
 import ai.intelliswarm.swarmai.process.ProcessType;
-import ai.intelliswarm.swarmai.examples.stock.tools.WebSearchTool;
-import ai.intelliswarm.swarmai.examples.research.tools.DataAnalysisTool;
-import ai.intelliswarm.swarmai.examples.research.tools.ReportGeneratorTool;
+import ai.intelliswarm.swarmai.tool.common.WebSearchTool;
+import ai.intelliswarm.swarmai.tool.common.DataAnalysisTool;
+import ai.intelliswarm.swarmai.tool.common.ReportGeneratorTool;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.ApplicationEventPublisher;
@@ -56,7 +56,7 @@ public class CompetitiveAnalysisWorkflow {
     public CompetitiveAnalysisWorkflow(
             ChatClient.Builder chatClientBuilder,
             ApplicationEventPublisher eventPublisher,
-            @org.springframework.beans.factory.annotation.Qualifier("stockWebSearchTool") WebSearchTool webSearchTool,
+            WebSearchTool webSearchTool,
             DataAnalysisTool dataAnalysisTool,
             ReportGeneratorTool reportGeneratorTool) {
         this.chatClientBuilder = chatClientBuilder;
@@ -139,6 +139,7 @@ public class CompetitiveAnalysisWorkflow {
                       "you use real company names from the prior research. You explain your scoring methodology. " +
                       "When data is missing, you write 'N/A' rather than guessing.")
             .chatClient(chatClient)
+            .tool(dataAnalysisTool)
             .verbose(true)
             .maxRpm(12)
             .temperature(0.1)
@@ -171,6 +172,7 @@ public class CompetitiveAnalysisWorkflow {
                       "cross-reference a finding from the detailed analysis sections. " +
                       "You write concisely and lead with insights, not methodology.")
             .chatClient(chatClient)
+            .tool(reportGeneratorTool)
             .verbose(true)
             .maxRpm(10)
             .temperature(0.4)
@@ -306,7 +308,7 @@ public class CompetitiveAnalysisWorkflow {
             .agent(reportWriter)
             .dependsOn(strategyTask)
             .outputFormat(OutputFormat.MARKDOWN)
-            .outputFile("competitive_analysis_report.md")
+            .outputFile("output/competitive_analysis_report.md")
             .maxExecutionTime(240000)
             .build();
 

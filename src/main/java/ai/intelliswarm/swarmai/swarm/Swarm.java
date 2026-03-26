@@ -138,12 +138,22 @@ public class Swarm {
                 yield new ai.intelliswarm.swarmai.process.IterativeProcess(
                         agents, managerAgent, eventPublisher, maxIter, criteria);
             }
+            case SELF_IMPROVING -> {
+                int maxIter = config.containsKey("maxIterations") ? (int) config.get("maxIterations") : 5;
+                String criteria = config.containsKey("qualityCriteria") ? (String) config.get("qualityCriteria") : null;
+                yield new ai.intelliswarm.swarmai.process.SelfImprovingProcess(
+                        agents, managerAgent, eventPublisher, maxIter, criteria);
+            }
         };
     }
 
     private void validateConfiguration() {
         if (processType == ProcessType.HIERARCHICAL && managerAgent == null) {
             throw new IllegalStateException("Manager agent is required for hierarchical process");
+        }
+
+        if (processType == ProcessType.SELF_IMPROVING && managerAgent == null) {
+            throw new IllegalStateException("Manager agent (reviewer) is required for self-improving process");
         }
 
         if (processType == ProcessType.ITERATIVE && managerAgent == null) {

@@ -6,11 +6,11 @@ import ai.intelliswarm.swarmai.swarm.SwarmOutput;
 import ai.intelliswarm.swarmai.task.Task;
 import ai.intelliswarm.swarmai.task.output.OutputFormat;
 import ai.intelliswarm.swarmai.process.ProcessType;
-import ai.intelliswarm.swarmai.examples.stock.tools.CalculatorTool;
-import ai.intelliswarm.swarmai.examples.stock.tools.WebSearchTool;
-import ai.intelliswarm.swarmai.examples.stock.tools.SECFilingsTool;
+import ai.intelliswarm.swarmai.tool.common.CalculatorTool;
+import ai.intelliswarm.swarmai.tool.common.WebSearchTool;
+import ai.intelliswarm.swarmai.tool.common.SECFilingsTool;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.beans.factory.annotation.Qualifier;
+
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 import org.slf4j.Logger;
@@ -76,9 +76,9 @@ public class IterativeInvestmentMemoWorkflow {
     public IterativeInvestmentMemoWorkflow(
             ChatClient.Builder chatClientBuilder,
             ApplicationEventPublisher eventPublisher,
-            @Qualifier("stockCalculatorTool") CalculatorTool calculatorTool,
-            @Qualifier("stockWebSearchTool") WebSearchTool webSearchTool,
-            @Qualifier("stockSECFilingsTool") SECFilingsTool secFilingsTool) {
+            CalculatorTool calculatorTool,
+            WebSearchTool webSearchTool,
+            SECFilingsTool secFilingsTool) {
         this.chatClientBuilder = chatClientBuilder;
         this.eventPublisher = eventPublisher;
         this.calculatorTool = calculatorTool;
@@ -278,7 +278,7 @@ public class IterativeInvestmentMemoWorkflow {
                         "a clear BUY/HOLD/SELL recommendation with confidence level, and full citations")
                 .agent(memoWriter)
                 .outputFormat(OutputFormat.MARKDOWN)
-                .outputFile("investment_memo_" + ticker.toLowerCase() + ".md")
+                .outputFile("output/investment_memo_" + ticker.toLowerCase() + ".md")
                 .dependsOn(researchTask)
                 .maxExecutionTime(240000)
                 .build();

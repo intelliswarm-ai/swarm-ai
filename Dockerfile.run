@@ -3,7 +3,8 @@ FROM eclipse-temurin:21-jdk-alpine
 
 WORKDIR /app
 
-RUN apk add --no-cache bash curl
+RUN apk add --no-cache bash curl git \
+    nmap nmap-scripts net-tools iputils bind-tools arp-scan
 
 # Copy Maven wrapper and pom.xml for dependency caching
 COPY mvnw ./

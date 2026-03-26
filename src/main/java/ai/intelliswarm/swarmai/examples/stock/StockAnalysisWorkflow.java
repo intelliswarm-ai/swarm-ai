@@ -23,9 +23,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-import ai.intelliswarm.swarmai.examples.stock.tools.CalculatorTool;
-import ai.intelliswarm.swarmai.examples.stock.tools.WebSearchTool;
-import ai.intelliswarm.swarmai.examples.stock.tools.SECFilingsTool;
+import ai.intelliswarm.swarmai.tool.common.CalculatorTool;
+import ai.intelliswarm.swarmai.tool.common.WebSearchTool;
+import ai.intelliswarm.swarmai.tool.common.SECFilingsTool;
 
 @Component
 public class StockAnalysisWorkflow {
@@ -46,17 +46,17 @@ public class StockAnalysisWorkflow {
     public StockAnalysisWorkflow(
             ChatClient.Builder chatClientBuilder,
             ApplicationEventPublisher eventPublisher,
-            CalculatorTool stockCalculatorTool,
-            WebSearchTool stockWebSearchTool,
-            SECFilingsTool stockSECFilingsTool,
+            CalculatorTool calculatorTool,
+            WebSearchTool webSearchTool,
+            SECFilingsTool secFilingsTool,
             @Autowired(required = false) ObservabilityHelper observabilityHelper,
             @Autowired(required = false) DecisionTracer decisionTracer,
             @Autowired(required = false) EventStore eventStore) {
         this.chatClientBuilder = chatClientBuilder;
         this.eventPublisher = eventPublisher;
-        this.calculatorTool = stockCalculatorTool;
-        this.webSearchTool = stockWebSearchTool;
-        this.secFilingsTool = stockSECFilingsTool;
+        this.calculatorTool = calculatorTool;
+        this.webSearchTool = webSearchTool;
+        this.secFilingsTool = secFilingsTool;
         this.observabilityHelper = observabilityHelper;
         this.decisionTracer = decisionTracer;
         this.eventStore = eventStore;
@@ -267,7 +267,7 @@ public class StockAnalysisWorkflow {
                         "7. Data Gaps & Confidence Impact (how missing data affects the recommendation)")
                 .agent(investmentAdvisor)
                 .outputFormat(OutputFormat.MARKDOWN)
-                .outputFile("stock_analysis_report.md")
+                .outputFile("output/stock_analysis_report.md")
                 .maxExecutionTime(240000)
                 .dependsOn(financialAnalysisTask)
                 .dependsOn(researchTask)

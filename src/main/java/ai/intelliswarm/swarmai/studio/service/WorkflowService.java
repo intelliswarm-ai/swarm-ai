@@ -131,264 +131,106 @@ public class WorkflowService {
         List<Map<String, Object>> nodes = new ArrayList<>();
         List<Map<String, Object>> edges = new ArrayList<>();
 
-        // Track unique agents and tasks
-        Map<String, Map<String, Object>> agentNodes = new LinkedHashMap<>();
-        Map<String, Map<String, Object>> taskNodes = new LinkedHashMap<>();
-
-        // Track task-to-agent assignments
-        Map<String, String> taskToAgent = new LinkedHashMap<>();
-
-        // Track task ordering for sequential edges
+        // Extract task IDs from event messages since ObservabilityContext
+        // doesn't propagate across threads (agentId/taskId fields are null).
+        // Messages follow patterns: "Starting task: <id>", "Completed task: <id>",
+        // "Starting parallel task: <id>", "Iteration 1/3 started", etc.
         List<String> taskOrder = new ArrayList<>();
-
-        // Track iteration events for ITERATIVE process
+        Map<String, String> taskStatus = new LinkedHashMap<>();
+        boolean isParallel = false;
         boolean hasIterations = false;
-        Set<String> iterationTaskIds = new LinkedHashSet<>();
-        String reviewerAgentId = null;
-
-        // Track parallel groups
-        Map<String, Set<String>> parallelGroups = new LinkedHashMap<>();
-        String currentParallelGroup = null;
-
-        // Track hierarchical delegation
-        Map<String, String> delegationEdges = new LinkedHashMap<>();
+        int iterationCount = 0;
+        List<String> parallelTaskIds = new ArrayList<>();
 
         for (EnrichedSwarmEvent event : events) {
             String type = event.getType().name();
-            String agentId = event.getAgentId();
-            String agentRole = event.getAgentRole();
-            String taskId = event.getTaskId();
+            String msg = event.getMessage() != null ? event.getMessage() : "";
 
-            // Build agent nodes
-            if (agentId != null && !agentNodes.containsKey(agentId)) {
-                Map<String, Object> agentNode = new LinkedHashMap<>();
-                agentNode.put("id", "agent-" + agentId);
-                agentNode.put("label", agentRole != null ? agentRole : agentId);
-                agentNode.put("type", "agent");
-                agentNode.put("shape", "circle");
-                agentNode.put("color", "#4A90D9");
-                agentNode.put("group", "agents");
-                agentNode.put("metadata", Map.of(
-                        "agentId", agentId,
-                        "agentRole", agentRole != null ? agentRole : ""
-                ));
-                agentNodes.put(agentId, agentNode);
+            // Detect process type from PROCESS_STARTED message
+            if (type.equals("PROCESS_STARTED") && msg.toLowerCase().contains("parallel")) {
+                isParallel = true;
             }
 
-            // Build task nodes and track relationships
+            // Extract task IDs from messages
+            String taskId = extractTaskId(msg);
             if (taskId != null) {
-                if (!taskNodes.containsKey(taskId)) {
-                    String status = determineTaskStatus(events, taskId);
-                    String color = getStatusColor(status);
-
-                    Map<String, Object> taskNode = new LinkedHashMap<>();
-                    taskNode.put("id", "task-" + taskId);
-                    taskNode.put("label", truncateLabel(event.getMessage(), 40));
-                    taskNode.put("type", "task");
-                    taskNode.put("shape", "box");
-                    taskNode.put("status", status);
-                    taskNode.put("color", color);
-                    taskNode.put("group", "tasks");
-                    taskNode.put("metadata", buildTaskMetadata(events, taskId));
-                    taskNodes.put(taskId, taskNode);
-                    taskOrder.add(taskId);
-                }
-
-                // Track agent-to-task assignments
-                if (agentId != null && type.equals("TASK_STARTED")) {
-                    taskToAgent.put(taskId, agentId);
+                if (type.equals("TASK_STARTED")) {
+                    if (!taskOrder.contains(taskId)) {
+                        taskOrder.add(taskId);
+                    }
+                    taskStatus.put(taskId, "running");
+                    if (msg.contains("parallel")) {
+                        parallelTaskIds.add(taskId);
+                    }
+                } else if (type.equals("TASK_COMPLETED")) {
+                    taskStatus.put(taskId, "completed");
+                } else if (type.equals("TASK_FAILED")) {
+                    taskStatus.put(taskId, "failed");
                 }
             }
 
-            // Detect iteration events
+            // Detect iterations
             if (type.startsWith("ITERATION_")) {
                 hasIterations = true;
-                if (taskId != null) {
-                    iterationTaskIds.add(taskId);
+                if (type.equals("ITERATION_STARTED")) {
+                    iterationCount++;
                 }
             }
+        }
 
-            // Detect reviewer for iterative workflows
-            if (type.equals("ITERATION_REVIEW_PASSED") || type.equals("ITERATION_REVIEW_FAILED")) {
-                if (agentId != null) {
-                    reviewerAgentId = agentId;
-                }
+        // Build a swarm start node
+        String swarmId = events.get(0).getSwarmId();
+        nodes.add(makeNode("swarm", swarmId != null ? swarmId : "Swarm", "swarm",
+                "circle", "#4fc3f7", Map.of("swarmId", swarmId != null ? swarmId : "")));
+
+        // Build task nodes
+        for (int i = 0; i < taskOrder.size(); i++) {
+            String tid = taskOrder.get(i);
+            String status = taskStatus.getOrDefault(tid, "pending");
+            String shortId = tid.length() > 8 ? tid.substring(0, 8) : tid;
+            String label = "Task " + (i + 1) + "\n" + shortId;
+            nodes.add(makeNode("task-" + tid, label, "task", "box",
+                    getStatusColor(status), Map.of("taskId", tid, "status", status, "index", i + 1)));
+        }
+
+        // Build edges based on process type
+        if (isParallel && parallelTaskIds.size() > 1) {
+            // Fan-out from swarm to parallel tasks
+            for (String ptid : parallelTaskIds) {
+                edges.add(makeEdge("swarm", "task-" + ptid, "parallel", false));
             }
-
-            // Detect parallel process grouping (tasks started close together or via PROCESS events)
-            if (type.equals("PROCESS_STARTED")) {
-                Map<String, Object> metadata = event.getMetadata();
-                if (metadata != null) {
-                    Object processType = metadata.get("processType");
-                    if ("PARALLEL".equals(processType) || "parallel".equals(processType)) {
-                        currentParallelGroup = "parallel-" + (parallelGroups.size() + 1);
-                        parallelGroups.put(currentParallelGroup, new LinkedHashSet<>());
+            // Non-parallel tasks (e.g., synthesis) connect from last parallel task
+            for (String tid : taskOrder) {
+                if (!parallelTaskIds.contains(tid)) {
+                    // This is a sequential task after the parallel group
+                    for (String ptid : parallelTaskIds) {
+                        edges.add(makeEdge("task-" + ptid, "task-" + tid, "join", false));
                     }
                 }
             }
-
-            // Track tasks within parallel groups
-            if (currentParallelGroup != null && type.equals("TASK_STARTED") && taskId != null) {
-                parallelGroups.get(currentParallelGroup).add(taskId);
+        } else if (hasIterations) {
+            // For iterative: swarm → first task, tasks chain sequentially
+            if (!taskOrder.isEmpty()) {
+                edges.add(makeEdge("swarm", "task-" + taskOrder.get(0), "start", false));
             }
-
-            if (type.equals("PROCESS_COMPLETED") && currentParallelGroup != null) {
-                currentParallelGroup = null;
+            for (int i = 0; i < taskOrder.size() - 1; i++) {
+                edges.add(makeEdge("task-" + taskOrder.get(i), "task-" + taskOrder.get(i + 1), "next", false));
             }
-
-            // Detect hierarchical delegation
-            if (type.equals("AGENT_STARTED") && agentId != null) {
-                Map<String, Object> metadata = event.getMetadata();
-                if (metadata != null) {
-                    Object delegatedBy = metadata.get("delegatedBy");
-                    if (delegatedBy instanceof String) {
-                        delegationEdges.put(agentId, (String) delegatedBy);
-                    }
-                }
+            // Add reviewer node and feedback loop
+            nodes.add(makeNode("reviewer", "Reviewer\n(iteration " + iterationCount + "x)",
+                    "reviewer", "diamond", "#9B59B6", Map.of("iterations", iterationCount)));
+            if (!taskOrder.isEmpty()) {
+                String lastTask = taskOrder.get(taskOrder.size() - 1);
+                edges.add(makeEdge("task-" + lastTask, "reviewer", "review", false));
+                edges.add(makeEdge("reviewer", "task-" + taskOrder.get(0), "refine", true));
             }
-        }
-
-        // Add all nodes
-        nodes.addAll(agentNodes.values());
-        nodes.addAll(taskNodes.values());
-
-        // Add reviewer node for iterative process
-        if (hasIterations && reviewerAgentId != null) {
-            Map<String, Object> reviewerNode = new LinkedHashMap<>();
-            reviewerNode.put("id", "reviewer-" + reviewerAgentId);
-            String reviewerRole = agentNodes.containsKey(reviewerAgentId)
-                    ? (String) agentNodes.get(reviewerAgentId).get("label")
-                    : reviewerAgentId;
-            reviewerNode.put("label", reviewerRole + " (Reviewer)");
-            reviewerNode.put("type", "reviewer");
-            reviewerNode.put("shape", "diamond");
-            reviewerNode.put("color", "#9B59B6");
-            reviewerNode.put("group", "reviewers");
-            reviewerNode.put("metadata", Map.of("agentId", reviewerAgentId, "role", "reviewer"));
-            nodes.add(reviewerNode);
-        }
-
-        // Build edges: agent -> task assignments
-        for (Map.Entry<String, String> entry : taskToAgent.entrySet()) {
-            String taskId = entry.getKey();
-            String agentId = entry.getValue();
-
-            Map<String, Object> edge = new LinkedHashMap<>();
-            edge.put("from", "agent-" + agentId);
-            edge.put("to", "task-" + taskId);
-            edge.put("label", "executes");
-            edge.put("dashes", false);
-            edges.add(edge);
-        }
-
-        // Build edges: sequential task flow
-        Set<String> parallelTaskIds = parallelGroups.values().stream()
-                .flatMap(Set::stream)
-                .collect(Collectors.toSet());
-
-        for (int i = 0; i < taskOrder.size() - 1; i++) {
-            String fromTask = taskOrder.get(i);
-            String toTask = taskOrder.get(i + 1);
-
-            // Skip sequential edges between tasks that are in the same parallel group
-            if (parallelTaskIds.contains(fromTask) && parallelTaskIds.contains(toTask)) {
-                boolean sameGroup = parallelGroups.values().stream()
-                        .anyMatch(group -> group.contains(fromTask) && group.contains(toTask));
-                if (sameGroup) {
-                    continue;
-                }
+        } else {
+            // Sequential: swarm → task1 → task2 → ...
+            if (!taskOrder.isEmpty()) {
+                edges.add(makeEdge("swarm", "task-" + taskOrder.get(0), "start", false));
             }
-
-            Map<String, Object> edge = new LinkedHashMap<>();
-            edge.put("from", "task-" + fromTask);
-            edge.put("to", "task-" + toTask);
-            edge.put("label", "next");
-            edge.put("dashes", false);
-            edges.add(edge);
-        }
-
-        // Build edges: iteration feedback (backward edges)
-        if (hasIterations) {
-            for (String iterTaskId : iterationTaskIds) {
-                if (reviewerAgentId != null) {
-                    // Task -> reviewer
-                    Map<String, Object> toReviewer = new LinkedHashMap<>();
-                    toReviewer.put("from", "task-" + iterTaskId);
-                    toReviewer.put("to", "reviewer-" + reviewerAgentId);
-                    toReviewer.put("label", "submit for review");
-                    toReviewer.put("dashes", false);
-                    edges.add(toReviewer);
-
-                    // Reviewer -> task (feedback/refinement edge, dashed)
-                    Map<String, Object> fromReviewer = new LinkedHashMap<>();
-                    fromReviewer.put("from", "reviewer-" + reviewerAgentId);
-                    fromReviewer.put("to", "task-" + iterTaskId);
-                    fromReviewer.put("label", "refinement");
-                    fromReviewer.put("dashes", true);
-                    edges.add(fromReviewer);
-                }
-            }
-        }
-
-        // Build edges: hierarchical delegation
-        for (Map.Entry<String, String> entry : delegationEdges.entrySet()) {
-            String delegateeId = entry.getKey();
-            String delegatorId = entry.getValue();
-
-            if (agentNodes.containsKey(delegatorId) && agentNodes.containsKey(delegateeId)) {
-                Map<String, Object> edge = new LinkedHashMap<>();
-                edge.put("from", "agent-" + delegatorId);
-                edge.put("to", "agent-" + delegateeId);
-                edge.put("label", "delegates");
-                edge.put("dashes", false);
-                edges.add(edge);
-            }
-        }
-
-        // Build edges: parallel fan-out / fan-in
-        for (Map.Entry<String, Set<String>> group : parallelGroups.entrySet()) {
-            Set<String> parallelTasks = group.getValue();
-            if (parallelTasks.size() <= 1) continue;
-
-            // Find the task that precedes this parallel group
-            String firstParallelTask = parallelTasks.iterator().next();
-            int firstIdx = taskOrder.indexOf(firstParallelTask);
-
-            if (firstIdx > 0) {
-                String precedingTask = taskOrder.get(firstIdx - 1);
-                // Fan-out edges from preceding task to all parallel tasks
-                for (String pTask : parallelTasks) {
-                    Map<String, Object> edge = new LinkedHashMap<>();
-                    edge.put("from", "task-" + precedingTask);
-                    edge.put("to", "task-" + pTask);
-                    edge.put("label", "parallel");
-                    edge.put("dashes", false);
-                    edges.add(edge);
-                }
-            }
-
-            // Find the task that follows this parallel group
-            String lastParallelTask = null;
-            int maxIdx = -1;
-            for (String pTask : parallelTasks) {
-                int idx = taskOrder.indexOf(pTask);
-                if (idx > maxIdx) {
-                    maxIdx = idx;
-                    lastParallelTask = pTask;
-                }
-            }
-
-            if (lastParallelTask != null && maxIdx < taskOrder.size() - 1) {
-                String followingTask = taskOrder.get(maxIdx + 1);
-                // Fan-in edges from all parallel tasks to the following task
-                for (String pTask : parallelTasks) {
-                    Map<String, Object> edge = new LinkedHashMap<>();
-                    edge.put("from", "task-" + pTask);
-                    edge.put("to", "task-" + followingTask);
-                    edge.put("label", "join");
-                    edge.put("dashes", false);
-                    edges.add(edge);
-                }
+            for (int i = 0; i < taskOrder.size() - 1; i++) {
+                edges.add(makeEdge("task-" + taskOrder.get(i), "task-" + taskOrder.get(i + 1), "next", false));
             }
         }
 
@@ -397,6 +239,53 @@ public class WorkflowService {
         graph.put("edges", edges);
         graph.put("processInfo", detectProcessInfo(events));
         return graph;
+    }
+
+    /**
+     * Extracts a task ID from an event message.
+     * Patterns: "Starting task: <id>", "Completed task: <id>",
+     * "Starting parallel task: <id>", "Delegated task started: <id> ..."
+     */
+    private String extractTaskId(String message) {
+        if (message == null) return null;
+        // Pattern: "...task: <uuid-or-id>"
+        int idx = message.lastIndexOf("task: ");
+        if (idx >= 0) {
+            String after = message.substring(idx + 6).trim();
+            // Take until space or end
+            int spaceIdx = after.indexOf(' ');
+            return spaceIdx > 0 ? after.substring(0, spaceIdx) : after;
+        }
+        // Pattern: "...task: <id> (iteration N)"
+        idx = message.lastIndexOf("task: ");
+        if (idx >= 0) {
+            String after = message.substring(idx + 6).trim();
+            int parenIdx = after.indexOf('(');
+            if (parenIdx > 0) return after.substring(0, parenIdx).trim();
+        }
+        return null;
+    }
+
+    private Map<String, Object> makeNode(String id, String label, String type,
+                                          String shape, String color, Map<String, Object> metadata) {
+        Map<String, Object> node = new LinkedHashMap<>();
+        node.put("id", id);
+        node.put("label", label);
+        node.put("type", type);
+        node.put("shape", shape);
+        node.put("color", color);
+        node.put("group", type + "s");
+        node.put("metadata", metadata);
+        return node;
+    }
+
+    private Map<String, Object> makeEdge(String from, String to, String label, boolean dashes) {
+        Map<String, Object> edge = new LinkedHashMap<>();
+        edge.put("from", from);
+        edge.put("to", to);
+        edge.put("label", label);
+        edge.put("dashes", dashes);
+        return edge;
     }
 
     /**

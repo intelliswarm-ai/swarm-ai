@@ -92,3 +92,59 @@ services:
       - ./output:/app/output
     stdin_open: true
     tty: true
+
+  codebase-analysis:
+    build:
+      context: .
+      dockerfile: Dockerfile.run
+    env_file: .env
+    environment:
+      - WORKFLOW=codebase-analysis
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./output:/app/output
+    stdin_open: true
+    tty: true
+
+  web-research:
+    build:
+      context: .
+      dockerfile: Dockerfile.run
+    env_file: .env
+    environment:
+      - WORKFLOW=web-research
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./output:/app/output
+    stdin_open: true
+    tty: true
+
+  data-pipeline:
+    build:
+      context: .
+      dockerfile: Dockerfile.run
+    env_file: .env
+    environment:
+      - WORKFLOW=data-pipeline
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./output:/app/output
+    stdin_open: true
+    tty: true
+
+  self-improving:
+    build:
+      context: .
+      dockerfile: Dockerfile.run
+    env_file: .env
+    environment:
+      - WORKFLOW=self-improving
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./output:/app/output
+    stdin_open: true
+    tty: true

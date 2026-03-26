@@ -4,6 +4,7 @@ import ai.intelliswarm.swarmai.config.ModelContextConfig;
 import ai.intelliswarm.swarmai.memory.Memory;
 import ai.intelliswarm.swarmai.knowledge.Knowledge;
 import ai.intelliswarm.swarmai.tool.base.BaseTool;
+import ai.intelliswarm.swarmai.skill.GeneratedSkill;
 import ai.intelliswarm.swarmai.tool.mcp.McpToolAdapter;
 import ai.intelliswarm.swarmai.task.Task;
 import ai.intelliswarm.swarmai.task.output.TaskOutput;
@@ -127,13 +128,14 @@ public class Agent {
                     .user(userPrompt);
 
             if (!tools.isEmpty()) {
-                // Split tools: Spring bean tools use toolNames(), MCP tools use toolCallbacks()
+                // Split tools: Spring bean tools use toolNames(), dynamic tools use toolCallbacks()
                 List<String> springToolNames = new ArrayList<>();
-                List<BaseTool> mcpTools = new ArrayList<>();
+                List<BaseTool> dynamicTools = new ArrayList<>();
 
                 for (BaseTool tool : tools) {
-                    if (tool instanceof McpToolAdapter) {
-                        mcpTools.add(tool);
+                    if (tool instanceof McpToolAdapter || tool instanceof GeneratedSkill) {
+                        // Dynamic tools (MCP, GeneratedSkill) must be registered as callbacks
+                        dynamicTools.add(tool);
                     } else {
                         springToolNames.add(tool.getFunctionName());
                     }
@@ -143,10 +145,13 @@ public class Agent {
                     requestBuilder.toolNames(springToolNames.toArray(new String[0]));
                 }
 
-                if (!mcpTools.isEmpty()) {
-                    // Register MCP tools as FunctionCallbacks using a record type for proper schema
-                    org.springframework.ai.tool.ToolCallback[] callbacks = mcpTools.stream()
-                            .map(tool -> org.springframework.ai.tool.function.FunctionToolCallback
+                if (!dynamicTools.isEmpty()) {
+                    List<org.springframework.ai.tool.ToolCallback> callbacks = new ArrayList<>();
+
+                    for (BaseTool tool : dynamicTools) {
+                        if (tool instanceof McpToolAdapter) {
+                            // MCP tools use the fixed McpToolInput record
+                            callbacks.add(org.springframework.ai.tool.function.FunctionToolCallback
                                     .builder(tool.getFunctionName(),
                                             (java.util.function.Function<McpToolInput, String>)
                                                     input -> {
@@ -158,9 +163,23 @@ public class Agent {
                                             })
                                     .description(tool.getDescription())
                                     .inputType(McpToolInput.class)
-                                    .build())
-                            .toArray(org.springframework.ai.tool.ToolCallback[]::new);
-                    requestBuilder.toolCallbacks(callbacks);
+                                    .build());
+                        } else {
+                            // GeneratedSkill and other dynamic tools — DynamicToolInput captures all params
+                            callbacks.add(org.springframework.ai.tool.function.FunctionToolCallback
+                                    .builder(tool.getFunctionName(),
+                                            (java.util.function.Function<DynamicToolInput, String>)
+                                                    input -> {
+                                                Map<String, Object> params = new HashMap<>(input.getParams());
+                                                return String.valueOf(tool.execute(params));
+                                            })
+                                    .description(tool.getDescription())
+                                    .inputType(DynamicToolInput.class)
+                                    .build());
+                        }
+                    }
+
+                    requestBuilder.toolCallbacks(callbacks.toArray(new org.springframework.ai.tool.ToolCallback[0]));
                 }
             }
 
@@ -356,6 +375,22 @@ public class Agent {
             @com.fasterxml.jackson.annotation.JsonProperty("input") String input
     ) {}
 
+    /**
+     * Generic input class for dynamically generated skills.
+     * Uses @JsonAnySetter to capture ALL parameters the LLM sends,
+     * regardless of field name — no need to enumerate every possible field.
+     */
+    public static class DynamicToolInput {
+        private final Map<String, String> params = new HashMap<>();
+
+        @com.fasterxml.jackson.annotation.JsonAnySetter
+        public void set(String key, Object value) {
+            params.put(key, value != null ? value.toString() : null);
+        }
+
+        public Map<String, String> getParams() { return params; }
+    }
+
     private String buildToolInputSchema(BaseTool tool) {
         // Try to get schema from the tool itself
         Map<String, Object> schema = tool.getParameterSchema();
@@ -537,6 +572,33 @@ public class Agent {
     public Integer getExecutionCount() { return executionCount; }
     public String getModelName() { return modelName; }
     public ModelContextConfig getContextConfig() { return contextConfig; }
+    public ChatClient getChatClient() { return chatClient; }
+    public Memory getMemory() { return memory; }
+    public Knowledge getKnowledge() { return knowledge; }
+
+    /**
+     * Create a copy of this agent with additional tools added to its toolkit.
+     * Used by SelfImprovingProcess to expand agent capabilities at runtime.
+     */
+    public Agent withAdditionalTools(List<BaseTool> newTools) {
+        List<BaseTool> allTools = new ArrayList<>(this.tools);
+        allTools.addAll(newTools);
+        Agent copy = Agent.builder()
+            .role(this.role)
+            .goal(this.goal)
+            .backstory(this.backstory)
+            .chatClient(this.chatClient)
+            .tools(allTools)
+            .verbose(this.verbose)
+            .allowDelegation(this.allowDelegation)
+            .maxRpm(this.maxRpm != null ? this.maxRpm : 0)
+            .temperature(this.temperature != null ? this.temperature : 0.7)
+            .modelName(this.modelName)
+            .build();
+        copy.memory = this.memory;
+        copy.knowledge = this.knowledge;
+        return copy;
+    }
 
     @Override
     public boolean equals(Object o) {

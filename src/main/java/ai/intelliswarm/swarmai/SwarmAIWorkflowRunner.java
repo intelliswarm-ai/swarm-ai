@@ -14,6 +14,10 @@ import ai.intelliswarm.swarmai.examples.iterative.IterativeInvestmentMemoWorkflo
 import ai.intelliswarm.swarmai.examples.mcpresearch.McpResearchWorkflow;
 import ai.intelliswarm.swarmai.examples.research.CompetitiveAnalysisWorkflow;
 import ai.intelliswarm.swarmai.examples.stock.StockAnalysisWorkflow;
+import ai.intelliswarm.swarmai.examples.codebase.CodebaseAnalysisWorkflow;
+import ai.intelliswarm.swarmai.examples.webresearch.WebResearchWorkflow;
+import ai.intelliswarm.swarmai.examples.datapipeline.DataPipelineWorkflow;
+import ai.intelliswarm.swarmai.examples.selfimproving.SelfImprovingWorkflow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,18 +37,30 @@ public class SwarmAIWorkflowRunner implements CommandLineRunner {
     private final DueDiligenceWorkflow dueDiligenceWorkflow;
     private final McpResearchWorkflow mcpResearchWorkflow;
     private final IterativeInvestmentMemoWorkflow iterativeInvestmentMemoWorkflow;
+    private final CodebaseAnalysisWorkflow codebaseAnalysisWorkflow;
+    private final WebResearchWorkflow webResearchWorkflow;
+    private final DataPipelineWorkflow dataPipelineWorkflow;
+    private final SelfImprovingWorkflow selfImprovingWorkflow;
 
     public SwarmAIWorkflowRunner(
             CompetitiveAnalysisWorkflow competitiveAnalysisWorkflow,
             StockAnalysisWorkflow stockAnalysisWorkflow,
             DueDiligenceWorkflow dueDiligenceWorkflow,
             McpResearchWorkflow mcpResearchWorkflow,
-            IterativeInvestmentMemoWorkflow iterativeInvestmentMemoWorkflow) {
+            IterativeInvestmentMemoWorkflow iterativeInvestmentMemoWorkflow,
+            CodebaseAnalysisWorkflow codebaseAnalysisWorkflow,
+            WebResearchWorkflow webResearchWorkflow,
+            DataPipelineWorkflow dataPipelineWorkflow,
+            SelfImprovingWorkflow selfImprovingWorkflow) {
         this.competitiveAnalysisWorkflow = competitiveAnalysisWorkflow;
         this.stockAnalysisWorkflow = stockAnalysisWorkflow;
         this.dueDiligenceWorkflow = dueDiligenceWorkflow;
         this.mcpResearchWorkflow = mcpResearchWorkflow;
         this.iterativeInvestmentMemoWorkflow = iterativeInvestmentMemoWorkflow;
+        this.codebaseAnalysisWorkflow = codebaseAnalysisWorkflow;
+        this.webResearchWorkflow = webResearchWorkflow;
+        this.dataPipelineWorkflow = dataPipelineWorkflow;
+        this.selfImprovingWorkflow = selfImprovingWorkflow;
     }
 
     @Override
@@ -81,6 +97,18 @@ public class SwarmAIWorkflowRunner implements CommandLineRunner {
             case "iterative-memo":
                 iterativeInvestmentMemoWorkflow.run(workflowArgs);
                 break;
+            case "codebase-analysis":
+                codebaseAnalysisWorkflow.run(workflowArgs);
+                break;
+            case "web-research":
+                webResearchWorkflow.run(workflowArgs);
+                break;
+            case "data-pipeline":
+                dataPipelineWorkflow.run(workflowArgs);
+                break;
+            case "self-improving":
+                selfImprovingWorkflow.run(workflowArgs);
+                break;
             default:
                 System.err.println("Unknown workflow type: " + workflowType);
                 showUsage();
@@ -113,6 +141,10 @@ public class SwarmAIWorkflowRunner implements CommandLineRunner {
         System.out.println("  due-diligence <TICKER>      - Comprehensive company due diligence");
         System.out.println("  mcp-research <QUERY>        - Research using MCP tools (web fetch/search)");
         System.out.println("  iterative-memo <TICKER> [N] - Iterative investment memo with review loop (default: NVDA, 3 iterations)");
+        System.out.println("  codebase-analysis [PATH]    - Analyze codebase architecture, metrics, and dependencies (default: .)");
+        System.out.println("  web-research <QUERY>        - Deep web research with scraping, fact-checking, and report");
+        System.out.println("  data-pipeline [FILE]        - AI-powered data profiling, analysis, and insights report");
+        System.out.println("  self-improving <QUERY>       - Self-improving workflow: generates new tools at runtime");
         System.out.println();
         System.out.println("Examples:");
         System.out.println("  java -jar swarmai-framework.jar stock-analysis TSLA");
@@ -120,6 +152,10 @@ public class SwarmAIWorkflowRunner implements CommandLineRunner {
         System.out.println("  java -jar swarmai-framework.jar due-diligence MSFT");
         System.out.println("  java -jar swarmai-framework.jar mcp-research \"AI agents in enterprise 2026\"");
         System.out.println("  java -jar swarmai-framework.jar iterative-memo NVDA 3");
+        System.out.println("  java -jar swarmai-framework.jar codebase-analysis .");
+        System.out.println("  java -jar swarmai-framework.jar web-research \"AI agent frameworks 2026\"");
+        System.out.println("  java -jar swarmai-framework.jar data-pipeline data/sample.csv");
+        System.out.println("  java -jar swarmai-framework.jar self-improving \"Analyze AAPL with YoY growth\"");
         System.out.println();
     }
 }

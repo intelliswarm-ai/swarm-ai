@@ -270,7 +270,7 @@ public class McpResearchWorkflow {
                 .agent(reportWriter)
                 .dependsOn(analysisTask)
                 .outputFormat(OutputFormat.MARKDOWN)
-                .outputFile("mcp_research_report.md")
+                .outputFile("output/mcp_research_report.md")
                 .maxExecutionTime(180000)
                 .build();
 

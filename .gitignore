@@ -94,3 +94,6 @@ output/
 logs/
 reports/
 models/
+
+#Claude
+/.claude/

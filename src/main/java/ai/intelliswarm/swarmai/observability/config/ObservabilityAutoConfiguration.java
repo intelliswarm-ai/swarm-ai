@@ -73,7 +73,7 @@ public class ObservabilityAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "swarmai.observability", name = "decision-tracing-enabled", havingValue = "true", matchIfMissing = false)
+    @ConditionalOnProperty(prefix = "swarmai.observability", name = "decision-tracing-enabled", havingValue = "true", matchIfMissing = true)
     public DecisionTracer decisionTracer(ObservabilityProperties properties) {
         logger.info("Initializing DecisionTracer for agent decision tracking");
         return new DecisionTracer(properties);

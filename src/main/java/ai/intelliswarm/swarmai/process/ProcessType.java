@@ -4,5 +4,6 @@ public enum ProcessType {
     SEQUENTIAL,
     HIERARCHICAL,
     PARALLEL,
-    ITERATIVE
+    ITERATIVE,
+    SELF_IMPROVING
 }
