@@ -2,6 +2,7 @@ package ai.intelliswarm.swarmai.process;
 
 import ai.intelliswarm.swarmai.agent.Agent;
 import ai.intelliswarm.swarmai.event.SwarmEvent;
+import ai.intelliswarm.swarmai.memory.Memory;
 import ai.intelliswarm.swarmai.skill.*;
 import ai.intelliswarm.swarmai.swarm.SwarmOutput;
 import ai.intelliswarm.swarmai.task.Task;
@@ -38,18 +39,34 @@ public class SelfImprovingProcess implements Process {
 
     private static final Path DEFAULT_SKILLS_DIR = Paths.get("output", "skills");
 
+    /** Similarity threshold for skill deduplication (0.0 - 1.0). */
+    private static final double SKILL_SIMILARITY_THRESHOLD = 0.35;
+
+    /** Maximum generated skills to load per agent to prevent context bloat. */
+    private static final int MAX_SKILLS_PER_AGENT = 20;
+
     private final SkillRegistry skillRegistry;
     private final SkillValidator skillValidator;
+    private final Memory memory;
     private List<Agent> currentAgents;
+    private int skillsReused = 0;
 
     public SelfImprovingProcess(List<Agent> agents, Agent reviewerAgent,
                                  ApplicationEventPublisher eventPublisher,
                                  int maxIterations, String qualityCriteria) {
+        this(agents, reviewerAgent, eventPublisher, maxIterations, qualityCriteria, null);
+    }
+
+    public SelfImprovingProcess(List<Agent> agents, Agent reviewerAgent,
+                                 ApplicationEventPublisher eventPublisher,
+                                 int maxIterations, String qualityCriteria,
+                                 Memory memory) {
         this.originalAgents = new ArrayList<>(agents);
         this.reviewerAgent = reviewerAgent;
         this.eventPublisher = eventPublisher;
         this.maxIterations = maxIterations;
         this.qualityCriteria = qualityCriteria;
+        this.memory = memory;
         this.skillRegistry = new SkillRegistry();
         this.skillValidator = new SkillValidator();
         this.currentAgents = new ArrayList<>(agents);
@@ -225,31 +242,56 @@ public class SelfImprovingProcess implements Process {
                     "Iteration " + iteration + " approved", swarmId, Map.of());
 
             } else if (review.hasCapabilityGaps()) {
-                // 4. CAPABILITY GAPS — generate new skills
+                // 4. CAPABILITY GAPS — generate new skills (with dedup + memory)
                 logger.info("Iteration {}: {} capability gaps detected", iteration, review.capabilityGaps().size());
 
+                // Collect tools once for all gaps in this iteration
+                List<String> existingNames = currentAgents.stream()
+                    .flatMap(a -> a.getTools().stream())
+                    .map(BaseTool::getFunctionName)
+                    .distinct()
+                    .collect(Collectors.toList());
+
+                Map<String, BaseTool> existingToolsMap = currentAgents.stream()
+                    .flatMap(a -> a.getTools().stream())
+                    .collect(Collectors.toMap(BaseTool::getFunctionName, t -> t, (a, b) -> a));
+
+                // Create generator once and discover formats once (cached, skips generated skills)
+                SkillGenerator generator = new SkillGenerator(reviewerAgent.getChatClient());
+                generator.discoverToolFormats(existingToolsMap);
+
                 for (String gap : review.capabilityGaps()) {
+                    // --- Semantic Deduplication: check for existing similar skills ---
+                    GeneratedSkill reusedSkill = findReusableSkill(gap, swarmId);
+                    if (reusedSkill != null) {
+                        // Skill already exists — reuse it if not already in agent toolkit
+                        if (!existingNames.contains(reusedSkill.getFunctionName())) {
+                            reusedSkill.setAvailableTools(existingToolsMap);
+                            rebuildAgentsWithSkill(reusedSkill);
+                            existingNames.add(reusedSkill.getFunctionName());
+                        }
+                        skillsReused++;
+                        saveToMemory("skill-reuse", String.format(
+                            "Reused skill '%s' for gap: %s (effectiveness: %.0f%%)",
+                            reusedSkill.getName(), truncate(gap, 100), reusedSkill.getEffectiveness() * 100),
+                            Map.of("skillName", reusedSkill.getName(), "gap", gap));
+                        continue;
+                    }
+
+                    // --- Query memory for hints about similar past gaps ---
+                    String memoryHint = queryMemoryForGap(gap);
+
                     logger.info("Generating skill for gap: {}", gap);
 
-                    // Get existing tool names to avoid duplicates
-                    List<String> existingNames = currentAgents.stream()
-                        .flatMap(a -> a.getTools().stream())
-                        .map(BaseTool::getFunctionName)
-                        .distinct()
-                        .collect(Collectors.toList());
-
-                    // Collect existing tools as a map so generated skills can compose them
-                    Map<String, BaseTool> existingToolsMap = currentAgents.stream()
-                        .flatMap(a -> a.getTools().stream())
-                        .collect(Collectors.toMap(BaseTool::getFunctionName, t -> t, (a, b) -> a));
-
-                    // Generate skill using the reviewer's ChatClient
-                    // Dynamic tool discovery: probe tools to learn their output formats
-                    SkillGenerator generator = new SkillGenerator(reviewerAgent.getChatClient());
-                    generator.discoverToolFormats(existingToolsMap);
-                    GeneratedSkill skill = generator.generate(gap, existingNames);
+                    GeneratedSkill skill = generator.generate(
+                        memoryHint != null ? gap + "\n\nHINT FROM PAST RUNS:\n" + memoryHint : gap,
+                        existingNames);
 
                     if (skill != null) {
+                        publishEvent(SwarmEvent.Type.SKILL_GENERATED,
+                            "Generated skill: " + skill.getName(), swarmId,
+                            Map.of("skillName", skill.getName(), "gap", gap));
+
                         // Inject existing tools so validation can succeed
                         skill.setAvailableTools(existingToolsMap);
 
@@ -258,19 +300,38 @@ public class SelfImprovingProcess implements Process {
 
                         if (validation.passed()) {
                             skill.setStatus(SkillStatus.VALIDATED);
-                            skill.setAvailableTools(existingToolsMap); // Allow composing existing tools
+                            skill.setAvailableTools(existingToolsMap);
                             skillRegistry.register(skill);
                             skillsGenerated++;
+
+                            publishEvent(SwarmEvent.Type.SKILL_VALIDATED,
+                                "Skill validated: " + skill.getName(), swarmId,
+                                Map.of("skillName", skill.getName(), "skillId", skill.getId()));
+                            publishEvent(SwarmEvent.Type.SKILL_REGISTERED,
+                                "Skill registered: " + skill.getName(), swarmId,
+                                Map.of("skillName", skill.getName(), "skillId", skill.getId()));
 
                             logger.info("New skill validated and registered: {} ({})",
                                 skill.getName(), skill.getId());
 
                             // Rebuild agents with new skill
                             rebuildAgentsWithSkill(skill);
+                            existingNames.add(skill.getFunctionName());
+
+                            // Persist to memory for future runs
+                            saveToMemory("skill-generated", String.format(
+                                "Generated skill '%s' for gap: %s",
+                                skill.getName(), truncate(gap, 150)),
+                                Map.of("skillName", skill.getName(), "gap", gap,
+                                    "iteration", iteration));
 
                         } else {
                             logger.warn("Skill '{}' failed validation: {}",
                                 skill.getName(), validation.errorsAsString());
+
+                            publishEvent(SwarmEvent.Type.SKILL_VALIDATION_FAILED,
+                                "Skill validation failed: " + skill.getName(), swarmId,
+                                Map.of("skillName", skill.getName(), "errors", validation.errorsAsString()));
 
                             // Try to refine once
                             GeneratedSkill refined = generator.refine(skill, validation.errorsAsString());
@@ -282,10 +343,28 @@ public class SelfImprovingProcess implements Process {
                                     refined.setAvailableTools(existingToolsMap);
                                     skillRegistry.register(refined);
                                     skillsGenerated++;
+
+                                    publishEvent(SwarmEvent.Type.SKILL_VALIDATED,
+                                        "Refined skill validated: " + refined.getName(), swarmId,
+                                        Map.of("skillName", refined.getName(), "refined", true));
+                                    publishEvent(SwarmEvent.Type.SKILL_REGISTERED,
+                                        "Refined skill registered: " + refined.getName(), swarmId,
+                                        Map.of("skillName", refined.getName(), "skillId", refined.getId()));
+
                                     logger.info("Refined skill validated: {}", refined.getName());
                                     rebuildAgentsWithSkill(refined);
+                                    existingNames.add(refined.getFunctionName());
+
+                                    saveToMemory("skill-refined", String.format(
+                                        "Skill '%s' required refinement for gap: %s (original errors: %s)",
+                                        refined.getName(), truncate(gap, 100), truncate(validation.errorsAsString(), 100)),
+                                        Map.of("skillName", refined.getName(), "gap", gap));
                                 } else {
                                     logger.warn("Refined skill also failed. Skipping gap: {}", gap);
+                                    saveToMemory("skill-failed", String.format(
+                                        "Failed to generate skill for gap: %s (errors: %s)",
+                                        truncate(gap, 150), truncate(retryValidation.errorsAsString(), 100)),
+                                        Map.of("gap", gap, "iteration", iteration));
                                 }
                             }
                         }
@@ -297,7 +376,9 @@ public class SelfImprovingProcess implements Process {
 
                 publishEvent(SwarmEvent.Type.ITERATION_REVIEW_FAILED,
                     "Iteration " + iteration + " needs refinement (capability gaps)", swarmId,
-                    Map.of("gaps", review.capabilityGaps().size(), "skillsGenerated", skillsGenerated));
+                    Map.of("gaps", review.capabilityGaps().size(),
+                           "skillsGenerated", skillsGenerated,
+                           "skillsReused", skillsReused));
 
             } else {
                 // 5. QUALITY ISSUES only — standard feedback
@@ -308,6 +389,14 @@ public class SelfImprovingProcess implements Process {
                     "Iteration " + iteration + " needs refinement", swarmId, Map.of());
             }
 
+            // Memory flush: persist iteration outcome for future runs
+            saveToMemory("iteration-outcome", String.format(
+                "Iteration %d/%d: %s (skills generated: %d, skills reused: %d, registry size: %d)",
+                iteration, maxIterations, approved ? "APPROVED" : "NEEDS_REFINEMENT",
+                skillsGenerated, skillsReused, skillRegistry.size()),
+                Map.of("iteration", iteration, "approved", approved,
+                       "skillsGenerated", skillsGenerated, "skillsReused", skillsReused));
+
             publishEvent(SwarmEvent.Type.ITERATION_COMPLETED,
                 "Iteration " + iteration + " completed (approved: " + approved + ")", swarmId,
                 Map.of("approved", approved, "iteration", iteration));
@@ -317,12 +406,17 @@ public class SelfImprovingProcess implements Process {
             logger.warn("Self-Improving Process: Max iterations ({}) reached without approval", maxIterations);
         }
 
+        // Auto-promote skills that meet the effectiveness threshold
+        int promoted = autoPromoteSkills(swarmId);
+
         // Build final output with metadata set via builder (getMetadata() returns a defensive copy)
         SwarmOutput.Builder outputBuilder = SwarmOutput.builder()
             .swarmId(swarmId)
             .successful(approved || !allOutputs.isEmpty())
             .taskOutputs(allOutputs)
             .metadata("skillsGenerated", skillsGenerated)
+            .metadata("skillsReused", skillsReused)
+            .metadata("skillsPromoted", promoted)
             .metadata("totalIterations", iteration)
             .metadata("registryStats", skillRegistry.getStats());
 
@@ -333,7 +427,7 @@ public class SelfImprovingProcess implements Process {
         SwarmOutput output = outputBuilder.build();
 
         // Persist generated skills to disk for reuse in future runs
-        if (skillsGenerated > 0) {
+        if (skillsGenerated > 0 || promoted > 0) {
             try {
                 skillRegistry.save(DEFAULT_SKILLS_DIR);
                 logger.info("Persisted {} skills to {}", skillRegistry.size(), DEFAULT_SKILLS_DIR);
@@ -342,8 +436,8 @@ public class SelfImprovingProcess implements Process {
             }
         }
 
-        logger.info("Self-Improving Process complete: {} iterations, {} skills generated, approved={}",
-            iteration, skillsGenerated, approved);
+        logger.info("Self-Improving Process complete: {} iterations, {} skills generated, {} reused, {} promoted, approved={}",
+            iteration, skillsGenerated, skillsReused, promoted, approved);
 
         return output;
     }
@@ -371,6 +465,104 @@ public class SelfImprovingProcess implements Process {
             }
         }
         return originalAgent;
+    }
+
+    // ==================== Semantic Skill Deduplication ====================
+
+    /**
+     * Search the registry for an existing skill that matches the gap description.
+     * Returns the best match above the similarity threshold, or null if none found.
+     */
+    private GeneratedSkill findReusableSkill(String gap, String swarmId) {
+        List<SkillRegistry.SimilarSkill> similar = skillRegistry.findSimilar(gap, SKILL_SIMILARITY_THRESHOLD);
+
+        if (!similar.isEmpty()) {
+            SkillRegistry.SimilarSkill best = similar.get(0);
+            logger.info("Reusing existing skill '{}' for gap '{}' (similarity: {})",
+                best.skill().getName(), truncate(gap, 60),
+                String.format("%.2f", best.similarity()));
+
+            publishEvent(SwarmEvent.Type.SKILL_REUSED,
+                "Reused skill: " + best.skill().getName() + " (similarity: " +
+                    String.format("%.0f%%", best.similarity() * 100) + ")",
+                swarmId,
+                Map.of("skillName", best.skill().getName(),
+                       "similarity", best.similarity(),
+                       "gap", gap));
+
+            return best.skill();
+        }
+
+        return null;
+    }
+
+    // ==================== Memory Integration ====================
+
+    /**
+     * Save a learning to memory for cross-run persistence.
+     */
+    private void saveToMemory(String category, String content, Map<String, Object> metadata) {
+        if (memory == null) return;
+        try {
+            Map<String, Object> enrichedMeta = new HashMap<>(metadata);
+            enrichedMeta.put("category", category);
+            enrichedMeta.put("processType", "SELF_IMPROVING");
+            memory.save("self-improving-process", content, enrichedMeta);
+        } catch (Exception e) {
+            logger.debug("Failed to save to memory: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Query memory for past learnings relevant to a capability gap.
+     * Returns a hint string if useful context is found, null otherwise.
+     */
+    private String queryMemoryForGap(String gap) {
+        if (memory == null) return null;
+        try {
+            List<String> memories = memory.search(gap, 3);
+            if (memories != null && !memories.isEmpty()) {
+                String hint = memories.stream()
+                    .map(m -> "- " + m)
+                    .collect(Collectors.joining("\n"));
+                logger.info("Found {} memory hints for gap: {}", memories.size(), truncate(gap, 50));
+                return hint;
+            }
+        } catch (Exception e) {
+            logger.debug("Memory query failed: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    // ==================== Skill Lifecycle ====================
+
+    /**
+     * Auto-promote skills that meet the effectiveness threshold.
+     * Returns the number of skills promoted.
+     */
+    private int autoPromoteSkills(String swarmId) {
+        int promoted = 0;
+        for (GeneratedSkill skill : skillRegistry.getActiveSkills()) {
+            if (skill.getStatus() == SkillStatus.ACTIVE && skill.meetsPromotionThreshold()) {
+                skillRegistry.promote(skill.getId());
+                promoted++;
+                logger.info("Auto-promoted skill: {} (usage={}, effectiveness={}%)",
+                    skill.getName(), skill.getUsageCount(),
+                    String.format("%.0f", skill.getEffectiveness() * 100));
+
+                publishEvent(SwarmEvent.Type.SKILL_PROMOTED,
+                    "Skill promoted: " + skill.getName(), swarmId,
+                    Map.of("skillName", skill.getName(),
+                           "usageCount", skill.getUsageCount(),
+                           "effectiveness", skill.getEffectiveness()));
+
+                saveToMemory("skill-promoted", String.format(
+                    "Promoted skill '%s' (usage: %d, effectiveness: %.0f%%)",
+                    skill.getName(), skill.getUsageCount(), skill.getEffectiveness() * 100),
+                    Map.of("skillName", skill.getName()));
+            }
+        }
+        return promoted;
     }
 
     /**
@@ -450,8 +642,12 @@ public class SelfImprovingProcess implements Process {
         return text.length() > maxLen ? text.substring(0, maxLen) + "..." : text;
     }
 
-    // Expose registry for external access
+    // Expose registry and memory for external access
     public SkillRegistry getSkillRegistry() {
         return skillRegistry;
+    }
+
+    public Memory getMemory() {
+        return memory;
     }
 }

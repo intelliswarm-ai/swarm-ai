@@ -66,10 +66,18 @@ public class SwarmEvent extends ApplicationEvent {
         TOOL_COMPLETED,
         TOOL_FAILED,
         
+        // Skill Events
+        SKILL_GENERATED,
+        SKILL_VALIDATED,
+        SKILL_VALIDATION_FAILED,
+        SKILL_REGISTERED,
+        SKILL_REUSED,
+        SKILL_PROMOTED,
+
         // Memory Events
         MEMORY_SAVED,
         MEMORY_SEARCHED,
-        
+
         // Knowledge Events
         KNOWLEDGE_QUERIED,
         KNOWLEDGE_SOURCE_ADDED

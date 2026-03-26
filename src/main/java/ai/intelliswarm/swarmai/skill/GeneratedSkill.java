@@ -25,6 +25,10 @@ import java.util.*;
 public class GeneratedSkill implements BaseTool {
 
     private static final Logger logger = LoggerFactory.getLogger(GeneratedSkill.class);
+    private static final int MAX_RECURSION_DEPTH = 3;
+
+    // Thread-local recursion depth counter to prevent infinite skill-calls-skill chains
+    private static final ThreadLocal<Integer> recursionDepth = ThreadLocal.withInitial(() -> 0);
 
     private final String id;
     private final String name;
@@ -70,8 +74,16 @@ public class GeneratedSkill implements BaseTool {
 
     @Override
     public Object execute(Map<String, Object> parameters) {
-        logger.info("GeneratedSkill [{}]: Executing with {} params", name, parameters.size());
+        // Guard against recursive skill-calls-skill chains
+        int depth = recursionDepth.get();
+        if (depth >= MAX_RECURSION_DEPTH) {
+            logger.warn("GeneratedSkill [{}]: Max recursion depth ({}) reached, returning early", name, MAX_RECURSION_DEPTH);
+            return "Error: Max skill recursion depth reached";
+        }
+
+        logger.info("GeneratedSkill [{}]: Executing with {} params (depth {})", name, parameters.size(), depth);
         usageCount++;
+        recursionDepth.set(depth + 1);
 
         try {
             // Create sandboxed Groovy shell
@@ -96,6 +108,8 @@ public class GeneratedSkill implements BaseTool {
         } catch (Exception e) {
             logger.warn("GeneratedSkill [{}] execution failed: {}", name, e.getMessage());
             return "Error: Skill execution failed: " + e.getMessage();
+        } finally {
+            recursionDepth.set(depth);
         }
     }
 

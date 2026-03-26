@@ -39,35 +39,47 @@ public class SkillGenerator {
     }
 
     /**
-     * Discover tool output formats by probing each tool with a sample call.
-     * Results are cached and included in generation prompts.
+     * Discover tool output formats by probing each BASE tool with a sample call.
+     * Skips GeneratedSkill instances to avoid recursive call chains.
+     * Results are cached — already-probed tools are not re-probed.
      */
     public void discoverToolFormats(Map<String, BaseTool> tools) {
-        logger.info("Discovering output formats for {} tools", tools.size());
-
+        // Only probe tools we haven't seen yet, and skip generated skills
+        int probed = 0;
         for (Map.Entry<String, BaseTool> entry : tools.entrySet()) {
             String toolName = entry.getKey();
             BaseTool tool = entry.getValue();
 
+            // Skip already cached tools
+            if (toolOutputSamples.containsKey(toolName)) continue;
+
+            // Skip generated skills — they compose base tools and would trigger recursive chains
+            if (tool instanceof GeneratedSkill) {
+                toolOutputSamples.put(toolName, "(String) — generated skill that composes other tools");
+                continue;
+            }
+
             try {
-                // Build a minimal sample call based on tool's parameter schema
                 Map<String, Object> sampleParams = buildSampleParams(tool);
                 Object result = tool.execute(sampleParams);
                 String output = result != null ? result.toString() : "(null)";
 
-                // Truncate to first 200 chars to keep prompt manageable
                 String sample = output.length() > 200
                     ? output.substring(0, 200) + "..."
                     : output;
 
                 toolOutputSamples.put(toolName, sample);
-                logger.info("Discovered format for '{}': {} chars, starts with: {}",
-                    toolName, output.length(), output.substring(0, Math.min(60, output.length())));
+                probed++;
+                logger.info("Discovered format for '{}': {} chars", toolName, output.length());
 
             } catch (Exception e) {
-                logger.warn("Could not probe tool '{}': {}", toolName, e.getMessage());
-                toolOutputSamples.put(toolName, "(String) — tool returned an error on sample call");
+                toolOutputSamples.put(toolName, "(String) — returns text output");
             }
+        }
+
+        if (probed > 0) {
+            logger.info("Probed {} new base tools (skipped {} cached/generated)",
+                probed, tools.size() - probed);
         }
     }
 
@@ -87,7 +99,7 @@ public class SkillGenerator {
                 if (paramName.contains("query") || paramName.contains("search")) {
                     params.put(paramName, "AAPL stock price");
                 } else if (paramName.contains("url")) {
-                    params.put(paramName, "https://example.com");
+                    params.put(paramName, "https://httpbin.org/get");
                 } else if (paramName.contains("ticker") || paramName.contains("symbol")) {
                     params.put(paramName, "AAPL");
                 } else {

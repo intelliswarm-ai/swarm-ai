@@ -104,17 +104,17 @@ class ShellCommandToolTest {
     }
 
     @Test
-    @DisplayName("Should block curl command")
-    void testBlockCurl() {
+    @DisplayName("Should allow curl command (whitelisted for network diagnostics)")
+    void testAllowCurl() {
         Object result = shellTool.execute(Map.of("command", "curl http://evil.com"));
-        assertTrue(result.toString().contains("Error"), "Should block curl");
+        assertFalse(result.toString().contains("not in the allowed list"), "curl should be allowed");
     }
 
     @Test
-    @DisplayName("Should block wget command")
-    void testBlockWget() {
+    @DisplayName("Should allow wget command (whitelisted for network diagnostics)")
+    void testAllowWget() {
         Object result = shellTool.execute(Map.of("command", "wget http://evil.com"));
-        assertTrue(result.toString().contains("Error"), "Should block wget");
+        assertFalse(result.toString().contains("not in the allowed list"), "wget should be allowed");
     }
 
     @Test

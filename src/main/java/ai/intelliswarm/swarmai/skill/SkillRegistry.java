@@ -10,6 +10,7 @@ import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Registry for dynamically generated skills.
@@ -69,6 +70,96 @@ public class SkillRegistry {
             .limit(limit)
             .collect(Collectors.toList());
     }
+
+    /**
+     * Find skills semantically similar to a gap description using keyword-based
+     * Jaccard similarity. Returns matches above the threshold, sorted by score descending.
+     */
+    public List<SimilarSkill> findSimilar(String gapDescription, double threshold) {
+        if (gapDescription == null || gapDescription.isBlank()) return List.of();
+
+        Set<String> gapTokens = tokenize(gapDescription);
+        if (gapTokens.isEmpty()) return List.of();
+
+        return skills.values().stream()
+            .filter(s -> s.getStatus() != SkillStatus.CANDIDATE)
+            .map(skill -> {
+                // Score against both name and description
+                Set<String> skillTokens = new HashSet<>();
+                skillTokens.addAll(tokenize(skill.getName()));
+                skillTokens.addAll(tokenize(skill.getDescription()));
+
+                double similarity = jaccardSimilarity(gapTokens, skillTokens);
+                return new SimilarSkill(skill, similarity);
+            })
+            .filter(s -> s.similarity() >= threshold)
+            .sorted(Comparator.comparingDouble(SimilarSkill::similarity).reversed())
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * Select the most relevant skills for a given task description.
+     * Combines keyword relevance with effectiveness scoring.
+     * Used for progressive skill loading to prevent context bloat.
+     */
+    public List<GeneratedSkill> selectRelevant(String taskDescription, int maxSkills) {
+        if (taskDescription == null || taskDescription.isBlank() || maxSkills <= 0) {
+            return getActiveSkills().stream().limit(maxSkills).collect(Collectors.toList());
+        }
+
+        Set<String> taskTokens = tokenize(taskDescription);
+
+        return skills.values().stream()
+            .filter(s -> s.getStatus() != SkillStatus.CANDIDATE)
+            .map(skill -> {
+                Set<String> skillTokens = new HashSet<>();
+                skillTokens.addAll(tokenize(skill.getName()));
+                skillTokens.addAll(tokenize(skill.getDescription()));
+
+                double relevance = jaccardSimilarity(taskTokens, skillTokens);
+                double effectiveness = skill.getEffectiveness();
+                // Combined score: 60% relevance + 40% effectiveness
+                double score = (relevance * 0.6) + (effectiveness * 0.4);
+                return Map.entry(skill, score);
+            })
+            .sorted(Map.Entry.<GeneratedSkill, Double>comparingByValue().reversed())
+            .limit(maxSkills)
+            .map(Map.Entry::getKey)
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * Tokenize a string into lowercase keywords, filtering stop words and short tokens.
+     */
+    private Set<String> tokenize(String text) {
+        if (text == null) return Set.of();
+        return Stream.of(text.toLowerCase().split("[^a-z0-9]+"))
+            .filter(t -> t.length() > 2)
+            .filter(t -> !STOP_WORDS.contains(t))
+            .collect(Collectors.toSet());
+    }
+
+    private double jaccardSimilarity(Set<String> a, Set<String> b) {
+        if (a.isEmpty() || b.isEmpty()) return 0.0;
+        Set<String> intersection = new HashSet<>(a);
+        intersection.retainAll(b);
+        Set<String> union = new HashSet<>(a);
+        union.addAll(b);
+        return (double) intersection.size() / union.size();
+    }
+
+    private static final Set<String> STOP_WORDS = Set.of(
+        "the", "and", "for", "that", "this", "with", "from", "are", "was",
+        "will", "can", "not", "but", "have", "has", "had", "been", "being",
+        "should", "would", "could", "does", "did", "its", "into", "than",
+        "when", "what", "which", "who", "how", "all", "each", "any", "both",
+        "tool", "use", "using", "used", "new", "get", "set", "add"
+    );
+
+    /**
+     * Result of a similarity search — skill with its similarity score.
+     */
+    public record SimilarSkill(GeneratedSkill skill, double similarity) {}
 
     /**
      * Get all skills that are validated or above (usable in workflows).
