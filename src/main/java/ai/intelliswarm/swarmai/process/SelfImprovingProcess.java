@@ -1,6 +1,7 @@
 package ai.intelliswarm.swarmai.process;
 
 import ai.intelliswarm.swarmai.agent.Agent;
+import ai.intelliswarm.swarmai.budget.BudgetTracker;
 import ai.intelliswarm.swarmai.event.SwarmEvent;
 import ai.intelliswarm.swarmai.memory.Memory;
 import ai.intelliswarm.swarmai.skill.*;
@@ -129,6 +130,12 @@ public class SelfImprovingProcess implements Process {
         validateTasks(tasks);
 
         logger.info("Self-Improving Process: Starting (max {} iterations)", maxIterations);
+
+        // Check for budget tracker in inputs
+        boolean hasBudgetTracker = inputs != null && inputs.containsKey("__budgetTracker");
+        logger.info("Budget tracker in inputs: {} (inputs keys: {})",
+            hasBudgetTracker, inputs != null ? inputs.keySet() : "null");
+
         publishEvent(SwarmEvent.Type.PROCESS_STARTED,
             "Self-improving process execution started", swarmId, Map.of());
 
@@ -207,6 +214,11 @@ public class SelfImprovingProcess implements Process {
                         iteration, truncate(task.getDescription(), 50),
                         output.getRawOutput().length(), output.getExecutionTimeMs());
 
+                    // Record budget usage
+                    BudgetTracker bt = inputs != null && inputs.get("__budgetTracker") instanceof BudgetTracker b ? b : null;
+                    String bsId = inputs != null && inputs.get("__budgetSwarmId") instanceof String s ? s : swarmId;
+                    recordBudgetUsage(bt, bsId, output, taskAgent.getModelName());
+
                     publishEvent(SwarmEvent.Type.TASK_COMPLETED,
                         "Completed task: " + task.getId() + " (iteration " + iteration + ")", swarmId, Map.of());
 
@@ -231,6 +243,11 @@ public class SelfImprovingProcess implements Process {
             Task reviewTask = createReviewTask(outputToReview, iteration, tasks);
             TaskOutput reviewOutput = reviewerAgent.executeTask(reviewTask, Collections.emptyList());
             String reviewText = reviewOutput.getRawOutput();
+
+            // Record reviewer budget usage
+            BudgetTracker bt2 = inputs != null && inputs.get("__budgetTracker") instanceof BudgetTracker b ? b : null;
+            String bsId2 = inputs != null && inputs.get("__budgetSwarmId") instanceof String s ? s : swarmId;
+            recordBudgetUsage(bt2, bsId2, reviewOutput, reviewerAgent.getModelName());
 
             // 3. Parse structured review
             ReviewResult review = ReviewResult.parse(reviewText);

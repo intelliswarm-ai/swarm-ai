@@ -18,6 +18,7 @@ import ai.intelliswarm.swarmai.examples.codebase.CodebaseAnalysisWorkflow;
 import ai.intelliswarm.swarmai.examples.webresearch.WebResearchWorkflow;
 import ai.intelliswarm.swarmai.examples.datapipeline.DataPipelineWorkflow;
 import ai.intelliswarm.swarmai.examples.selfimproving.SelfImprovingWorkflow;
+import ai.intelliswarm.swarmai.examples.enterprise.EnterpriseSelfImprovingWorkflow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -41,6 +42,7 @@ public class SwarmAIWorkflowRunner implements CommandLineRunner {
     private final WebResearchWorkflow webResearchWorkflow;
     private final DataPipelineWorkflow dataPipelineWorkflow;
     private final SelfImprovingWorkflow selfImprovingWorkflow;
+    private final EnterpriseSelfImprovingWorkflow enterpriseSelfImprovingWorkflow;
 
     public SwarmAIWorkflowRunner(
             CompetitiveAnalysisWorkflow competitiveAnalysisWorkflow,
@@ -51,7 +53,8 @@ public class SwarmAIWorkflowRunner implements CommandLineRunner {
             CodebaseAnalysisWorkflow codebaseAnalysisWorkflow,
             WebResearchWorkflow webResearchWorkflow,
             DataPipelineWorkflow dataPipelineWorkflow,
-            SelfImprovingWorkflow selfImprovingWorkflow) {
+            SelfImprovingWorkflow selfImprovingWorkflow,
+            EnterpriseSelfImprovingWorkflow enterpriseSelfImprovingWorkflow) {
         this.competitiveAnalysisWorkflow = competitiveAnalysisWorkflow;
         this.stockAnalysisWorkflow = stockAnalysisWorkflow;
         this.dueDiligenceWorkflow = dueDiligenceWorkflow;
@@ -61,6 +64,7 @@ public class SwarmAIWorkflowRunner implements CommandLineRunner {
         this.webResearchWorkflow = webResearchWorkflow;
         this.dataPipelineWorkflow = dataPipelineWorkflow;
         this.selfImprovingWorkflow = selfImprovingWorkflow;
+        this.enterpriseSelfImprovingWorkflow = enterpriseSelfImprovingWorkflow;
     }
 
     @Override
@@ -109,6 +113,9 @@ public class SwarmAIWorkflowRunner implements CommandLineRunner {
             case "self-improving":
                 selfImprovingWorkflow.run(workflowArgs);
                 break;
+            case "enterprise-governed":
+                enterpriseSelfImprovingWorkflow.run(workflowArgs);
+                break;
             default:
                 System.err.println("Unknown workflow type: " + workflowType);
                 showUsage();
@@ -145,6 +152,7 @@ public class SwarmAIWorkflowRunner implements CommandLineRunner {
         System.out.println("  web-research <QUERY>        - Deep web research with scraping, fact-checking, and report");
         System.out.println("  data-pipeline [FILE]        - AI-powered data profiling, analysis, and insights report");
         System.out.println("  self-improving <QUERY>       - Self-improving workflow: generates new tools at runtime");
+        System.out.println("  enterprise-governed <QUERY>  - Enterprise: self-improving + tenancy + budget + governance");
         System.out.println();
         System.out.println("Examples:");
         System.out.println("  java -jar swarmai-framework.jar stock-analysis TSLA");
@@ -156,6 +164,7 @@ public class SwarmAIWorkflowRunner implements CommandLineRunner {
         System.out.println("  java -jar swarmai-framework.jar web-research \"AI agent frameworks 2026\"");
         System.out.println("  java -jar swarmai-framework.jar data-pipeline data/sample.csv");
         System.out.println("  java -jar swarmai-framework.jar self-improving \"Analyze AAPL with YoY growth\"");
+        System.out.println("  java -jar swarmai-framework.jar enterprise-governed \"Compare top 5 AI coding assistants\"");
         System.out.println();
     }
 }

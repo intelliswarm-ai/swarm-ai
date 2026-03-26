@@ -1,6 +1,7 @@
 package ai.intelliswarm.swarmai.process;
 
 import ai.intelliswarm.swarmai.agent.Agent;
+import ai.intelliswarm.swarmai.budget.BudgetTracker;
 import ai.intelliswarm.swarmai.swarm.SwarmOutput;
 import ai.intelliswarm.swarmai.event.SwarmEvent;
 import ai.intelliswarm.swarmai.task.Task;
@@ -111,6 +112,11 @@ public class ParallelProcess implements Process {
                                         output.getRawOutput() != null ? output.getRawOutput().length() : 0,
                                         output.getExecutionTimeMs());
 
+                                // Record budget usage (thread-safe via AtomicLong in tracker)
+                                BudgetTracker pbt = inputs.get("__budgetTracker") instanceof BudgetTracker b ? b : null;
+                                String pbsId = inputs.get("__budgetSwarmId") instanceof String s ? s : swarmId;
+                                recordBudgetUsage(pbt, pbsId, output, task.getAgent() != null ? task.getAgent().getModelName() : null);
+
                                 publishEvent(SwarmEvent.Type.TASK_COMPLETED,
                                         "Completed parallel task: " + task.getId(), swarmId);
                                 return output;
@@ -153,6 +159,11 @@ public class ParallelProcess implements Process {
                                 output.getExecutionTimeMs());
 
                         allOutputs.add(output);
+
+                        BudgetTracker sbt = inputs.get("__budgetTracker") instanceof BudgetTracker b ? b : null;
+                        String sbsId = inputs.get("__budgetSwarmId") instanceof String s ? s : swarmId;
+                        recordBudgetUsage(sbt, sbsId, output, task.getAgent() != null ? task.getAgent().getModelName() : null);
+
                         publishEvent(SwarmEvent.Type.TASK_COMPLETED,
                                 "Completed task: " + task.getId(), swarmId);
                     }

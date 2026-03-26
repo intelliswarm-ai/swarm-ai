@@ -1,6 +1,7 @@
 package ai.intelliswarm.swarmai.process;
 
 import ai.intelliswarm.swarmai.agent.Agent;
+import ai.intelliswarm.swarmai.budget.BudgetTracker;
 import ai.intelliswarm.swarmai.swarm.SwarmOutput;
 import ai.intelliswarm.swarmai.event.SwarmEvent;
 import ai.intelliswarm.swarmai.task.Task;
@@ -147,6 +148,12 @@ public class IterativeProcess implements Process {
                             output.getExecutionTimeMs());
 
                     iterationOutputs.add(output);
+
+                    // Record budget usage
+                    BudgetTracker bt = inputs != null && inputs.get("__budgetTracker") instanceof BudgetTracker b ? b : null;
+                    String bsId = inputs != null && inputs.get("__budgetSwarmId") instanceof String s ? s : swarmId;
+                    recordBudgetUsage(bt, bsId, output, task.getAgent() != null ? task.getAgent().getModelName() : null);
+
                     publishEvent(SwarmEvent.Type.TASK_COMPLETED,
                             "Completed task: " + task.getId() + " (iteration " + iteration + ")", swarmId);
                 }
@@ -167,6 +174,11 @@ public class IterativeProcess implements Process {
 
                 TaskOutput reviewOutput = reviewerAgent.executeTask(reviewTask, Collections.emptyList());
                 allOutputs.add(reviewOutput);
+
+                // Record reviewer budget usage
+                BudgetTracker rbt = inputs != null && inputs.get("__budgetTracker") instanceof BudgetTracker b ? b : null;
+                String rbsId = inputs != null && inputs.get("__budgetSwarmId") instanceof String s ? s : swarmId;
+                recordBudgetUsage(rbt, rbsId, reviewOutput, reviewerAgent.getModelName());
 
                 String reviewText = reviewOutput.getRawOutput() != null ? reviewOutput.getRawOutput() : "";
 

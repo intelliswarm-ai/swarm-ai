@@ -125,6 +125,13 @@ public class Swarm {
             // Reset tasks before execution so swarm can be re-used (e.g., kickoffForEach)
             tasks.forEach(Task::reset);
 
+            // Inject budget tracker into inputs for Process-level usage tracking
+            if (budgetTracker != null) {
+                safeInputs = new HashMap<>(safeInputs);
+                safeInputs.put("__budgetTracker", budgetTracker);
+                safeInputs.put("__budgetSwarmId", this.id);
+            }
+
             Process process = createProcess();
 
             // Wrap with governance interceptor if configured

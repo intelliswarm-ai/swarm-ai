@@ -1,6 +1,7 @@
 package ai.intelliswarm.swarmai.process;
 
 import ai.intelliswarm.swarmai.agent.Agent;
+import ai.intelliswarm.swarmai.budget.BudgetTracker;
 import ai.intelliswarm.swarmai.swarm.SwarmOutput;
 import ai.intelliswarm.swarmai.event.SwarmEvent;
 import ai.intelliswarm.swarmai.task.Task;
@@ -81,6 +82,12 @@ public class SequentialProcess implements Process {
 
                 allOutputs.add(output);
                 completedTaskIds.add(task.getId());
+
+                // Record budget usage from this task
+                BudgetTracker tracker = inputs.get("__budgetTracker") instanceof BudgetTracker bt ? bt : null;
+                String budgetSwarmId = inputs.get("__budgetSwarmId") instanceof String s ? s : swarmId;
+                String modelName = agent != null ? agent.getModelName() : null;
+                recordBudgetUsage(tracker, budgetSwarmId, output, modelName);
 
                 publishEvent(SwarmEvent.Type.TASK_COMPLETED, "Completed task: " + task.getId(), swarmId);
 

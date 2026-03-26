@@ -1,6 +1,7 @@
 package ai.intelliswarm.swarmai.process;
 
 import ai.intelliswarm.swarmai.agent.Agent;
+import ai.intelliswarm.swarmai.budget.BudgetTracker;
 import ai.intelliswarm.swarmai.swarm.SwarmOutput;
 import ai.intelliswarm.swarmai.event.SwarmEvent;
 import ai.intelliswarm.swarmai.task.Task;
@@ -112,6 +113,11 @@ public class HierarchicalProcess implements Process {
                         output.getExecutionTimeMs());
 
                 allOutputs.add(output);
+
+                BudgetTracker hbt = inputs.get("__budgetTracker") instanceof BudgetTracker b ? b : null;
+                String hbsId = inputs.get("__budgetSwarmId") instanceof String s ? s : swarmId;
+                recordBudgetUsage(hbt, hbsId, output, task.getAgent() != null ? task.getAgent().getModelName() : null);
+
                 publishEvent(SwarmEvent.Type.TASK_COMPLETED, "Delegated task completed: " + task.getId(), swarmId);
             }
 

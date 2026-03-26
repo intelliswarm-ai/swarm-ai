@@ -148,3 +148,17 @@ services:
       - ./output:/app/output
     stdin_open: true
     tty: true
+
+  enterprise-governed:
+    build:
+      context: .
+      dockerfile: Dockerfile.run
+    env_file: .env
+    environment:
+      - WORKFLOW=enterprise-governed
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./output:/app/output
+    stdin_open: true
+    tty: true

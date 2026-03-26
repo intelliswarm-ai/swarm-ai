@@ -1,6 +1,8 @@
 package ai.intelliswarm.swarmai.process;
 
+import ai.intelliswarm.swarmai.budget.BudgetTracker;
 import ai.intelliswarm.swarmai.task.Task;
+import ai.intelliswarm.swarmai.task.output.TaskOutput;
 import ai.intelliswarm.swarmai.swarm.SwarmOutput;
 
 import java.util.List;
@@ -15,6 +17,21 @@ public interface Process {
     boolean isAsync();
 
     void validateTasks(List<Task> tasks);
+
+    /**
+     * Records token usage from a completed task to the budget tracker.
+     * No-op if tracker is null (backward compatible).
+     */
+    default void recordBudgetUsage(BudgetTracker tracker, String swarmId, TaskOutput output, String modelName) {
+        if (tracker == null || output == null || swarmId == null) {
+            return;
+        }
+        long prompt = output.getPromptTokens() != null ? output.getPromptTokens() : 0;
+        long completion = output.getCompletionTokens() != null ? output.getCompletionTokens() : 0;
+        if (prompt > 0 || completion > 0) {
+            tracker.recordUsage(swarmId, prompt, completion, modelName != null ? modelName : "unknown");
+        }
+    }
 
     /**
      * Interpolates input variables into a template string.
