@@ -1,6 +1,7 @@
 package ai.intelliswarm.swarmai.process;
 
 import ai.intelliswarm.swarmai.agent.Agent;
+import ai.intelliswarm.swarmai.budget.BudgetSnapshot;
 import ai.intelliswarm.swarmai.budget.BudgetTracker;
 import ai.intelliswarm.swarmai.event.SwarmEvent;
 import ai.intelliswarm.swarmai.memory.Memory;
@@ -31,6 +32,9 @@ import java.util.stream.Collectors;
 public class SelfImprovingProcess implements Process {
 
     private static final Logger logger = LoggerFactory.getLogger(SelfImprovingProcess.class);
+
+    /** Hard safety cap — never iterate more than this regardless of convergence. */
+    private static final int ABSOLUTE_MAX_ITERATIONS = 10;
 
     private final List<Agent> originalAgents;
     private final Agent reviewerAgent;
@@ -129,12 +133,8 @@ public class SelfImprovingProcess implements Process {
     public SwarmOutput execute(List<Task> tasks, Map<String, Object> inputs, String swarmId) {
         validateTasks(tasks);
 
-        logger.info("Self-Improving Process: Starting (max {} iterations)", maxIterations);
-
-        // Check for budget tracker in inputs
-        boolean hasBudgetTracker = inputs != null && inputs.containsKey("__budgetTracker");
-        logger.info("Budget tracker in inputs: {} (inputs keys: {})",
-            hasBudgetTracker, inputs != null ? inputs.keySet() : "null");
+        int effectiveMaxIterations = maxIterations > 0 ? Math.min(maxIterations, ABSOLUTE_MAX_ITERATIONS) : ABSOLUTE_MAX_ITERATIONS;
+        logger.info("Self-Improving Process: Starting (max {} iterations, auto-stop on convergence)", effectiveMaxIterations);
 
         publishEvent(SwarmEvent.Type.PROCESS_STARTED,
             "Self-improving process execution started", swarmId, Map.of());
@@ -156,9 +156,28 @@ public class SelfImprovingProcess implements Process {
         String reviewFeedback = null;
         int skillsGenerated = 0;
 
-        while (iteration < maxIterations && !approved) {
+        // Convergence tracking
+        int previousOutputLength = 0;
+        Set<String> previousGaps = new HashSet<>();
+        int staleIterations = 0;
+
+        while (iteration < effectiveMaxIterations && !approved) {
             iteration++;
-            logger.info("Self-Improving Process: Iteration {}/{}", iteration, maxIterations);
+
+            // Check budget-based stopping (leave 10% headroom for final output)
+            BudgetTracker budgetTracker = inputs != null && inputs.get("__budgetTracker") instanceof BudgetTracker bt ? bt : null;
+            String budgetSwarmId = inputs != null && inputs.get("__budgetSwarmId") instanceof String s ? s : swarmId;
+            if (budgetTracker != null) {
+                BudgetSnapshot snap = budgetTracker.getSnapshot(budgetSwarmId);
+                if (snap != null && (snap.tokenUtilizationPercent() > 90.0 || snap.costUtilizationPercent() > 90.0)) {
+                    logger.info("Self-Improving Process: Stopping — budget utilization at {}% tokens / {}% cost",
+                        String.format("%.1f", snap.tokenUtilizationPercent()),
+                        String.format("%.1f", snap.costUtilizationPercent()));
+                    break;
+                }
+            }
+
+            logger.info("Self-Improving Process: Iteration {}/{}", iteration, effectiveMaxIterations);
             publishEvent(SwarmEvent.Type.ITERATION_STARTED,
                 "Iteration " + iteration + "/" + maxIterations + " started", swarmId,
                 Map.of("iteration", iteration, "skillsAvailable", skillRegistry.size()));
@@ -406,10 +425,41 @@ public class SelfImprovingProcess implements Process {
                     "Iteration " + iteration + " needs refinement", swarmId, Map.of());
             }
 
+            // ---- Convergence detection ----
+            if (!approved) {
+                // Check output growth: if output length didn't grow by >10%, we're stalling
+                int currentOutputLength = allOutputs.stream()
+                    .mapToInt(o -> o.getRawOutput() != null ? o.getRawOutput().length() : 0).sum();
+                boolean outputGrew = previousOutputLength == 0 ||
+                    currentOutputLength > previousOutputLength * 1.1;
+
+                // Check gap repetition: if same gaps keep appearing, we're stuck
+                Set<String> currentGaps = new HashSet<>();
+                if (review != null && review.hasCapabilityGaps()) {
+                    currentGaps.addAll(review.capabilityGaps());
+                }
+                boolean sameGaps = !currentGaps.isEmpty() && currentGaps.equals(previousGaps);
+
+                if (!outputGrew || sameGaps) {
+                    staleIterations++;
+                } else {
+                    staleIterations = 0;
+                }
+
+                previousOutputLength = currentOutputLength;
+                previousGaps = currentGaps;
+
+                if (staleIterations >= 2) {
+                    logger.info("Self-Improving Process: Auto-stopping — no meaningful progress for {} iterations " +
+                        "(output growth stalled: {}, repeated gaps: {})", staleIterations, !outputGrew, sameGaps);
+                    break;
+                }
+            }
+
             // Memory flush: persist iteration outcome for future runs
             saveToMemory("iteration-outcome", String.format(
                 "Iteration %d/%d: %s (skills generated: %d, skills reused: %d, registry size: %d)",
-                iteration, maxIterations, approved ? "APPROVED" : "NEEDS_REFINEMENT",
+                iteration, effectiveMaxIterations, approved ? "APPROVED" : "NEEDS_REFINEMENT",
                 skillsGenerated, skillsReused, skillRegistry.size()),
                 Map.of("iteration", iteration, "approved", approved,
                        "skillsGenerated", skillsGenerated, "skillsReused", skillsReused));
@@ -419,9 +469,15 @@ public class SelfImprovingProcess implements Process {
                 Map.of("approved", approved, "iteration", iteration));
         }
 
-        if (!approved) {
-            logger.warn("Self-Improving Process: Max iterations ({}) reached without approval", maxIterations);
+        String stopReason;
+        if (approved) {
+            stopReason = "APPROVED by reviewer";
+        } else if (staleIterations >= 2) {
+            stopReason = "auto-stopped (convergence — no meaningful progress)";
+        } else {
+            stopReason = "max iterations (" + effectiveMaxIterations + ") reached";
         }
+        logger.info("Self-Improving Process: Stopped — {}", stopReason);
 
         // Auto-promote skills that meet the effectiveness threshold
         int promoted = autoPromoteSkills(swarmId);
@@ -435,6 +491,7 @@ public class SelfImprovingProcess implements Process {
             .metadata("skillsReused", skillsReused)
             .metadata("skillsPromoted", promoted)
             .metadata("totalIterations", iteration)
+            .metadata("stopReason", stopReason)
             .metadata("registryStats", skillRegistry.getStats());
 
         if (!allOutputs.isEmpty()) {

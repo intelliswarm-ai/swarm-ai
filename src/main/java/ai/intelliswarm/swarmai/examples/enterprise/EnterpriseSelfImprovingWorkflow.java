@@ -72,9 +72,22 @@ public class EnterpriseSelfImprovingWorkflow {
     }
 
     public void run(String... args) throws Exception {
-        String query = args.length > 0 ? String.join(" ", args) : "Compare the top 5 AI coding assistants for enterprise Java development";
+        // Parse args: last arg can be a number for max iterations (0 = auto-stop on convergence)
+        int maxIterations = 0; // 0 means auto — framework decides via convergence detection
         String tenantId = "enterprise-team";
-        int maxIterations = 3;
+        List<String> queryParts = new ArrayList<>();
+
+        for (String arg : args) {
+            try {
+                maxIterations = Integer.parseInt(arg);
+            } catch (NumberFormatException e) {
+                queryParts.add(arg);
+            }
+        }
+
+        String query = queryParts.isEmpty()
+                ? "Compare the top 5 AI coding assistants for enterprise Java development"
+                : String.join(" ", queryParts);
 
         logger.info("\n" + "=".repeat(80));
         logger.info("ENTERPRISE SELF-IMPROVING WORKFLOW");
@@ -82,7 +95,7 @@ public class EnterpriseSelfImprovingWorkflow {
         logger.info("Query:      {}", query);
         logger.info("Tenant:     {}", tenantId);
         logger.info("Process:    SELF_IMPROVING + Enterprise Governance");
-        logger.info("Iterations: {} max", maxIterations);
+        logger.info("Iterations: {}", maxIterations == 0 ? "auto (convergence-based)" : maxIterations + " max");
         logger.info("Tools:      {}", allTools.stream().map(BaseTool::getFunctionName).collect(Collectors.joining(", ")));
         logger.info("=".repeat(80));
 
@@ -198,9 +211,14 @@ public class EnterpriseSelfImprovingWorkflow {
         Agent reviewer = Agent.builder()
                 .role("Quality Assurance Director")
                 .goal("Review the output and identify quality issues and capability gaps. " +
-                      "Respond with VERDICT, QUALITY_ISSUES, and CAPABILITY_GAPS sections.")
-                .backstory("You evaluate reports and distinguish quality problems from missing tools. " +
-                           "When a tool is missing, describe it precisely: input, output, and why it's needed.")
+                      "Respond with VERDICT, QUALITY_ISSUES, and CAPABILITY_GAPS sections. " +
+                      "IMPORTANT: If the analysts only used web_search and got no results, that is a QUALITY_ISSUE " +
+                      "(they should have tried http_request or web_scrape with specific URLs), NOT a CAPABILITY_GAP. " +
+                      "Only report CAPABILITY_GAPS for genuinely missing tools — not for tools that exist but weren't tried.")
+                .backstory("You evaluate reports rigorously. You know that web_search, http_request, web_scrape, " +
+                           "and shell_command are all available. If the output says 'DATA NOT AVAILABLE' but the " +
+                           "analysts didn't try fetching specific URLs with http_request or scraping real pages, " +
+                           "that's a quality failure — they didn't use the tools they have.")
                 .chatClient(chatClient)
                 .verbose(true)
                 .maxRpm(10)
@@ -293,6 +311,7 @@ public class EnterpriseSelfImprovingWorkflow {
         logger.info("  Skills generated: {}", result.getMetadata().getOrDefault("skillsGenerated", 0));
         logger.info("  Skills reused:    {}", result.getMetadata().getOrDefault("skillsReused", 0));
         logger.info("  Skills promoted:  {}", result.getMetadata().getOrDefault("skillsPromoted", 0));
+        logger.info("  Stop reason:      {}", result.getMetadata().getOrDefault("stopReason", "unknown"));
 
         // Tenant
         logger.info("\n--- Tenant ---");
@@ -365,12 +384,21 @@ public class EnterpriseSelfImprovingWorkflow {
 
         String prompt = String.format(
                 "Design a workflow for:\n\nUSER QUERY: %s\n\nAVAILABLE TOOLS:\n%s\n" +
+                "IMPORTANT TOOL STRATEGY RULES:\n" +
+                "- web_search may return empty results if API keys are not configured\n" +
+                "- When web_search fails, the analyst MUST fall back to:\n" +
+                "  1. http_request to fetch data from SPECIFIC known URLs (e.g., company websites, public APIs)\n" +
+                "  2. web_scrape to extract data from SPECIFIC real web pages\n" +
+                "  3. shell_command to run curl commands to known public APIs\n" +
+                "- NEVER just call web_search repeatedly with the same query\n" +
+                "- Include SPECIFIC URLs and API endpoints in the task description\n" +
+                "- The analyst should try at least 3 different tool strategies per topic\n\n" +
                 "Respond in EXACTLY this format:\n\n" +
                 "ANALYST_ROLE: [role]\n" +
                 "ANALYST_GOAL: [goal]\n" +
                 "ANALYST_BACKSTORY: [backstory]\n" +
-                "RECOMMENDED_TOOLS: [comma-separated tool names]\n" +
-                "ANALYSIS_TASK: [detailed task description]\n" +
+                "RECOMMENDED_TOOLS: [comma-separated tool names — MUST include http_request and web_scrape]\n" +
+                "ANALYSIS_TASK: [detailed task description with SPECIFIC URLs to fetch data from]\n" +
                 "ANALYSIS_EXPECTED_OUTPUT: [expected output]\n" +
                 "REPORT_TASK: [report task description]\n" +
                 "QUALITY_CRITERIA: [3-5 numbered criteria]\n",
@@ -415,15 +443,34 @@ public class EnterpriseSelfImprovingWorkflow {
 
     private WorkflowPlan createFallbackPlan(String query) {
         WorkflowPlan plan = new WorkflowPlan();
-        plan.analystRole = "Senior Analyst";
-        plan.analystGoal = "Analyze: '" + query + "'. Use all available tools.";
-        plan.analystBackstory = "Experienced analyst. Uses tools for data, never fabricates.";
-        plan.recommendedTools = "web_search,calculator,shell_command,http_request";
-        plan.analysisTaskDescription = "Analyze: \"" + query + "\"\n\nUse tools to gather real data.\n" +
-                "RULES: Use ONLY data from tools. Mark any data gaps.";
-        plan.analysisExpectedOutput = "Analysis with real tool output and findings";
-        plan.reportTaskDescription = "Write a comprehensive markdown report with all findings.";
-        plan.qualityCriteria = "1. Real data from tools?\n2. Evidence-backed?\n3. Actionable?";
+        plan.analystRole = "Senior Research Analyst";
+        plan.analystGoal = "Analyze: '" + query + "'. Use MULTIPLE tool strategies to gather real data.";
+        plan.analystBackstory = "Resourceful analyst who never gives up. When one tool fails, you try another approach. " +
+                "You know specific URLs for public data sources and fetch them directly.";
+        plan.recommendedTools = "web_search,http_request,web_scrape,calculator,shell_command,json_transform";
+        plan.analysisTaskDescription = "Analyze: \"" + query + "\"\n\n" +
+                "TOOL STRATEGY (try in order):\n" +
+                "1. Try web_search first for general information\n" +
+                "2. If web_search returns empty, use http_request to fetch from SPECIFIC URLs:\n" +
+                "   - Wikipedia API: http_request GET https://en.wikipedia.org/api/rest_v1/page/summary/{topic}\n" +
+                "   - GitHub trending: http_request GET https://api.github.com/search/repositories?q={topic}\n" +
+                "   - Hacker News: http_request GET https://hn.algolia.com/api/v1/search?query={topic}\n" +
+                "3. If http_request fails, use web_scrape on actual web pages\n" +
+                "4. Use shell_command with 'curl' for APIs that need custom headers\n" +
+                "5. Use calculator for any numerical analysis\n\n" +
+                "CRITICAL RULES:\n" +
+                "- Do NOT call the same tool with the same query twice\n" +
+                "- Do NOT just report 'DATA NOT AVAILABLE' — try a different tool\n" +
+                "- Use REAL URLs, not placeholders\n" +
+                "- If all tools fail for a specific metric, explain WHY and suggest where the data could be found";
+        plan.analysisExpectedOutput = "Analysis with data from multiple tool strategies and specific findings";
+        plan.reportTaskDescription = "Write a comprehensive markdown report based on the analyst's findings.\n" +
+                "Include all data retrieved from tools. For any gaps, cite the specific URLs tried and " +
+                "explain what alternative sources could fill the gap.";
+        plan.qualityCriteria = "1. Were MULTIPLE tool strategies tried (not just web_search)?\n" +
+                "2. Were specific URLs fetched via http_request or web_scrape?\n" +
+                "3. Does the report contain actual data from tool output?\n" +
+                "4. Are recommendations actionable and specific?";
         return plan;
     }
 

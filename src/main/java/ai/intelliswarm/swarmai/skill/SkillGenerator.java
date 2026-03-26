@@ -39,81 +39,49 @@ public class SkillGenerator {
     }
 
     /**
-     * Discover tool output formats by probing each BASE tool with a sample call.
-     * Skips GeneratedSkill instances to avoid recursive call chains.
-     * Results are cached — already-probed tools are not re-probed.
+     * Register tool output format descriptions for skill generation prompts.
+     * Uses static descriptions derived from tool name and description — no live probing.
+     * This is called once per skill generation cycle; results are cached.
      */
     public void discoverToolFormats(Map<String, BaseTool> tools) {
-        // Only probe tools we haven't seen yet, and skip generated skills
-        int probed = 0;
         for (Map.Entry<String, BaseTool> entry : tools.entrySet()) {
             String toolName = entry.getKey();
             BaseTool tool = entry.getValue();
 
-            // Skip already cached tools
             if (toolOutputSamples.containsKey(toolName)) continue;
 
-            // Skip generated skills — they compose base tools and would trigger recursive chains
             if (tool instanceof GeneratedSkill) {
                 toolOutputSamples.put(toolName, "(String) — generated skill that composes other tools");
-                continue;
+            } else {
+                // Derive format description from tool metadata — no HTTP calls
+                toolOutputSamples.put(toolName, describeToolFormat(toolName, tool.getDescription()));
             }
-
-            try {
-                Map<String, Object> sampleParams = buildSampleParams(tool);
-                Object result = tool.execute(sampleParams);
-                String output = result != null ? result.toString() : "(null)";
-
-                String sample = output.length() > 200
-                    ? output.substring(0, 200) + "..."
-                    : output;
-
-                toolOutputSamples.put(toolName, sample);
-                probed++;
-                logger.info("Discovered format for '{}': {} chars", toolName, output.length());
-
-            } catch (Exception e) {
-                toolOutputSamples.put(toolName, "(String) — returns text output");
-            }
-        }
-
-        if (probed > 0) {
-            logger.info("Probed {} new base tools (skipped {} cached/generated)",
-                probed, tools.size() - probed);
         }
     }
 
     /**
-     * Build minimal sample parameters for probing a tool.
+     * Describe a tool's output format based on its name and description.
+     * Replaces live probing with static knowledge of known tool patterns.
      */
-    private Map<String, Object> buildSampleParams(BaseTool tool) {
-        Map<String, Object> params = new HashMap<>();
-        Map<String, Object> schema = tool.getParameterSchema();
-
-        if (schema != null && schema.containsKey("properties")) {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> properties = (Map<String, Object>) schema.get("properties");
-            for (Map.Entry<String, Object> prop : properties.entrySet()) {
-                // Use sensible defaults for probing
-                String paramName = prop.getKey();
-                if (paramName.contains("query") || paramName.contains("search")) {
-                    params.put(paramName, "AAPL stock price");
-                } else if (paramName.contains("url")) {
-                    params.put(paramName, "https://httpbin.org/get");
-                } else if (paramName.contains("ticker") || paramName.contains("symbol")) {
-                    params.put(paramName, "AAPL");
-                } else {
-                    params.put(paramName, "sample");
-                }
-            }
-        }
-
-        // Ensure at least a query param for search-like tools
-        if (params.isEmpty() && tool.getFunctionName().contains("search")) {
-            params.put("query", "AAPL stock");
-        }
-
-        return params;
+    private String describeToolFormat(String toolName, String description) {
+        return switch (toolName) {
+            case "web_search" -> "(String) — returns search results as text with titles, URLs, and snippets";
+            case "web_scrape" -> "(String) — returns scraped HTML page content as plain text";
+            case "http_request" -> "(String) — returns HTTP response body as text (may be HTML, JSON, or plain text)";
+            case "calculator" -> "(String) — returns calculation result as text, e.g. '42.0'";
+            case "shell_command" -> "(String) — returns stdout/stderr and exit code as text";
+            case "file_read" -> "(String) — returns file content as text";
+            case "file_write" -> "(String) — returns confirmation message";
+            case "json_transform" -> "(String) — returns transformed JSON as text";
+            case "xml_parse" -> "(String) — returns parsed XML content as text";
+            case "csv_analysis" -> "(String) — returns CSV analysis results as text";
+            case "sec_filings" -> "(String) — returns SEC filing data as formatted text";
+            case "code_execution" -> "(String) — returns code execution output as text";
+            case "directory_read" -> "(String) — returns directory listing as text";
+            case "pdf_read" -> "(String) — returns PDF text content";
+            case "data_analysis" -> "(String) — returns data analysis summary as text";
+            default -> "(String) — returns " + (description != null ? description : "text output");
+        };
     }
 
     /**
