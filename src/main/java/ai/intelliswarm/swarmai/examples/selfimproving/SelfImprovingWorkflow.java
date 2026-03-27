@@ -415,18 +415,25 @@ public class SelfImprovingWorkflow {
             "When one tool fails, you try a different REAL URL.";
         plan.recommendedTools = "http_request,web_scrape,calculator,json_transform";
         plan.analysisTaskDescription = "Analyze: \"" + query + "\"\n\n" +
-            "STEP-BY-STEP DATA GATHERING (use these EXACT URLs):\n" +
-            "1. http_request GET https://en.wikipedia.org/api/rest_v1/page/summary/" + topic + "\n" +
-            "2. http_request GET https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=" + urlTopic + "&format=json\n" +
-            "3. http_request GET https://api.github.com/search/repositories?q=" + urlTopic + "&sort=stars\n" +
-            "4. http_request GET https://hn.algolia.com/api/v1/search?query=" + urlTopic + "&tags=story\n" +
-            "5. http_request GET https://api.duckduckgo.com/?q=" + urlTopic + "&format=json&no_html=1\n" +
-            "6. web_scrape https://en.wikipedia.org/wiki/" + topic + "\n\n" +
-            "RULES:\n" +
-            "- NEVER invent API URLs. Use ONLY the URLs listed above.\n" +
-            "- If a URL returns an error, move to the next one — do NOT retry the same URL.\n" +
-            "- Use json_transform to extract key fields from JSON responses.\n" +
-            "- Clearly state which URLs returned data and which failed.";
+            "STEP-BY-STEP DATA GATHERING (use these EXACT URLs — call ALL of them):\n\n" +
+            "STEP 1 - Wikipedia context:\n" +
+            "  http_request GET https://en.wikipedia.org/api/rest_v1/page/summary/" + topic + "\n\n" +
+            "STEP 2 - Wikipedia search for related articles:\n" +
+            "  http_request GET https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=" + urlTopic + "&format=json\n\n" +
+            "STEP 3 - GitHub repositories (look at stars, descriptions, recent activity):\n" +
+            "  http_request GET https://api.github.com/search/repositories?q=" + urlTopic + "&sort=stars&per_page=10\n\n" +
+            "STEP 4 - Hacker News discussions (look at story titles, points, comments):\n" +
+            "  http_request GET https://hn.algolia.com/api/v1/search?query=" + urlTopic + "&tags=story&hitsPerPage=10\n\n" +
+            "STEP 5 - DuckDuckGo instant answers:\n" +
+            "  http_request GET https://api.duckduckgo.com/?q=" + urlTopic + "&format=json&no_html=1\n\n" +
+            "STEP 6 - Scrape Wikipedia article for detailed content:\n" +
+            "  web_scrape https://en.wikipedia.org/wiki/" + topic + "\n\n" +
+            "AFTER GATHERING DATA:\n" +
+            "- Use json_transform to extract the most relevant fields from each JSON response\n" +
+            "- Build a comparison table from the data you gathered\n" +
+            "- Clearly cite which source each fact came from: [Wikipedia], [GitHub], [HN], [DDG]\n" +
+            "- If a URL returned an error, report it and move on — do NOT retry or invent new URLs\n" +
+            "- Do NOT fabricate data. If you couldn't find specific info, say so.";
         plan.analysisExpectedOutput = "Analysis with data from multiple real API sources";
         plan.reportTaskDescription = "Write a comprehensive markdown report based on the analyst's findings.\n" +
             "Include all data retrieved from real APIs. For any gaps, state which URLs were tried.";
