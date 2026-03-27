@@ -1,5 +1,14 @@
 # SwarmAI Framework
 
+[![Maven CI](https://github.com/intelliswarm-ai/swarm-ai/actions/workflows/maven-ci.yml/badge.svg)](https://github.com/intelliswarm-ai/swarm-ai/actions/workflows/maven-ci.yml)
+[![Publish Snapshot](https://github.com/intelliswarm-ai/swarm-ai/actions/workflows/maven-snapshot.yml/badge.svg)](https://github.com/intelliswarm-ai/swarm-ai/actions/workflows/maven-snapshot.yml)
+[![Qodana](https://github.com/intelliswarm-ai/swarm-ai/actions/workflows/qodana_code_quality.yml/badge.svg)](https://github.com/intelliswarm-ai/swarm-ai/actions/workflows/qodana_code_quality.yml)
+[![Java 21](https://img.shields.io/badge/Java-21-blue.svg)](https://openjdk.org/projects/jdk/21/)
+[![Spring Boot 3.4](https://img.shields.io/badge/Spring%20Boot-3.4.4-brightgreen.svg)](https://spring.io/projects/spring-boot)
+[![Spring AI 1.0](https://img.shields.io/badge/Spring%20AI-1.0.4%20GA-brightgreen.svg)](https://spring.io/projects/spring-ai)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Tests](https://img.shields.io/badge/tests-642%20passing-brightgreen.svg)](#)
+
 The Java multi-agent framework with self-improving skills, quality-gated tool generation, and enterprise governance.
 
 Built on Spring AI 1.0.4 GA and Spring Boot 3.4. Inspired by CrewAI and OpenClaw, designed for the Java enterprise ecosystem.
