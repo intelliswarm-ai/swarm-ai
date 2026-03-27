@@ -46,6 +46,8 @@ public record SkillQualityScore(
      */
     public static SkillQualityScore assess(GeneratedSkill skill) {
         String code = skill.getCode();
+        boolean hasCode = code != null && !code.isBlank();
+        String normalizedCode = hasCode ? code : "";
         String desc = skill.getDescription();
 
         // 1. Documentation: description quality + parameter descriptions in schema
@@ -74,32 +76,35 @@ public record SkillQualityScore(
 
         // 3. Error handling: try/catch, null checks, default values
         int errorScore = 0;
-        if (code.contains("try") && code.contains("catch")) errorScore += 10;
-        if (code.contains("?:") || code.contains("!= null") || code.contains("?: \"")) errorScore += 5;
-        if (code.contains("Error:") || code.contains("error")) errorScore += 5;
+        if (normalizedCode.contains("try") && normalizedCode.contains("catch")) errorScore += 10;
+        if (normalizedCode.contains("?:") || normalizedCode.contains("!= null") || normalizedCode.contains("?: \"")) errorScore += 5;
+        if (normalizedCode.contains("Error:") || normalizedCode.contains("error")) errorScore += 5;
         errorScore = Math.min(20, errorScore);
 
         // 4. Code complexity: lower is better
-        int complexityScore = 20;
-        int lineCount = code.split("\n").length;
-        if (lineCount > 50) complexityScore -= 5;
-        if (lineCount > 100) complexityScore -= 5;
-        // Nesting depth check
-        int maxNesting = 0, currentNesting = 0;
-        for (char c : code.toCharArray()) {
-            if (c == '{') currentNesting++;
-            if (c == '}') currentNesting--;
-            maxNesting = Math.max(maxNesting, currentNesting);
+        int complexityScore = 0;
+        if (hasCode) {
+            complexityScore = 20;
+            int lineCount = normalizedCode.split("\n").length;
+            if (lineCount > 50) complexityScore -= 5;
+            if (lineCount > 100) complexityScore -= 5;
+            // Nesting depth check
+            int maxNesting = 0, currentNesting = 0;
+            for (char c : normalizedCode.toCharArray()) {
+                if (c == '{') currentNesting++;
+                if (c == '}') currentNesting--;
+                maxNesting = Math.max(maxNesting, currentNesting);
+            }
+            if (maxNesting > 4) complexityScore -= 5;
+            if (maxNesting > 6) complexityScore -= 5;
+            complexityScore = Math.max(0, complexityScore);
         }
-        if (maxNesting > 4) complexityScore -= 5;
-        if (maxNesting > 6) complexityScore -= 5;
-        complexityScore = Math.max(0, complexityScore);
 
         // 5. Output format: consistent result formatting
         int outputScore = 0;
-        if (code.contains("result") || code.contains("return") || code.contains("output")) outputScore += 10;
-        if (code.contains("\\n") || code.contains("StringBuilder") || code.contains("String.format")) outputScore += 5;
-        if (code.contains("\"Error:") || code.contains("catch")) outputScore += 5; // error cases produce output
+        if (normalizedCode.contains("result") || normalizedCode.contains("return") || normalizedCode.contains("output")) outputScore += 10;
+        if (normalizedCode.contains("\\n") || normalizedCode.contains("StringBuilder") || normalizedCode.contains("String.format")) outputScore += 5;
+        if (normalizedCode.contains("\"Error:") || normalizedCode.contains("catch")) outputScore += 5; // error cases produce output
         outputScore = Math.min(20, outputScore);
 
         return new SkillQualityScore(docScore, testScore, errorScore, complexityScore, outputScore);
