@@ -9,6 +9,11 @@ concurrency:
   group: release-deploy
   cancel-in-progress: false
 
+permissions:
+  contents: read
+  checks: write
+  packages: write
+
 jobs:
   # ============================================
   # Validate release version

@@ -1,8 +1,8 @@
 # SwarmAI Framework
 
-The Java multi-agent framework that doesn't hallucinate and tells you what it costs.
+The Java multi-agent framework with self-improving skills, quality-gated tool generation, and enterprise governance.
 
-Built on Spring AI 1.0.4 GA and Spring Boot 3.4. Inspired by CrewAI, designed for the Java enterprise ecosystem.
+Built on Spring AI 1.0.4 GA and Spring Boot 3.4. Inspired by CrewAI and OpenClaw, designed for the Java enterprise ecosystem.
 
 ## Why SwarmAI Over Other Frameworks?
 
@@ -17,98 +17,73 @@ Built on Spring AI 1.0.4 GA and Spring Boot 3.4. Inspired by CrewAI, designed fo
 | Dynamic context management | Model-aware | No | No | History compression | No |
 | Spring Boot native | Yes | Adapter | Native | Adapter | N/A (Python) |
 | Iterative refinement loops | Yes (reviewer-driven) | No | No | No | No |
-| Self-improving workflows | Yes (runtime tool generation) | No | No | No | No |
+| Self-improving workflows | Yes (4 skill types, quality-gated) | No | No | No | No |
+| Tool routing metadata | Yes (triggerWhen/avoidWhen/categories) | No | No | No | No |
+| Tool health checks | Yes (pre-flight validation) | No | No | No | No |
+| Enterprise governance | Yes (multi-tenancy, budgets, approval gates) | No | No | No | No |
 | Process types | 5 (Seq/Hier/Parallel/Iterative/Self-Improving) | 5 | Manual | 3 | 2 |
 | Language | Java 21 | Java | Java | Kotlin/Java | Python |
 
 ### What Makes SwarmAI Different
 
-**1. Anti-Hallucination Guardrails** — Every agent automatically gets rules baked into its system prompt: date awareness, `[CONFIRMED]`/`[ESTIMATE]` markers, "DATA NOT AVAILABLE" enforcement, and unknown topic detection. No other Java framework does this at the framework level.
+**1. Self-Improving Skill Architecture** — The core differentiator. When a reviewer identifies a missing capability, the framework generates new skills at runtime — not just Groovy code snippets, but rich skill packages inspired by [OpenClaw](https://github.com/openclaw/skills). Four skill types adapt to the problem:
 
-**2. Token Economics** — Built-in per-task token tracking with cost estimation across models (OpenAI, Anthropic, Ollama). See exactly what each agent costs.
+| Skill Type | What It Does | Best For |
+|-----------|-------------|---------|
+| **PROMPT** | LLM instructions injected into agent's system prompt | Domain expertise, analysis frameworks, reasoning patterns |
+| **CODE** | Sandboxed Groovy script with tool composition | Data transformation, computation pipelines |
+| **HYBRID** | Code gathers data, instructions guide LLM reasoning | Complex analysis needing both data processing and reasoning |
+| **COMPOSITE** | Router dispatching to sub-skills based on intent | Multi-capability domains with distinct sub-tasks |
 
-**3. Parallel Process** — Independent tasks run concurrently with automatic dependency resolution. A 4-task due diligence workflow completes in 36 seconds instead of 112 seconds.
+Skills are persisted as directory-based packages (SKILL.md + _meta.json), versioned with SemVer, and reused across runs.
 
-**4. Iterative Refinement** — Tasks execute, a reviewer agent evaluates output against a quality rubric, and the loop repeats with feedback until approved. Cyclic workflows with a structured review protocol.
+**2. Quality-Gated Skill Generation** — Unlike frameworks that eagerly generate tools, SwarmAI evaluates whether generation is warranted before spending LLM tokens:
 
-**5. Self-Improving Workflows** — The killer feature. An LLM planner dynamically designs agents, tasks, and tool selection based on any user query. When the reviewer identifies a missing capability, new Groovy tools are generated, validated in a sandbox, and hot-loaded into agents at runtime. Skills persist to disk and are reused across runs. No hardcoded domain logic — the same workflow handles financial analysis, competitive intelligence, or any other task.
+- **Gap Analyzer** — Scores gaps on clarity, coverage, novelty, complexity, and reuse potential (0-1.0)
+- **Tool-Error Detection** — Rejects gaps that describe I/O errors or connection failures (tool usage problems, not missing capabilities)
+- **Impossible-Capability Blocklist** — Blocks requests for sentiment analysis APIs, social media feeds, or ML infrastructure we don't have
+- **Cross-Iteration Dedup** — Prevents the same gap from being processed twice across iterations
+- **Post-Review Reclassification** — Catches tool errors misclassified as capability gaps by the reviewer
 
-**6. MCP Protocol** — Connect to any MCP-compatible tool server via stdio transport. Agents automatically discover and use external tools (web fetch, search, databases).
+Result: 5x fewer wasted skills, 22% faster execution, 80% skill effectiveness (up from 40%).
 
-**7. Tool Library (15+ Built-in Tools)** — Production-ready tools for file I/O, web scraping, HTTP requests, shell commands, CSV/JSON/XML processing, PDF reading, code execution, and more. All registered as Spring beans with proper sandboxing and validation.
+**3. Tool Routing Metadata** — Every tool declares when to use it and when not to, enabling accurate LLM tool selection:
 
-**8. SwarmAI Studio** — Built-in web dashboard at `/studio` for real-time workflow visualization. Graph view of agent/task relationships, event timeline, token usage charts, and cost analysis. Available on every workflow run.
+```java
+@Override
+public String getTriggerWhen() {
+    return "User asks about stock prices, market data, or financial news.";
+}
 
-### Competitive Analysis: Where SwarmAI Wins
-
-#### vs CrewAI (Python)
-
-CrewAI pioneered the multi-agent pattern and SwarmAI draws inspiration from it. But CrewAI is Python-only, has no parallel execution, and offers no runtime tool generation. SwarmAI brings CrewAI's patterns to Java with significant additions:
-
-| Area | SwarmAI | CrewAI |
-|------|---------|--------|
-| Runtime tool generation | Groovy skills generated, validated, hot-loaded | No — tools must be defined before execution |
-| Parallel execution | Automatic dependency-based layering | Sequential only |
-| Anti-hallucination | Framework-level guardrails in every prompt | Manual prompt engineering |
-| Token tracking | Per-task with cost estimation | Basic token counts |
-| Iterative refinement | Structured reviewer loop with quality rubric | No built-in review cycle |
-| Ecosystem | Spring Boot, Spring AI, Maven, enterprise Java | Python, LangChain |
-
-#### vs LangChain4j
-
-LangChain4j is a mature Java library with strong RAG and chain composition. However, it focuses on chain-of-thought workflows rather than multi-agent orchestration:
-
-| Area | SwarmAI | LangChain4j |
-|------|---------|-------------|
-| Multi-agent orchestration | First-class (Agent + Task + Process) | Chains, no agent abstraction |
-| Process strategies | 5 built-in (including self-improving) | Manual composition |
-| Self-improving loops | Automatic gap detection + skill generation | No |
-| Observability dashboard | Built-in Studio UI | No built-in UI |
-| Anti-hallucination | Automatic system prompt guardrails | Manual |
-| Tool generation | Runtime Groovy skill creation | No |
-
-#### vs Spring AI (standalone)
-
-Spring AI provides the model abstraction layer that SwarmAI builds on. Using Spring AI alone requires manual orchestration of agents, tasks, and workflows:
-
-| Area | SwarmAI | Spring AI |
-|------|---------|-----------|
-| Agent abstraction | Role/Goal/Backstory pattern with tools, memory | ChatClient only |
-| Task orchestration | Dependency resolution, parallel, iterative | Manual coding |
-| Process types | 5 declarative strategies | DIY |
-| Built-in tools | 15+ production-ready tools | Function callbacks (bring your own) |
-| Studio dashboard | Built-in at /studio | No |
-| Skill generation | Automatic from capability gaps | No |
-
-#### vs Koog (JetBrains)
-
-Koog is a Kotlin-first agent framework from JetBrains with strong typing and structured output. It focuses on single-agent workflows with tool use:
-
-| Area | SwarmAI | Koog |
-|------|---------|------|
-| Multi-agent coordination | Manager/worker patterns, parallel teams | Single-agent focus |
-| Self-improving | Runtime tool generation + iterative refinement | No |
-| Process types | 5 (including self-improving) | 3 |
-| Spring ecosystem | Native Spring Boot | Kotlin adapter |
-| Built-in tools | 15+ tools | Minimal |
-| Studio UI | Built-in dashboard | No |
-
-#### The Self-Improving Advantage
-
-No other open-source framework — in any language — offers runtime tool generation from capability gaps. This is SwarmAI's core differentiator:
-
-```
-Traditional framework:  Query → [fixed tools] → Result
-SwarmAI:                Query → Plan → Execute → Review
-                                         ↓ (capability gap detected)
-                                   Generate Groovy tool → Validate → Register
-                                         ↓
-                                   Rebuild agents → Re-execute with new tool
-                                         ↓
-                                   Better result (skills persist for future runs)
+@Override
+public String getAvoidWhen() {
+    return "Question is about local files, math, or code execution.";
+}
 ```
 
-The same workflow code handles financial analysis, security assessments, competitive intelligence, or any other domain — the LLM planner adapts at runtime.
+Tools also declare categories, tags, requirements (env vars, binaries), output schemas, and smoke tests. The agent's system prompt includes structured `USE WHEN` / `AVOID WHEN` routing hints per tool.
+
+**4. Anti-Hallucination Guardrails** — Every agent automatically gets rules baked into its system prompt: date awareness, `[CONFIRMED]`/`[ESTIMATE]` markers, "DATA NOT AVAILABLE" enforcement, and unknown topic detection. URL validation rejects hallucinated API domains (`api.example.com`, `api.cloudmarketshare.com`) with helpful suggestions for real endpoints.
+
+**5. Token Economics** — Built-in per-task token tracking with cost estimation across models (OpenAI, Anthropic, Ollama). See exactly what each agent costs. Budget policies with WARN or HARD_STOP actions prevent runaway spending.
+
+**6. Enterprise Governance** — Production-ready multi-tenancy, budget tracking, and approval gates:
+- **Multi-Tenancy** — Isolated resource quotas per team (max workflows, skills, token budgets)
+- **Budget Tracking** — Real-time token/cost monitoring with configurable limits and auto-stop
+- **Approval Gates** — Human-in-the-loop review points with timeout-based auto-approval for demos
+
+**7. Tool Health Checks** — Before assigning tools to agents, the framework verifies they're operational:
+```
+Tool health check: 7/8 tools operational
+  web_search UNHEALTHY: [Missing environment variable: ALPHA_VANTAGE_API_KEY]
+```
+Unhealthy tools are excluded pre-flight, preventing wasted LLM calls on tools that will fail.
+
+**8. 21+ Built-in Tools** — Production-ready tools for file I/O, web scraping, HTTP requests, shell commands, CSV/JSON/XML processing, PDF reading, SEC filings, code execution, and more. All with routing metadata, SSRF protection, and proper sandboxing.
+
+**9. MCP Protocol** — Connect to any MCP-compatible tool server via stdio transport. Agents automatically discover and use external tools.
+
+**10. SwarmAI Studio** — Built-in web dashboard at `/studio` for real-time workflow visualization, event timeline, token usage charts, and cost analysis.
 
 ## Quick Start
 
@@ -122,8 +97,8 @@ The same workflow code handles financial analysis, security assessments, competi
 
 ```bash
 # Clone and configure
-git clone https://github.com/intelliswarm/swarmai.git
-cd swarmai
+git clone https://github.com/intelliswarm-ai/swarm-ai.git
+cd swarm-ai
 cp .env.example .env
 # Edit .env — add your OPENAI_API_KEY
 
@@ -139,15 +114,16 @@ docker compose -f docker-compose.run.yml run --rm research "AI trends in enterpr
 # MCP Research (with live web fetching via MCP tools)
 docker compose -f docker-compose.run.yml run --rm mcp-research "impact of AI agents on software"
 
-# Iterative Memo (execute → review → refine loop, 3 iterations max)
+# Iterative Memo (execute -> review -> refine loop, 3 iterations max)
 docker compose -f docker-compose.run.yml run --rm iterative-memo NVDA 3
 
-# Self-Improving — dynamic workflow adaptation (the killer feature)
+# Self-Improving — dynamic workflow adaptation
 # Give it ANY query — it plans agents, selects tools, generates skills at runtime
 docker compose -f docker-compose.run.yml run --rm --service-ports self-improving \
   "Compare the top 5 AI coding assistants for enterprise Java development"
 
-docker compose -f docker-compose.run.yml run --rm --service-ports self-improving \
+# Enterprise Governed — self-improving + multi-tenancy + budgets + approval gates
+docker compose -f docker-compose.run.yml run --rm --service-ports enterprise-governed \
   "Analyze the competitive landscape of cloud providers AWS vs Azure vs GCP"
 
 # Open Studio UI to watch the workflow in real-time:
@@ -157,8 +133,8 @@ docker compose -f docker-compose.run.yml run --rm --service-ports self-improving
 ### Run Tests
 
 ```bash
-docker compose -f docker-compose.test.yml run --rm test-unit
-# 208 tests, all passing
+./mvnw clean test
+# 642 tests, all passing
 ```
 
 ## Architecture
@@ -166,8 +142,12 @@ docker compose -f docker-compose.test.yml run --rm test-unit
 ```
 Swarm (orchestrator)
 ├── Agent (role + goal + backstory + tools + memory)
-│   ├── System prompt (anti-hallucination guardrails, date awareness)
+│   ├── System prompt (anti-hallucination guardrails, date awareness, tool routing hints)
 │   ├── Tools (Spring AI functions, MCP tools, Generated Skills)
+│   │   ├── Tool routing: triggerWhen / avoidWhen / category / tags
+│   │   ├── Tool requirements: env vars, binaries, services
+│   │   ├── Tool health checks: pre-flight validation
+│   │   └── Output schema: format description for downstream parsing
 │   ├── Memory (InMemory, Redis, JDBC)
 │   └── Knowledge (InMemory, Vector Store)
 ├── Task (description + expected output + dependencies)
@@ -175,33 +155,32 @@ Swarm (orchestrator)
 │   ├── SEQUENTIAL — tasks run in dependency order
 │   ├── HIERARCHICAL — manager plans, delegates, synthesizes
 │   ├── PARALLEL — independent tasks run concurrently
-│   ├── ITERATIVE — execute → review → refine loop until approved
-│   └── SELF_IMPROVING — dynamic planning + skill generation + iterative refinement
-├── Skill System (runtime tool generation)
-│   ├── SkillGenerator — LLM generates Groovy tools from capability gaps
-│   ├── SkillValidator — security scan + syntax check + sandboxed testing
-│   ├── SkillRegistry — storage, deduplication, usage tracking, persistence
-│   └── GeneratedSkill — sandboxed Groovy execution with tool composition
+│   ├── ITERATIVE — execute -> review -> refine loop until approved
+│   └── SELF_IMPROVING — dynamic planning + quality-gated skill generation
+├── Skill System
+│   ├── SkillDefinition — Rich SKILL.md-format packages (frontmatter + body + code + resources)
+│   ├── SkillType — PROMPT | CODE | HYBRID | COMPOSITE
+│   ├── SkillGapAnalyzer — Quality gate: clarity, coverage, novelty, error detection, impossible-capability blocklist
+│   ├── SkillGenerator — LLM generates skills with routing rules, categories, tags
+│   ├── SkillValidator — Type-aware validation (PROMPT: body check, CODE: security + syntax + tests)
+│   ├── SkillQualityScore — 5-dimension scoring (documentation, tests, error handling, complexity, output)
+│   ├── SkillVersion — SemVer tracking with rollback support
+│   ├── SkillRegistry — Storage, dedup, category search, tag filtering, persistence as packages
+│   └── GeneratedSkill — 4 execution modes with tool composition, references, resources, sub-skills
+├── Enterprise
+│   ├── Multi-Tenancy — per-tenant resource quotas and isolation
+│   ├── Budget Tracking — per-workflow token/cost monitoring with WARN/HARD_STOP
+│   └── Governance — approval gates with human-in-the-loop review
+├── Observability
+│   ├── DecisionTracer — agent decision tracking
+│   ├── EventStore — workflow replay
+│   └── StructuredLogger — JSON logging
 ├── Studio (web dashboard at /studio)
 │   ├── Workflow graph visualization
 │   ├── Event timeline and live SSE streaming
 │   └── Token usage charts and cost analysis
 └── SwarmOutput (results + token usage + cost estimation + skill metadata)
 ```
-
-### Core Components
-
-| Component | Description |
-|-----------|-------------|
-| **Agent** | AI entity with role, goal, backstory. Uses system+user prompt split for proper persona adoption. |
-| **Task** | Work unit with description, expected output, dependencies. Supports conditions, async, file output. |
-| **Swarm** | Orchestrator combining agents + tasks + process type. Handles lifecycle, events, memory. |
-| **Process** | Execution strategy. Sequential, Hierarchical (with manager), or Parallel (concurrent layers). |
-| **Memory** | Agent memory across tasks. InMemory, Redis, or JDBC (PostgreSQL/MySQL). |
-| **Knowledge** | Document knowledge base. InMemory keyword search or Vector Store (semantic search via Spring AI). |
-| **BaseTool** | Interface for agent tools. 15+ built-in tools, MCP server integration, runtime-generated Groovy skills. |
-| **GeneratedSkill** | Dynamically created tool backed by sandboxed Groovy code. Can compose existing tools. Persists to disk. |
-| **Studio** | Web dashboard at `/studio` for workflow visualization, event timeline, token charts, and cost analysis. |
 
 ## Usage
 
@@ -216,7 +195,7 @@ Agent analyst = Agent.builder()
     .backstory("CFA-certified analyst with 10 years experience. Never fabricates data.")
     .chatClient(chatClient)
     .tool(secFilingsTool)
-    .modelName("gpt-4o-mini")  // enables dynamic context sizing
+    .modelName("gpt-4o-mini")
     .build();
 
 Task analysisTask = Task.builder()
@@ -233,89 +212,18 @@ Swarm swarm = Swarm.builder()
     .build();
 
 SwarmOutput result = swarm.kickoff(Map.of("ticker", "AAPL"));
-
-// Token usage and cost
 System.out.println(result.getTokenUsageSummary("gpt-4o-mini"));
-// Token Usage:
-//   Prompt tokens:     88,833
-//   Completion tokens: 3,022
-//   Total tokens:      91,855
-//   Estimated cost:    $0.0151 (gpt-4o-mini)
-```
-
-### Parallel Execution
-
-```java
-// Three independent research tasks run concurrently
-Task financialTask = Task.builder().id("financial").agent(financialAnalyst)...build();
-Task newsTask = Task.builder().id("news").agent(newsAnalyst)...build();
-Task legalTask = Task.builder().id("legal").agent(legalAnalyst)...build();
-
-// Synthesis waits for all three
-Task synthesisTask = Task.builder().id("synthesis").agent(director)
-    .dependsOn(financialTask)
-    .dependsOn(newsTask)
-    .dependsOn(legalTask)
-    .build();
-
-Swarm swarm = Swarm.builder()
-    .process(ProcessType.PARALLEL)  // financial + news + legal run simultaneously
-    // ...
-    .build();
-
-// Layer 0: 3 tasks in parallel (~30s)
-// Layer 1: synthesis (~10s)
-// Total: ~40s instead of ~120s sequential
-```
-
-### MCP Tool Integration
-
-```java
-// Connect to any MCP server and discover its tools automatically
-List<BaseTool> mcpTools = McpToolAdapter.fromServer("uvx", "mcp-server-fetch");
-// Discovered: fetch — Fetches a URL and extracts content as markdown
-
-Agent researcher = Agent.builder()
-    .role("Research Analyst")
-    .tools(mcpTools)  // agent can now fetch live web content
-    .build();
-```
-
-### Iterative Refinement
-
-```java
-// Reviewer agent evaluates output against quality criteria.
-// Loop repeats with feedback until APPROVED or max iterations reached.
-Agent researcher = Agent.builder().role("Research Analyst")...build();
-Agent writer = Agent.builder().role("Memo Writer")...build();
-Agent reviewer = Agent.builder().role("Managing Director")...build(); // reviewer
-
-Task researchTask = Task.builder().id("research").agent(researcher)...build();
-Task memoTask = Task.builder().id("memo").agent(writer).dependsOn(researchTask)...build();
-
-Swarm swarm = Swarm.builder()
-    .agent(researcher).agent(writer).agent(reviewer)
-    .task(researchTask).task(memoTask)
-    .process(ProcessType.ITERATIVE)
-    .managerAgent(reviewer)          // reviewer agent
-    .config("maxIterations", 3)
-    .config("qualityCriteria", "Must have data tables, 5+ risks, peer comparison")
-    .build();
-
-SwarmOutput result = swarm.kickoff(inputs);
-// result.getUsageMetrics() → {iterations: 2, approved: true, totalTasks: 6}
 ```
 
 ### Self-Improving Workflows
 
 ```java
 // The workflow dynamically adapts to ANY query — no hardcoded domain logic.
-// An LLM planner determines agents, tasks, tools, and quality criteria at runtime.
-// When the reviewer identifies missing capabilities, new Groovy tools are generated,
-// validated in a sandbox, and hot-loaded into agents.
+// When the reviewer identifies missing capabilities, new skills are generated,
+// quality-gated, validated in a sandbox, and hot-loaded into agents.
 
 Swarm swarm = Swarm.builder()
-    .agent(analyst)       // role/goal determined by planner
+    .agent(analyst)       // role/goal determined by LLM planner
     .agent(writer)
     .managerAgent(reviewer)
     .task(analysisTask)   // description generated by planner
@@ -326,49 +234,49 @@ Swarm swarm = Swarm.builder()
     .build();
 
 SwarmOutput result = swarm.kickoff(inputs);
-// result.getMetadata() → {skillsGenerated: 3, totalIterations: 3,
-//   registryStats: {totalSkills: 3, byStatus: {ACTIVE: 3}, averageEffectiveness: 1.0}}
-
-// Generated skills are persisted to output/skills/ and reused in future runs.
-// Example skills auto-generated: nmap_vulnerability_report, financial_data_aggregator
+// result.getMetadata() -> {skillsGenerated: 1, gapsSkippedAsDuplicate: 1,
+//   registryStats: {totalSkills: 1, byCategory: {web: 1}, averageEffectiveness: 0.8}}
 ```
 
-**How it works:**
-1. **Plan** — LLM planner analyzes the query and available tools, generates agent roles, task descriptions, and quality criteria
-2. **Execute** — Agents run tasks using selected tools
-3. **Review** — Reviewer evaluates output, identifies QUALITY_ISSUES and CAPABILITY_GAPS
-4. **Generate** — For each gap, a new Groovy tool is generated, security-scanned, syntax-checked, and sandboxed-tested
-5. **Rebuild** — Agents are rebuilt with the new tool added to their toolkit
-6. **Repeat** — Loop continues with expanded capabilities until approved or max iterations
+**How the self-improving loop works:**
+1. **Plan** — LLM planner analyzes the query and available tools (with routing metadata), generates agent roles, task descriptions, and quality criteria
+2. **Health Check** — Tools verified as operational before agent assignment
+3. **Execute** — Agents run tasks using selected tools
+4. **Tool Evidence Check** — Verifies agents actually used tools (not just LLM knowledge)
+5. **Review** — Reviewer evaluates output, identifies QUALITY_ISSUES and CAPABILITY_GAPS
+6. **Reclassify** — Tool errors reclassified as quality issues (not capability gaps)
+7. **Gap Analyze** — Each gap scored for clarity, coverage, novelty, error patterns, impossible capabilities
+8. **Dedup** — Cross-iteration dedup prevents same gap from being processed twice
+9. **Generate** — For approved gaps, a PROMPT/CODE/HYBRID/COMPOSITE skill is generated
+10. **Validate** — Type-aware validation (security scan, syntax check, sandboxed testing, quality scoring)
+11. **Rebuild** — Agents rebuilt with new skills, loop continues until approved or convergence
 
-### Persistent Memory
-
-```yaml
-# application.yml
-swarmai:
-  memory:
-    provider: redis    # or: jdbc, in-memory
-spring:
-  data:
-    redis:
-      host: localhost
-      port: 6379
-```
+### Enterprise Governance
 
 ```java
-// Memory persists across application restarts
-// Agents automatically read/write memory during task execution
+// Multi-tenancy + budget tracking + approval gates
+Swarm swarm = Swarm.builder()
+    .agent(analyst).agent(writer).managerAgent(reviewer)
+    .task(analysisTask).task(reportTask)
+    .process(ProcessType.SELF_IMPROVING)
+    // Enterprise features
+    .tenantId("enterprise-team")
+    .tenantQuotaEnforcer(quotaEnforcer)    // max workflows, skills, tokens per tenant
+    .budgetTracker(budgetTracker)           // real-time token/cost monitoring
+    .budgetPolicy(budgetPolicy)             // WARN at 80%, HARD_STOP at limit
+    .governance(governance)                 // workflow governance engine
+    .approvalGate(analysisGate)            // human-in-the-loop after analysis
+    .memory(memory)                        // cross-run learning
+    .build();
 ```
 
-### RAG Pipeline (Vector Knowledge)
+### MCP Tool Integration
 
 ```java
-VectorKnowledge knowledge = new VectorKnowledge(vectorStore);
-knowledge.addDocument(Path.of("annual_report.pdf"));
-knowledge.addSource("policy", "Company travel policy content...", null);
-
-Agent agent = Agent.builder()
-    .knowledge(knowledge)  // agent queries documents via semantic search
+List<BaseTool> mcpTools = McpToolAdapter.fromServer("uvx", "mcp-server-fetch");
+Agent researcher = Agent.builder()
+    .role("Research Analyst")
+    .tools(mcpTools)  // agent can now fetch live web content
     .build();
 ```
 
@@ -380,41 +288,50 @@ Agent agent = Agent.builder()
 | `HIERARCHICAL` | Coordinated teams | Manager agent plans, delegates to workers, synthesizes results. |
 | `PARALLEL` | Independent research | Tasks without dependencies run concurrently. Dependency layers execute in sequence. |
 | `ITERATIVE` | Quality-gated output | Tasks execute, reviewer evaluates against rubric, loop repeats with feedback until approved or max iterations. |
-| `SELF_IMPROVING` | Dynamic adaptation | LLM plans the workflow, agents execute, reviewer detects capability gaps, new tools are generated/validated/hot-loaded, agents rebuilt with expanded toolkit. Skills persist across runs. |
+| `SELF_IMPROVING` | Dynamic adaptation | LLM plans the workflow, agents execute, reviewer detects capability gaps, gaps are quality-gated, skills are generated/validated/hot-loaded, agents rebuilt with expanded toolkit. Skills persist across runs. |
 
 ## Examples
 
-| Example | Process | What It Demonstrates | Duration | Cost |
-|---------|---------|---------------------|----------|------|
-| **Stock Analysis** | PARALLEL | SEC filings + web search, 3 parallel agents | ~85s | ~$0.015 |
-| **Due Diligence** | PARALLEL | Financial + News + Legal streams, auto-layering | ~36s | ~$0.006 |
-| **Research** | HIERARCHICAL | Manager + 4 specialists, task dependencies | ~107s | ~$0.006 |
-| **MCP Research** | SEQUENTIAL | Live web fetching via MCP protocol | ~60s | ~$0.017 |
-| **Iterative Memo** | ITERATIVE | Reviewer-driven refinement loop, 7-point quality rubric | ~226s | ~$0.030 |
-| **Self-Improving** | SELF_IMPROVING | Dynamic planning, runtime skill generation, any query | ~90-530s | ~$0.002-0.005 |
-| **Codebase Analysis** | PARALLEL | Multi-agent code review with file/directory tools | ~60s | ~$0.010 |
-| **Web Research** | HIERARCHICAL | Manager + researchers + fact-checker | ~80s | ~$0.008 |
-| **Data Pipeline** | SEQUENTIAL | CSV analysis + transformation + reporting | ~45s | ~$0.004 |
+| Example | Process | What It Demonstrates |
+|---------|---------|---------------------|
+| **Stock Analysis** | PARALLEL | SEC filings + web search, 3 parallel agents + synthesis, tool health checks |
+| **Due Diligence** | PARALLEL | Financial + News + Legal streams, auto-layering |
+| **Research** | HIERARCHICAL | Manager + 4 specialists, task dependencies |
+| **MCP Research** | SEQUENTIAL | Live web fetching via MCP protocol |
+| **Iterative Memo** | ITERATIVE | Reviewer-driven refinement loop, 7-point quality rubric |
+| **Self-Improving** | SELF_IMPROVING | Dynamic planning, quality-gated skill generation, enriched tool catalog, any query |
+| **Enterprise Governed** | SELF_IMPROVING | Self-improving + multi-tenancy + budgets + approval gates |
+| **Codebase Analysis** | PARALLEL | Multi-agent code review with file/directory tools |
+| **Web Research** | HIERARCHICAL | Manager + researchers + fact-checker |
+| **Data Pipeline** | SEQUENTIAL | CSV analysis + transformation + reporting |
 
-## Built-in Tool Library
+## Built-in Tool Library (21+ Tools)
 
-| Tool | Description |
-|------|-------------|
-| `web_search` | Multi-source web search (Google, Bing, NewsAPI) with financial data enrichment |
-| `web_scrape` | URL content extraction with HTML-to-text conversion and SSRF protection |
-| `http_request` | HTTP GET/POST/PUT/DELETE with headers, body, and timeout support |
-| `shell_command` | Whitelisted shell commands (nmap, ping, git, docker, etc.) with timeout |
-| `calculator` | Mathematical expression evaluation |
-| `file_read` | Read files with line range support |
-| `file_write` | Write/append to files with directory creation |
-| `directory_read` | List directory contents with metadata |
-| `csv_analysis` | CSV parsing, statistics, filtering, and aggregation |
-| `json_transform` | JSONPath queries, field extraction, array operations |
-| `xml_parse` | XPath queries on XML documents |
-| `pdf_read` | PDF text extraction with page range support |
-| `code_execution` | Sandboxed code execution (Java, Python, Groovy) |
-| `sec_filings` | SEC EDGAR API integration for financial filings |
-| `report_generator` | Structured report generation from data |
+All tools include routing metadata (triggerWhen/avoidWhen), categories, tags, and output schemas.
+
+| Tool | Category | Description |
+|------|----------|-------------|
+| `web_search` | web | Multi-source web search (Google, Bing, NewsAPI) with financial data enrichment |
+| `web_scrape` | web | URL content extraction with SSRF protection and hallucinated-URL detection |
+| `http_request` | web | HTTP methods with headers, auth, and hallucinated-domain blocking |
+| `shell_command` | computation | Whitelisted shell commands with timeout |
+| `calculator` | computation | Mathematical expression evaluation |
+| `code_execution` | computation | Sandboxed code execution (JavaScript, shell) |
+| `file_read` | data-io | Read files with format detection (JSON, CSV, YAML, XML) |
+| `file_write` | data-io | Write/append with directory creation and security checks |
+| `directory_read` | data-io | List directory contents with glob patterns |
+| `csv_analysis` | analysis | CSV parsing, statistics, filtering, aggregation |
+| `json_transform` | data-io | JSONPath queries, flatten, CSV conversion |
+| `xml_parse` | data-io | XPath queries on XML documents |
+| `pdf_read` | data-io | PDF text extraction with page range support |
+| `database_query` | data-io | SQL query execution |
+| `sec_filings` | analysis | SEC EDGAR API for financial filings |
+| `data_analysis` | analysis | General analytics and statistics |
+| `semantic_search` | analysis | Vector/semantic search |
+| `report_generator` | analysis | Structured report generation |
+| `email` | communication | Email sending |
+| `slack_webhook` | communication | Slack integration |
+| `simulated_web_search` | web | Mock search for testing |
 
 ## Configuration
 
@@ -441,21 +358,6 @@ swarmai:
     structured-logging-enabled: true
 ```
 
-## SwarmAI Studio
-
-Built-in web dashboard available at `http://localhost:8080/studio` on every workflow run (use `--service-ports` with Docker).
-
-- **Workflow Graph** — Interactive visualization of agents, tasks, and their relationships using vis-network
-- **Event Timeline** — Real-time event stream via SSE showing task starts, completions, iterations, and skill generation
-- **Token Dashboard** — Per-task token usage, prompt vs completion breakdown, cost estimation charts
-- **Task Detail Panel** — Click any node to inspect: agent role, duration, tokens, tool calls, and full output
-
-```bash
-# Run any workflow with Studio enabled
-docker compose -f docker-compose.run.yml run --rm --service-ports self-improving "your query"
-# Open: http://localhost:8080/studio
-```
-
 ## Tech Stack
 
 | Component | Version |
@@ -464,8 +366,9 @@ docker compose -f docker-compose.run.yml run --rm --service-ports self-improving
 | Spring Boot | 3.4.4 |
 | Spring AI | 1.0.4 (GA) |
 | MCP Java SDK | 0.10.0 |
+| Groovy | 4.x (skill sandbox) |
 | Build | Maven |
-| Tests | JUnit 5 + Mockito (208 tests) |
+| Tests | JUnit 5 + Mockito (642 tests) |
 | Container | Docker + Docker Compose |
 
 ## Building
@@ -474,7 +377,9 @@ docker compose -f docker-compose.run.yml run --rm --service-ports self-improving
 # Compile
 ./mvnw clean compile
 
-# Run tests (requires Docker for test containers)
+# Run tests
+./mvnw clean test
+# Or via Docker:
 docker compose -f docker-compose.test.yml run --rm test-unit
 
 # Package
@@ -495,4 +400,4 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 ## Credits
 
-Inspired by and adapted from [CrewAI](https://github.com/joaomdmoura/crewAI) (MIT License). SwarmAI brings CrewAI's multi-agent patterns to the Java ecosystem with Spring AI integration, anti-hallucination guardrails, parallel execution, MCP protocol support, and token economics. See [ATTRIBUTION.md](ATTRIBUTION.md) for details.
+Inspired by [CrewAI](https://github.com/joaomdmoura/crewAI) (MIT License) for multi-agent patterns and [OpenClaw](https://github.com/openclaw/skills) for skill architecture. SwarmAI brings these patterns to Java with Spring AI integration, quality-gated skill generation, enterprise governance, and token economics. See [ATTRIBUTION.md](ATTRIBUTION.md) for details.
