@@ -107,6 +107,18 @@ public class HttpRequestTool implements BaseTool {
         }
     }
 
+    // Domains the LLM commonly hallucinates — these never resolve to real services
+    private static final Set<String> FAKE_DOMAINS = Set.of(
+        "example.com", "example.org", "example.net",
+        "api.example.com", "www.example.com",
+        "placeholder.com", "test.com", "fake.com",
+        "api.placeholder.com", "data.example.com"
+    );
+
+    // Patterns that indicate a hallucinated domain: api.{topic}.com
+    private static final java.util.regex.Pattern HALLUCINATED_API_PATTERN =
+        java.util.regex.Pattern.compile("^api\\.[a-z]+(?:data|market|cloud|stock|pricing|analytics|search|info)\\w*\\.com$", java.util.regex.Pattern.CASE_INSENSITIVE);
+
     private String validateInputs(String url, String method) {
         if (url == null || url.trim().isEmpty()) {
             return "URL is required";
@@ -122,9 +134,26 @@ public class HttpRequestTool implements BaseTool {
             if (scheme == null || (!scheme.equalsIgnoreCase("http") && !scheme.equalsIgnoreCase("https"))) {
                 return "Only http and https URLs are supported";
             }
-            if (uri.getHost() == null || uri.getHost().isEmpty()) {
+            String host = uri.getHost();
+            if (host == null || host.isEmpty()) {
                 return "URL must have a valid host";
             }
+
+            // Reject hallucinated/placeholder URLs
+            String hostLower = host.toLowerCase();
+            if (FAKE_DOMAINS.contains(hostLower)) {
+                return "Rejected: '" + host + "' is a placeholder domain. Use a REAL URL. " +
+                    "Try: Wikipedia API (en.wikipedia.org/api/rest_v1/page/summary/TOPIC), " +
+                    "GitHub API (api.github.com/search/repositories?q=TOPIC), " +
+                    "or HN Algolia (hn.algolia.com/api/v1/search?query=TOPIC)";
+            }
+
+            // Reject hallucinated api.{something}.com patterns
+            if (HALLUCINATED_API_PATTERN.matcher(hostLower).matches()) {
+                return "Rejected: '" + host + "' appears to be a hallucinated API domain (not a real service). " +
+                    "Use REAL, known-good API endpoints instead of inventing domain names.";
+            }
+
         } catch (URISyntaxException e) {
             return "Invalid URL format: " + e.getMessage();
         }
@@ -304,6 +333,34 @@ public class HttpRequestTool implements BaseTool {
     @Override
     public boolean isAsync() {
         return false;
+    }
+
+    @Override
+    public String getTriggerWhen() {
+        return "User needs to call a REST API, make HTTP requests, or interact with web services.";
+    }
+
+    @Override
+    public String getAvoidWhen() {
+        return "User needs web page content (use web_scrape) or search results (use web_search).";
+    }
+
+    @Override
+    public String getCategory() {
+        return "web";
+    }
+
+    @Override
+    public List<String> getTags() {
+        return List.of("http", "api", "rest", "request");
+    }
+
+    @Override
+    public Map<String, Object> getOutputSchema() {
+        return Map.of(
+            "type", "markdown",
+            "description", "HTTP response with status code, headers, and formatted response body (JSON pretty-printed when applicable)"
+        );
     }
 
     @Override

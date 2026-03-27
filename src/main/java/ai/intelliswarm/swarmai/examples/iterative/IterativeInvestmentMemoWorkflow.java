@@ -9,6 +9,7 @@ import ai.intelliswarm.swarmai.process.ProcessType;
 import ai.intelliswarm.swarmai.tool.common.CalculatorTool;
 import ai.intelliswarm.swarmai.tool.common.WebSearchTool;
 import ai.intelliswarm.swarmai.tool.common.SECFilingsTool;
+import ai.intelliswarm.swarmai.tool.base.ToolHealthChecker;
 import org.springframework.ai.chat.client.ChatClient;
 
 import org.springframework.context.ApplicationEventPublisher;
@@ -341,6 +342,10 @@ public class IterativeInvestmentMemoWorkflow {
         logger.info("  Research Analyst  — gathers data from SEC filings + web");
         logger.info("  Memo Writer       — drafts institutional-quality memo");
         logger.info("  Managing Director — reviews against 7-point quality rubric");
+        logger.info("Tools: {} [{}], {} [{}], {} [{}]",
+                calculatorTool.getFunctionName(), calculatorTool.getCategory(),
+                webSearchTool.getFunctionName(), webSearchTool.getCategory(),
+                secFilingsTool.getFunctionName(), secFilingsTool.getCategory());
         logger.info("=".repeat(80));
 
         Map<String, Object> inputs = new HashMap<>();

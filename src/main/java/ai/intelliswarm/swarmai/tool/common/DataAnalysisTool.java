@@ -381,6 +381,34 @@ public class DataAnalysisTool implements BaseTool {
     }
 
     @Override
+    public String getTriggerWhen() {
+        return "User needs statistical analysis, pattern detection, trend identification, or data summarization.";
+    }
+
+    @Override
+    public String getAvoidWhen() {
+        return "User needs raw data access (use file tools) or specific CSV operations (use csv_analysis).";
+    }
+
+    @Override
+    public String getCategory() {
+        return "analysis";
+    }
+
+    @Override
+    public List<String> getTags() {
+        return List.of("analytics", "statistics", "trends", "patterns");
+    }
+
+    @Override
+    public Map<String, Object> getOutputSchema() {
+        return Map.of(
+            "type", "json",
+            "description", "Structured analysis results with analysis type, key insights, statistical data, and market metrics"
+        );
+    }
+
+    @Override
     public int getMaxUsageCount() {
         return 25; // Allow up to 25 analyses per agent
     }

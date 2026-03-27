@@ -102,6 +102,13 @@ public class WebScrapeTool implements BaseTool {
         }
     }
 
+    // Domains the LLM commonly hallucinates
+    private static final Set<String> FAKE_DOMAINS = Set.of(
+        "example.com", "example.org", "example.net",
+        "www.example.com", "api.example.com",
+        "placeholder.com", "test.com", "fake.com"
+    );
+
     private String validateUrl(String url) {
         if (url == null || url.trim().isEmpty()) {
             return "URL is required";
@@ -112,9 +119,16 @@ public class WebScrapeTool implements BaseTool {
             if (scheme == null || (!scheme.equalsIgnoreCase("http") && !scheme.equalsIgnoreCase("https"))) {
                 return "Only http and https URLs are supported";
             }
-            if (uri.getHost() == null || uri.getHost().isEmpty()) {
+            String host = uri.getHost();
+            if (host == null || host.isEmpty()) {
                 return "URL must have a valid host";
             }
+
+            // Reject hallucinated/placeholder URLs
+            if (FAKE_DOMAINS.contains(host.toLowerCase())) {
+                return "Rejected: '" + host + "' is a placeholder domain. Use a REAL web page URL to scrape.";
+            }
+
         } catch (URISyntaxException e) {
             return "Invalid URL format: " + e.getMessage();
         }
@@ -391,6 +405,34 @@ public class WebScrapeTool implements BaseTool {
     @Override
     public boolean isAsync() {
         return false;
+    }
+
+    @Override
+    public String getTriggerWhen() {
+        return "User needs to fetch and extract content from a specific web page URL.";
+    }
+
+    @Override
+    public String getAvoidWhen() {
+        return "User needs general web search results (use web_search), or data is available locally.";
+    }
+
+    @Override
+    public String getCategory() {
+        return "web";
+    }
+
+    @Override
+    public List<String> getTags() {
+        return List.of("scrape", "html", "extract", "webpage");
+    }
+
+    @Override
+    public Map<String, Object> getOutputSchema() {
+        return Map.of(
+            "type", "markdown",
+            "description", "Structured markdown with page title, metadata, headings, content text, tables, and links"
+        );
     }
 
     @Override

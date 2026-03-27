@@ -7,6 +7,7 @@ import ai.intelliswarm.swarmai.task.Task;
 import ai.intelliswarm.swarmai.task.output.OutputFormat;
 import ai.intelliswarm.swarmai.process.ProcessType;
 import ai.intelliswarm.swarmai.tool.common.*;
+import ai.intelliswarm.swarmai.tool.base.ToolHealthChecker;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
@@ -263,6 +264,20 @@ public class DataPipelineWorkflow {
             .eventPublisher(eventPublisher)
             .config("dataPath", dataPath)
             .build();
+
+        logger.info("=".repeat(80));
+        logger.info("DATA PIPELINE WORKFLOW");
+        logger.info("=".repeat(80));
+        logger.info("Data File: {}", dataPath);
+        logger.info("Process: SEQUENTIAL");
+        logger.info("Tools: {} [{}], {} [{}], {} [{}], {} [{}], {} [{}], {} [{}]",
+                fileReadTool.getFunctionName(), fileReadTool.getCategory(),
+                fileWriteTool.getFunctionName(), fileWriteTool.getCategory(),
+                csvAnalysisTool.getFunctionName(), csvAnalysisTool.getCategory(),
+                jsonTransformTool.getFunctionName(), jsonTransformTool.getCategory(),
+                xmlParseTool.getFunctionName(), xmlParseTool.getCategory(),
+                codeExecutionTool.getFunctionName(), codeExecutionTool.getCategory());
+        logger.info("=".repeat(80));
 
         Map<String, Object> inputs = new HashMap<>();
         inputs.put("dataPath", dataPath);

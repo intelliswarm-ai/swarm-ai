@@ -387,6 +387,36 @@ public class JSONTransformTool implements BaseTool {
         return false;
     }
 
+    // ==================== OpenClaw Metadata ====================
+
+    @Override
+    public String getTriggerWhen() {
+        return "User needs to parse, query, flatten, or transform JSON data.";
+    }
+
+    @Override
+    public String getAvoidWhen() {
+        return "Data is CSV, XML, or plain text.";
+    }
+
+    @Override
+    public String getCategory() {
+        return "data-io";
+    }
+
+    @Override
+    public List<String> getTags() {
+        return List.of("json", "transform", "query", "flatten");
+    }
+
+    @Override
+    public Map<String, Object> getOutputSchema() {
+        return Map.of(
+            "type", "markdown",
+            "description", "Formatted JSON output, extracted values, flattened key-value tables, or CSV conversion depending on operation"
+        );
+    }
+
     @Override
     public int getMaxResponseLength() {
         return 12000;

@@ -14,6 +14,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -231,6 +232,34 @@ public class SimulatedWebSearchTool implements BaseTool {
     @Override
     public boolean isAsync() {
         return false;
+    }
+
+    @Override
+    public String getTriggerWhen() {
+        return "Testing mode or when no real web search API keys are available.";
+    }
+
+    @Override
+    public String getAvoidWhen() {
+        return "Production use with real API keys configured.";
+    }
+
+    @Override
+    public String getCategory() {
+        return "web";
+    }
+
+    @Override
+    public List<String> getTags() {
+        return List.of("search", "mock", "testing", "simulation");
+    }
+
+    @Override
+    public Map<String, Object> getOutputSchema() {
+        return Map.of(
+            "type", "json",
+            "description", "Simulated search results with query, type, total results count, and formatted result content"
+        );
     }
 
     @Override

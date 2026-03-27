@@ -175,6 +175,34 @@ public class SemanticSearchTool implements BaseTool {
     }
 
     @Override
+    public String getTriggerWhen() {
+        return "User needs semantic/vector search to find conceptually similar content.";
+    }
+
+    @Override
+    public String getAvoidWhen() {
+        return "User needs exact keyword matching (use web_search) or file content (use file_read).";
+    }
+
+    @Override
+    public String getCategory() {
+        return "analysis";
+    }
+
+    @Override
+    public List<String> getTags() {
+        return List.of("semantic", "search", "vector", "embeddings");
+    }
+
+    @Override
+    public Map<String, Object> getOutputSchema() {
+        return Map.of(
+            "type", "markdown",
+            "description", "Semantic search results with similarity scores, source metadata, and document content chunks"
+        );
+    }
+
+    @Override
     public int getMaxResponseLength() {
         return 15000;
     }

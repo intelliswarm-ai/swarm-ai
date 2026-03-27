@@ -326,6 +326,36 @@ public class XMLParseTool implements BaseTool {
     @Override
     public boolean isAsync() { return false; }
 
+    // ==================== OpenClaw Metadata ====================
+
+    @Override
+    public String getTriggerWhen() {
+        return "User needs to parse XML, run XPath queries, or extract data from XML documents.";
+    }
+
+    @Override
+    public String getAvoidWhen() {
+        return "Data is JSON, CSV, or plain text.";
+    }
+
+    @Override
+    public String getCategory() {
+        return "data-io";
+    }
+
+    @Override
+    public List<String> getTags() {
+        return List.of("xml", "xpath", "parse", "extract");
+    }
+
+    @Override
+    public Map<String, Object> getOutputSchema() {
+        return Map.of(
+            "type", "markdown",
+            "description", "XML structure overview, XPath query results, element listings, or extracted text depending on operation"
+        );
+    }
+
     @Override
     public int getMaxResponseLength() { return 12000; }
 

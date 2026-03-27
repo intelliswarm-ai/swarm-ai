@@ -52,6 +52,7 @@ public class SelfImprovingProcess implements Process {
 
     private final SkillRegistry skillRegistry;
     private final SkillValidator skillValidator;
+    private final SkillGapAnalyzer gapAnalyzer;
     private final Memory memory;
     private List<Agent> currentAgents;
     private int skillsReused = 0;
@@ -74,6 +75,7 @@ public class SelfImprovingProcess implements Process {
         this.memory = memory;
         this.skillRegistry = new SkillRegistry();
         this.skillValidator = new SkillValidator();
+        this.gapAnalyzer = new SkillGapAnalyzer();
         this.currentAgents = new ArrayList<>(agents);
 
         // Load previously generated skills from disk
@@ -160,6 +162,10 @@ public class SelfImprovingProcess implements Process {
         int previousOutputLength = 0;
         Set<String> previousGaps = new HashSet<>();
         int staleIterations = 0;
+
+        // Cross-iteration gap memory — prevents the same gap from being processed repeatedly
+        List<String> processedGapDescriptions = new ArrayList<>();
+        int gapsSkippedAsDuplicate = 0;
 
         while (iteration < effectiveMaxIterations && !approved) {
             iteration++;
@@ -254,10 +260,21 @@ public class SelfImprovingProcess implements Process {
 
             allOutputs = new ArrayList<>(iterationOutputs);
 
-            // 2. Reviewer evaluates
+            // 2a. Tool-evidence quality check — detect if agents used tools or relied on LLM knowledge
             String outputToReview = iterationOutputs.stream()
                 .map(TaskOutput::getRawOutput)
                 .collect(Collectors.joining("\n\n---\n\n"));
+
+            String toolEvidenceWarning = checkToolEvidence(outputToReview);
+            if (toolEvidenceWarning != null) {
+                logger.warn("Iteration {}: Tool evidence check: {}", iteration, toolEvidenceWarning);
+                // Prepend the warning to the review input so the reviewer sees it
+                outputToReview = "TOOL USAGE WARNING: " + toolEvidenceWarning +
+                    "\nThe reviewer should flag this as a QUALITY ISSUE, not a CAPABILITY GAP.\n\n" +
+                    outputToReview;
+            }
+
+            // 2b. Reviewer evaluates
 
             Task reviewTask = createReviewTask(outputToReview, iteration, tasks);
             TaskOutput reviewOutput = reviewerAgent.executeTask(reviewTask, Collections.emptyList());
@@ -278,8 +295,48 @@ public class SelfImprovingProcess implements Process {
                     "Iteration " + iteration + " approved", swarmId, Map.of());
 
             } else if (review.hasCapabilityGaps()) {
-                // 4. CAPABILITY GAPS — generate new skills (with dedup + memory)
-                logger.info("Iteration {}: {} capability gaps detected", iteration, review.capabilityGaps().size());
+                // 4. CAPABILITY GAPS — pre-filter: reclassify tool-error gaps as quality issues
+                List<String> genuineGaps = new ArrayList<>();
+                List<String> reclassifiedAsQuality = new ArrayList<>();
+
+                for (String gap : review.capabilityGaps()) {
+                    String gapLower = gap.toLowerCase();
+                    boolean isToolError = gapLower.contains("i/o error") || gapLower.contains("io error") ||
+                        gapLower.contains("connection refused") || gapLower.contains("connection timed out") ||
+                        gapLower.contains("unknownhostexception") || gapLower.contains("status=404") ||
+                        gapLower.contains("status=403") || gapLower.contains("http error") ||
+                        (gapLower.contains("failed") && (gapLower.contains("api") || gapLower.contains("request")) &&
+                         (gapLower.contains("error") || gapLower.contains("i/o")));
+
+                    if (isToolError) {
+                        reclassifiedAsQuality.add(gap);
+                    } else {
+                        genuineGaps.add(gap);
+                    }
+                }
+
+                if (!reclassifiedAsQuality.isEmpty()) {
+                    logger.info("Iteration {}: Reclassified {}/{} gaps as quality issues (tool errors, not missing capabilities)",
+                        iteration, reclassifiedAsQuality.size(), review.capabilityGaps().size());
+                    for (String reclassified : reclassifiedAsQuality) {
+                        logger.info("  RECLASSIFIED (tool error): {}", truncate(reclassified, 100));
+                    }
+                }
+
+                if (genuineGaps.isEmpty()) {
+                    // All gaps were tool errors — treat as quality issues only
+                    reviewFeedback = reviewText +
+                        "\n\nNOTE: The reviewer flagged tool errors as capability gaps, but these are quality issues. " +
+                        "The agents should use REAL URLs (not placeholder domains) and try different data sources.";
+                    logger.info("Iteration {}: All {} gaps reclassified as quality issues — no skills to generate",
+                        iteration, review.capabilityGaps().size());
+                    publishEvent(SwarmEvent.Type.ITERATION_REVIEW_FAILED,
+                        "Iteration " + iteration + " needs refinement (quality issues, gaps reclassified)", swarmId, Map.of());
+                    continue; // skip to next iteration with quality feedback
+                }
+
+                logger.info("Iteration {}: {} genuine capability gaps (out of {} total)",
+                    iteration, genuineGaps.size(), review.capabilityGaps().size());
 
                 // Collect tools once for all gaps in this iteration
                 List<String> existingNames = currentAgents.stream()
@@ -296,7 +353,7 @@ public class SelfImprovingProcess implements Process {
                 SkillGenerator generator = new SkillGenerator(reviewerAgent.getChatClient());
                 generator.discoverToolFormats(existingToolsMap);
 
-                for (String gap : review.capabilityGaps()) {
+                for (String gap : genuineGaps) {
                     // --- Semantic Deduplication: check for existing similar skills ---
                     GeneratedSkill reusedSkill = findReusableSkill(gap, swarmId);
                     if (reusedSkill != null) {
@@ -314,10 +371,54 @@ public class SelfImprovingProcess implements Process {
                         continue;
                     }
 
+                    // --- Gap Quality Analysis: should we generate a skill at all? ---
+                    List<BaseTool> allExistingTools = existingToolsMap.values().stream()
+                        .collect(java.util.stream.Collectors.toList());
+                    SkillGapAnalyzer.GapAnalysis gapAnalysis = gapAnalyzer.analyze(
+                        gap, allExistingTools, skillRegistry);
+
+                    if (!gapAnalysis.shouldGenerate()) {
+                        logger.info("Gap analysis REJECTED skill generation for: {} (recommendation={}, score={:.2f}, reasons={})",
+                            truncate(gap, 60), gapAnalysis.recommendation(), gapAnalysis.score(), gapAnalysis.reasons());
+
+                        publishEvent(SwarmEvent.Type.SKILL_GENERATION_SKIPPED,
+                            "Skill generation skipped: " + truncate(gap, 80), swarmId,
+                            Map.of("gap", gap, "recommendation", gapAnalysis.recommendation().name(),
+                                   "reasons", gapAnalysis.reasons()));
+
+                        saveToMemory("skill-skipped", String.format(
+                            "Skipped skill generation for gap: %s (reason: %s, score: %.2f)",
+                            truncate(gap, 100), gapAnalysis.recommendation(), gapAnalysis.score()),
+                            Map.of("gap", gap, "recommendation", gapAnalysis.recommendation().name()));
+                        continue;
+                    }
+
+                    logger.info("Gap analysis APPROVED skill generation: {} (type={}, score={:.2f})",
+                        truncate(gap, 60), gapAnalysis.recommendedType(), gapAnalysis.score());
+
+                    // --- Cross-iteration dedup: skip if a very similar gap was already processed ---
+                    boolean isDuplicateGap = false;
+                    Set<String> gapTokens = tokenizeForDedup(gap);
+                    for (String processed : processedGapDescriptions) {
+                        Set<String> processedTokens = tokenizeForDedup(processed);
+                        double overlap = jaccardSimilaritySimple(gapTokens, processedTokens);
+                        if (overlap > 0.50) {
+                            isDuplicateGap = true;
+                            gapsSkippedAsDuplicate++;
+                            logger.info("Gap SKIPPED (duplicate of previously processed gap, overlap={:.0f}%): {}",
+                                overlap * 100, truncate(gap, 80));
+                            break;
+                        }
+                    }
+                    if (isDuplicateGap) continue;
+
+                    // Track this gap as processed (whether generation succeeds or fails)
+                    processedGapDescriptions.add(gap);
+
                     // --- Query memory for hints about similar past gaps ---
                     String memoryHint = queryMemoryForGap(gap);
 
-                    logger.info("Generating skill for gap: {}", gap);
+                    logger.info("Generating {} skill for gap: {}", gapAnalysis.recommendedType(), gap);
 
                     GeneratedSkill skill = generator.generate(
                         memoryHint != null ? gap + "\n\nHINT FROM PAST RUNS:\n" + memoryHint : gap,
@@ -489,6 +590,7 @@ public class SelfImprovingProcess implements Process {
             .taskOutputs(allOutputs)
             .metadata("skillsGenerated", skillsGenerated)
             .metadata("skillsReused", skillsReused)
+            .metadata("gapsSkippedAsDuplicate", gapsSkippedAsDuplicate)
             .metadata("skillsPromoted", promoted)
             .metadata("totalIterations", iteration)
             .metadata("stopReason", stopReason)
@@ -714,6 +816,93 @@ public class SelfImprovingProcess implements Process {
     private String truncate(String text, int maxLen) {
         if (text == null) return "";
         return text.length() > maxLen ? text.substring(0, maxLen) + "..." : text;
+    }
+
+    /**
+     * Tokenize a gap description for cross-iteration deduplication.
+     * Filters stop words and short tokens to focus on semantic content.
+     */
+    private Set<String> tokenizeForDedup(String text) {
+        if (text == null) return Set.of();
+        Set<String> stopWords = Set.of(
+            "the", "and", "for", "that", "this", "with", "from", "are", "was", "tool",
+            "would", "could", "should", "need", "provide", "existing", "currently",
+            "more", "also", "new", "which", "using", "used", "will", "can", "not",
+            "data", "output", "report", "analysis", "information", "sources", "multiple");
+        return java.util.Arrays.stream(text.toLowerCase().split("[^a-z0-9]+"))
+            .filter(t -> t.length() > 3)
+            .filter(t -> !stopWords.contains(t))
+            .collect(Collectors.toSet());
+    }
+
+    /**
+     * Check whether the output contains evidence of actual tool usage.
+     * If the output appears to be purely LLM knowledge with no tool data,
+     * return a warning message. Otherwise return null (evidence found).
+     */
+    private String checkToolEvidence(String output) {
+        if (output == null || output.isBlank()) return "Output is empty";
+
+        String lower = output.toLowerCase();
+
+        // Positive signals: evidence that tools were actually called
+        String[] toolEvidenceMarkers = {
+            "http://", "https://",           // URLs from http_request/web_scrape
+            "api response", "api returned",   // API data
+            "json", "status code",            // HTTP response data
+            "search results",                 // web_search output
+            "scraped", "fetched",             // web_scrape output
+            "command output",                 // shell_command output
+            "calculated", "calculation",      // calculator output
+            "file content", "csv data",       // file tool output
+            "retrieved:", "source:",          // data attribution
+            "[from tool]", "[from api]",      // explicit source markers
+            "wikipedia", "github.com",        // known-good API sources
+            "hn.algolia", "duckduckgo"        // known-good API sources
+        };
+
+        int evidenceCount = 0;
+        for (String marker : toolEvidenceMarkers) {
+            if (lower.contains(marker)) evidenceCount++;
+        }
+
+        // Negative signals: LLM-knowledge-only patterns
+        String[] knowledgeOnlyMarkers = {
+            "based on general knowledge",
+            "from my training data",
+            "as of my last update",
+            "i don't have access to real-time",
+            "no results were found",
+            "data not available",
+            "could not be retrieved"
+        };
+
+        int knowledgeOnlyCount = 0;
+        for (String marker : knowledgeOnlyMarkers) {
+            if (lower.contains(marker)) knowledgeOnlyCount++;
+        }
+
+        if (evidenceCount == 0 && output.length() > 500) {
+            return "No tool evidence found in " + output.length() + " chars of output. " +
+                "The agents appear to have answered from LLM knowledge without calling any tools. " +
+                "They should use http_request with real URLs (Wikipedia API, GitHub API, HN Algolia) to gather data.";
+        }
+
+        if (knowledgeOnlyCount >= 2 && evidenceCount < 2) {
+            return "Output contains " + knowledgeOnlyCount + " 'no data' markers and only " + evidenceCount +
+                " tool evidence markers. The agents may not have used tools effectively.";
+        }
+
+        return null; // evidence looks OK
+    }
+
+    private double jaccardSimilaritySimple(Set<String> a, Set<String> b) {
+        if (a.isEmpty() || b.isEmpty()) return 0.0;
+        Set<String> intersection = new HashSet<>(a);
+        intersection.retainAll(b);
+        Set<String> union = new HashSet<>(a);
+        union.addAll(b);
+        return (double) intersection.size() / union.size();
     }
 
     // Expose registry and memory for external access

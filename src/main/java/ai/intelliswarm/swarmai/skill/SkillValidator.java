@@ -13,6 +13,7 @@ import java.util.concurrent.*;
  * 1. Security scan — blocked patterns that indicate unsafe code
  * 2. Syntax check — code must be compilable Groovy/Java
  * 3. Test execution — run auto-generated test cases in sandboxed GroovyShell
+ * 4. Quality assessment — score documentation, tests, error handling, complexity, output format
  */
 public class SkillValidator {
 
@@ -36,59 +37,112 @@ public class SkillValidator {
     );
 
     /**
-     * Validate a generated skill for safety and correctness.
+     * Validate a generated skill for safety, correctness, and quality.
+     * Adapts validation based on skill type:
+     * - PROMPT: validates instruction body presence and structure
+     * - CODE: security scan + syntax check + test execution
+     * - HYBRID: validates both instruction body and code
+     * - COMPOSITE: validates routing table and sub-skill references
      */
     public ValidationResult validate(GeneratedSkill skill) {
-        logger.info("Validating skill: {} (code: {} chars, tests: {})",
-            skill.getName(), skill.getCode().length(), skill.getTestCases().size());
+        SkillType skillType = skill.getSkillType();
+        logger.info("Validating {} skill: {} v{}", skillType, skill.getName(), skill.getVersion());
 
         List<String> errors = new ArrayList<>();
 
-        // 1. Basic checks
-        if (skill.getCode() == null || skill.getCode().trim().isEmpty()) {
-            errors.add("Skill code is empty");
-            return new ValidationResult(false, errors);
-        }
-
+        // 1. Basic checks (all types)
         if (skill.getName() == null || skill.getName().isEmpty()) {
             errors.add("Skill name is empty");
-            return new ValidationResult(false, errors);
+            return new ValidationResult(false, errors, null);
+        }
+        if (skill.getDescription() == null || skill.getDescription().isEmpty()) {
+            errors.add("Skill description is empty");
+            return new ValidationResult(false, errors, null);
         }
 
-        // 2. Security scan
+        // 2. Type-specific validation
+        switch (skillType) {
+            case PROMPT -> validatePromptSkill(skill, errors);
+            case CODE -> validateCodeSkill(skill, errors);
+            case HYBRID -> {
+                validatePromptSkill(skill, errors);
+                if (skill.getCode() != null && !skill.getCode().isBlank()) {
+                    validateCodeSkill(skill, errors);
+                }
+            }
+            case COMPOSITE -> validateCompositeSkill(skill, errors);
+        }
+
+        if (!errors.isEmpty()) {
+            logger.warn("Skill '{}' failed validation: {}", skill.getName(), errors);
+            return new ValidationResult(false, errors, null);
+        }
+
+        // 3. Quality assessment
+        SkillQualityScore qualityScore = SkillQualityScore.assess(skill);
+        skill.setQualityScore(qualityScore);
+
+        logger.info("Skill '{}' v{} ({}) passed validation (quality: {}/100 grade {})",
+            skill.getName(), skill.getVersion(), skillType,
+            qualityScore.totalScore(), qualityScore.grade());
+
+        return new ValidationResult(true, errors, qualityScore);
+    }
+
+    private void validatePromptSkill(GeneratedSkill skill, List<String> errors) {
+        String body = skill.getInstructionBody();
+        if (body == null || body.isBlank()) {
+            errors.add("PROMPT skill has no instruction body");
+            return;
+        }
+        if (body.length() < 50) {
+            errors.add("Instruction body too short (" + body.length() + " chars) — needs at least 50 chars of meaningful instructions");
+        }
+        // Check for structure markers (headings, lists, numbered steps)
+        boolean hasStructure = body.contains("#") || body.contains("- ") ||
+                               body.contains("1.") || body.contains("* ");
+        if (!hasStructure && body.length() > 200) {
+            // Long body without structure is a smell — warn but don't fail
+            logger.warn("PROMPT skill '{}' has a long body ({} chars) without markdown structure",
+                skill.getName(), body.length());
+        }
+    }
+
+    private void validateCodeSkill(GeneratedSkill skill, List<String> errors) {
+        if (skill.getCode() == null || skill.getCode().trim().isEmpty()) {
+            errors.add("CODE skill has no code");
+            return;
+        }
+
+        // Security scan
         List<String> securityIssues = securityScan(skill.getCode());
-        if (!securityIssues.isEmpty()) {
-            errors.addAll(securityIssues);
-            return new ValidationResult(false, errors);
-        }
+        errors.addAll(securityIssues);
+        if (!securityIssues.isEmpty()) return;
 
-        // 3. Syntax check (compile without executing)
+        // Syntax check
         String syntaxError = checkSyntax(skill);
         if (syntaxError != null) {
             errors.add("Syntax error: " + syntaxError);
-            return new ValidationResult(false, errors);
+            return;
         }
 
-        // 4. Test execution (warnings only — LLM-generated tests are unreliable)
-        List<String> warnings = new ArrayList<>();
+        // Test execution (warnings only)
         if (!skill.getTestCases().isEmpty()) {
             List<String> testErrors = runTests(skill);
             if (!testErrors.isEmpty()) {
                 logger.warn("Skill '{}' test warnings (non-blocking): {}", skill.getName(), testErrors);
-                warnings.addAll(testErrors);
             }
         }
+    }
 
-        // Passed if security + syntax are clean (test failures are warnings, not blockers)
-        boolean passed = errors.isEmpty();
-        if (passed) {
-            logger.info("Skill '{}' passed validation{}", skill.getName(),
-                warnings.isEmpty() ? "" : " (with " + warnings.size() + " test warnings)");
-        } else {
-            logger.warn("Skill '{}' failed validation: {}", skill.getName(), errors);
+    private void validateCompositeSkill(GeneratedSkill skill, List<String> errors) {
+        SkillDefinition def = skill.getDefinition();
+        if (def.getRoutingTable().isEmpty() && skill.getSubSkills().isEmpty()) {
+            // A composite skill with no routing and no sub-skills is just a prompt skill
+            if (def.getInstructionBody() == null || def.getInstructionBody().isBlank()) {
+                errors.add("COMPOSITE skill has no routing table, no sub-skills, and no instruction body");
+            }
         }
-
-        return new ValidationResult(passed, errors);
     }
 
     /**
@@ -173,11 +227,15 @@ public class SkillValidator {
     }
 
     /**
-     * Result of skill validation.
+     * Result of skill validation, now including quality score.
      */
-    public record ValidationResult(boolean passed, List<String> errors) {
+    public record ValidationResult(boolean passed, List<String> errors, SkillQualityScore qualityScore) {
         public String errorsAsString() {
             return String.join("; ", errors);
+        }
+
+        public boolean hasQualityScore() {
+            return qualityScore != null;
         }
     }
 }

@@ -18,6 +18,7 @@ import ai.intelliswarm.swarmai.process.ProcessType;
 import ai.intelliswarm.swarmai.tool.common.WebSearchTool;
 import ai.intelliswarm.swarmai.tool.common.DataAnalysisTool;
 import ai.intelliswarm.swarmai.tool.common.ReportGeneratorTool;
+import ai.intelliswarm.swarmai.tool.base.ToolHealthChecker;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.ApplicationEventPublisher;
@@ -338,6 +339,10 @@ public class CompetitiveAnalysisWorkflow {
         logger.info("Query: {}", researchQuery);
         logger.info("Team: Research Manager + 4 Specialized Agents");
         logger.info("Process: Hierarchical coordination");
+        logger.info("Tools: {} [{}], {} [{}], {} [{}]",
+                webSearchTool.getFunctionName(), webSearchTool.getCategory(),
+                dataAnalysisTool.getFunctionName(), dataAnalysisTool.getCategory(),
+                reportGeneratorTool.getFunctionName(), reportGeneratorTool.getCategory());
 
         Map<String, Object> inputs = new HashMap<>();
         inputs.put("researchQuery", researchQuery);

@@ -1,6 +1,7 @@
 package ai.intelliswarm.swarmai.tool.common;
 
 import ai.intelliswarm.swarmai.tool.base.BaseTool;
+import ai.intelliswarm.swarmai.tool.base.ToolRequirements;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
@@ -790,6 +791,51 @@ public class WebSearchTool implements BaseTool {
     @Override
     public boolean isAsync() {
         return false;
+    }
+
+    @Override
+    public String getTriggerWhen() {
+        return "User asks about stock prices, market data, financial news, company information, or needs web search results for analysis.";
+    }
+
+    @Override
+    public String getAvoidWhen() {
+        return "Question is about local file operations, mathematical calculations, code execution, or data already available in context.";
+    }
+
+    @Override
+    public ToolRequirements getRequirements() {
+        return ToolRequirements.builder()
+            .env("ALPHA_VANTAGE_API_KEY")
+            .build();
+    }
+
+    @Override
+    public String getCategory() {
+        return "web";
+    }
+
+    @Override
+    public List<String> getTags() {
+        return List.of("search", "finance", "news", "market-data", "api");
+    }
+
+    @Override
+    public Map<String, Object> getOutputSchema() {
+        return Map.of(
+            "type", "markdown",
+            "description", "Formatted markdown report with sections: Web Search, Financial News, Market Data, Company Overview, SEC EDGAR, Social Media Sentiment",
+            "sections", List.of("Web Search", "Financial News", "Market Data", "Company Overview", "SEC EDGAR", "Social Media Sentiment")
+        );
+    }
+
+    @Override
+    public String smokeTest() {
+        // Verify at least one API key is configured
+        if (!hasConfiguredAPIs() && "demo".equals(alphaVantageApiKey)) {
+            return "No search API keys configured — results will be limited";
+        }
+        return null;
     }
 
     // Request record for Spring AI function binding

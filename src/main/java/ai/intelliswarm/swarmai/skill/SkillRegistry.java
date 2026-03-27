@@ -1,5 +1,6 @@
 package ai.intelliswarm.swarmai.skill;
 
+import ai.intelliswarm.swarmai.tool.base.ToolRequirements;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import org.slf4j.Logger;
@@ -7,6 +8,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.*;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -15,6 +17,12 @@ import java.util.stream.Stream;
 /**
  * Registry for dynamically generated skills.
  * Stores skills, tracks usage and effectiveness, handles promotion.
+ *
+ * Enhanced with:
+ * - Version history tracking with rollback
+ * - Category-based filtering for discovery
+ * - Quality-aware promotion decisions
+ * - Persistence of all enhanced metadata
  */
 public class SkillRegistry {
 
@@ -29,6 +37,7 @@ public class SkillRegistry {
      * Register a new skill in the registry.
      * Deduplicates by name — if a skill with the same name already exists,
      * keeps the one with higher usage count (or the newer one if equal).
+     * When replacing, the old version is captured in version history.
      */
     public void register(GeneratedSkill skill) {
         // Check for existing skill with the same name
@@ -39,10 +48,11 @@ public class SkillRegistry {
         if (existing.isPresent()) {
             GeneratedSkill old = existing.get();
             if (skill.getUsageCount() >= old.getUsageCount()) {
-                // Replace with the newer/better one
+                // Capture old version in history before replacing
+                skill.createNewVersion("Replaced skill " + old.getId() + " (usage: " + old.getUsageCount() + ")");
                 skills.remove(old.getId());
                 skills.put(skill.getId(), skill);
-                logger.info("Skill replaced: {} (old={}, new={}, usage: {}→{})",
+                logger.info("Skill replaced: {} (old={}, new={}, usage: {}->{})",
                     skill.getName(), old.getId(), skill.getId(), old.getUsageCount(), skill.getUsageCount());
             } else {
                 logger.debug("Skill '{}' already exists with higher usage — skipping duplicate (id={})",
@@ -50,7 +60,8 @@ public class SkillRegistry {
             }
         } else {
             skills.put(skill.getId(), skill);
-            logger.info("Skill registered: {} (id={}, status={})", skill.getName(), skill.getId(), skill.getStatus());
+            logger.info("Skill registered: {} v{} (id={}, status={}, category={})",
+                skill.getName(), skill.getVersion(), skill.getId(), skill.getStatus(), skill.getCategory());
         }
     }
 
@@ -72,6 +83,35 @@ public class SkillRegistry {
     }
 
     /**
+     * Find skills by category. Returns all skills in the given category.
+     */
+    public List<GeneratedSkill> findByCategory(String category) {
+        if (category == null || category.isBlank()) return List.of();
+
+        return skills.values().stream()
+            .filter(s -> s.getStatus() != SkillStatus.CANDIDATE)
+            .filter(s -> category.equalsIgnoreCase(s.getCategory()))
+            .sorted(Comparator.comparingDouble(GeneratedSkill::getEffectiveness).reversed())
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * Find skills matching any of the given tags.
+     */
+    public List<GeneratedSkill> findByTags(List<String> tags, int limit) {
+        if (tags == null || tags.isEmpty()) return List.of();
+
+        Set<String> lowerTags = tags.stream().map(String::toLowerCase).collect(Collectors.toSet());
+
+        return skills.values().stream()
+            .filter(s -> s.getStatus() != SkillStatus.CANDIDATE)
+            .filter(s -> s.getTags().stream().anyMatch(t -> lowerTags.contains(t.toLowerCase())))
+            .sorted(Comparator.comparingDouble(GeneratedSkill::getEffectiveness).reversed())
+            .limit(limit)
+            .collect(Collectors.toList());
+    }
+
+    /**
      * Find skills semantically similar to a gap description using keyword-based
      * Jaccard similarity. Returns matches above the threshold, sorted by score descending.
      */
@@ -84,10 +124,11 @@ public class SkillRegistry {
         return skills.values().stream()
             .filter(s -> s.getStatus() != SkillStatus.CANDIDATE)
             .map(skill -> {
-                // Score against both name and description
+                // Score against name, description, and tags
                 Set<String> skillTokens = new HashSet<>();
                 skillTokens.addAll(tokenize(skill.getName()));
                 skillTokens.addAll(tokenize(skill.getDescription()));
+                skill.getTags().forEach(t -> skillTokens.addAll(tokenize(t)));
 
                 double similarity = jaccardSimilarity(gapTokens, skillTokens);
                 return new SimilarSkill(skill, similarity);
@@ -99,8 +140,8 @@ public class SkillRegistry {
 
     /**
      * Select the most relevant skills for a given task description.
-     * Combines keyword relevance with effectiveness scoring.
-     * Used for progressive skill loading to prevent context bloat.
+     * Enhanced with category-based pre-filtering and tag matching.
+     * Combines keyword relevance, effectiveness, and quality scoring.
      */
     public List<GeneratedSkill> selectRelevant(String taskDescription, int maxSkills) {
         if (taskDescription == null || taskDescription.isBlank() || maxSkills <= 0) {
@@ -115,11 +156,22 @@ public class SkillRegistry {
                 Set<String> skillTokens = new HashSet<>();
                 skillTokens.addAll(tokenize(skill.getName()));
                 skillTokens.addAll(tokenize(skill.getDescription()));
+                // Include tags in similarity matching
+                skill.getTags().forEach(t -> skillTokens.addAll(tokenize(t)));
+                // Include category
+                skillTokens.addAll(tokenize(skill.getCategory()));
 
                 double relevance = jaccardSimilarity(taskTokens, skillTokens);
                 double effectiveness = skill.getEffectiveness();
-                // Combined score: 60% relevance + 40% effectiveness
-                double score = (relevance * 0.6) + (effectiveness * 0.4);
+
+                // Quality bonus: higher quality skills get a boost
+                double qualityBonus = 0.0;
+                if (skill.getQualityScore() != null) {
+                    qualityBonus = skill.getQualityScore().totalScore() / 500.0; // max 0.2 bonus
+                }
+
+                // Combined score: 50% relevance + 30% effectiveness + 20% quality
+                double score = (relevance * 0.5) + (effectiveness * 0.3) + (qualityBonus);
                 return Map.entry(skill, score);
             })
             .sorted(Map.Entry.<GeneratedSkill, Double>comparingByValue().reversed())
@@ -186,28 +238,66 @@ public class SkillRegistry {
 
     /**
      * Record a usage of a skill (success or failure).
+     * Uses enhanced promotion that considers quality score.
      */
     public void recordUsage(String skillId, boolean success) {
         // Usage tracking is handled by GeneratedSkill.execute() itself
         // This method can be used for external tracking
         getById(skillId).ifPresent(skill -> {
-            if (skill.meetsPromotionThreshold() && skill.getStatus() == SkillStatus.ACTIVE) {
+            if (skill.meetsEnhancedPromotionThreshold() && skill.getStatus() == SkillStatus.ACTIVE) {
                 promote(skillId);
             }
         });
     }
 
     /**
-     * Promote a skill that meets the threshold.
+     * Promote a skill that meets the enhanced threshold (usage + effectiveness + quality).
      */
     public void promote(String skillId) {
         getById(skillId).ifPresent(skill -> {
             if (skill.getUsageCount() >= PROMOTION_USAGE_THRESHOLD &&
                 skill.getEffectiveness() >= PROMOTION_SUCCESS_THRESHOLD) {
                 skill.setStatus(SkillStatus.PROMOTED);
-                logger.info("Skill promoted: {} (usage={}, effectiveness={:.0f}%)",
-                    skill.getName(), skill.getUsageCount(), skill.getEffectiveness() * 100);
+                logger.info("Skill promoted: {} v{} (usage={}, effectiveness={:.0f}%, quality={})",
+                    skill.getName(), skill.getVersion(), skill.getUsageCount(),
+                    skill.getEffectiveness() * 100,
+                    skill.getQualityScore() != null ? skill.getQualityScore().grade() : "N/A");
             }
+        });
+    }
+
+    /**
+     * Rollback a skill to a previous version.
+     * Creates a new GeneratedSkill from the version history entry.
+     */
+    public Optional<GeneratedSkill> rollback(String skillId, String targetVersion) {
+        return getById(skillId).flatMap(skill -> {
+            Optional<SkillVersion> version = skill.getVersion(targetVersion);
+            if (version.isEmpty()) {
+                logger.warn("Version {} not found for skill {}", targetVersion, skillId);
+                return Optional.empty();
+            }
+
+            SkillVersion v = version.get();
+            GeneratedSkill rolledBack = new GeneratedSkill(
+                skill.getName(), v.description(), skill.getDomain(),
+                v.code(), skill.getParameterSchema(), skill.getTestCases()
+            );
+            rolledBack.setVersion(targetVersion);
+            rolledBack.setStatus(skill.getStatus());
+            rolledBack.setCategory(skill.getCategory());
+            rolledBack.setTags(skill.getTags());
+            rolledBack.setTriggerWhen(skill.getTriggerWhen());
+            rolledBack.setAvoidWhen(skill.getAvoidWhen());
+            rolledBack.setReferences(skill.getReferences());
+            rolledBack.setResources(skill.getResources());
+
+            // Replace in registry
+            skills.remove(skillId);
+            skills.put(rolledBack.getId(), rolledBack);
+
+            logger.info("Skill '{}' rolled back to v{}", skill.getName(), targetVersion);
+            return Optional.of(rolledBack);
         });
     }
 
@@ -222,17 +312,23 @@ public class SkillRegistry {
     }
 
     /**
-     * Get registry statistics.
+     * Get registry statistics, now including category and quality distributions.
      */
     public Map<String, Object> getStats() {
         Map<String, Object> stats = new LinkedHashMap<>();
         stats.put("totalSkills", skills.size());
         stats.put("byStatus", skills.values().stream()
             .collect(Collectors.groupingBy(GeneratedSkill::getStatus, Collectors.counting())));
+        stats.put("byCategory", skills.values().stream()
+            .collect(Collectors.groupingBy(GeneratedSkill::getCategory, Collectors.counting())));
         stats.put("totalUsages", skills.values().stream().mapToInt(GeneratedSkill::getUsageCount).sum());
         stats.put("averageEffectiveness", skills.values().stream()
             .filter(s -> s.getUsageCount() > 0)
             .mapToDouble(GeneratedSkill::getEffectiveness)
+            .average().orElse(0.0));
+        stats.put("averageQuality", skills.values().stream()
+            .filter(s -> s.getQualityScore() != null)
+            .mapToInt(s -> s.getQualityScore().totalScore())
             .average().orElse(0.0));
         return stats;
     }
@@ -244,9 +340,16 @@ public class SkillRegistry {
     // ==================== Persistence ====================
 
     /**
-     * Save all active skills to a directory as individual JSON files.
-     * Each skill is saved as {name}_{id}.json with full code and metadata.
-     * Also writes a SKILLS.md index file for human readability.
+     * Save skills as directory-based packages (OpenClaw-style).
+     *
+     * Each skill becomes a directory:
+     * <pre>
+     * output/skills/{skill-name}/
+     *   SKILL.md       — The full skill definition (frontmatter + body)
+     *   _meta.json     — Registry metadata (version history, usage stats, quality)
+     *   references/    — Reference documents
+     *   resources/     — Templates, specs
+     * </pre>
      */
     public void save(Path directory) throws IOException {
         Files.createDirectories(directory);
@@ -261,58 +364,106 @@ public class SkillRegistry {
 
         StringBuilder index = new StringBuilder();
         index.append("# Generated Skills Registry\n\n");
-        index.append("| Name | Status | Usage | Effectiveness | Domain | Description |\n");
-        index.append("|------|--------|-------|---------------|--------|-------------|\n");
+        index.append("| Name | Type | Version | Status | Category | Quality | Usage | Description |\n");
+        index.append("|------|------|---------|--------|----------|---------|-------|-------------|\n");
 
         for (GeneratedSkill skill : activeSkills) {
-            // Save skill as JSON
-            Map<String, Object> skillData = new LinkedHashMap<>();
-            skillData.put("id", skill.getId());
-            skillData.put("name", skill.getName());
-            skillData.put("description", skill.getDescription());
-            skillData.put("domain", skill.getDomain());
-            skillData.put("code", skill.getCode());
-            skillData.put("parameterSchema", skill.getParameterSchema());
-            skillData.put("testCases", skill.getTestCases());
-            skillData.put("status", skill.getStatus().name());
-            skillData.put("usageCount", skill.getUsageCount());
-            skillData.put("successCount", skill.getSuccessCount());
-            skillData.put("createdAt", skill.getCreatedAt().toString());
+            // Create skill directory
+            Path skillDir = directory.resolve(skill.getName());
+            Files.createDirectories(skillDir);
 
-            String filename = skill.getName() + "_" + skill.getId() + ".json";
-            Path skillFile = directory.resolve(filename);
-            mapper.writeValue(skillFile.toFile(), skillData);
+            // 1. Write SKILL.md — the canonical skill definition
+            Files.writeString(skillDir.resolve("SKILL.md"), skill.toSkillMd());
+
+            // 2. Write _meta.json — registry metadata
+            Map<String, Object> meta = new LinkedHashMap<>();
+            meta.put("id", skill.getId());
+            meta.put("slug", skill.getName());
+            meta.put("displayName", skill.getName().replace("_", " "));
+            meta.put("status", skill.getStatus().name());
+            meta.put("skillType", skill.getSkillType().name());
+            meta.put("usageCount", skill.getUsageCount());
+            meta.put("successCount", skill.getSuccessCount());
+            meta.put("createdAt", skill.getCreatedAt().toString());
+            meta.put("parentSkillId", skill.getParentSkillId());
+
+            // Version info
+            Map<String, Object> latest = new LinkedHashMap<>();
+            latest.put("version", skill.getVersion());
+            latest.put("publishedAt", System.currentTimeMillis());
+            meta.put("latest", latest);
+
+            // Version history
+            List<Map<String, Object>> history = new ArrayList<>();
+            for (SkillVersion v : skill.getVersionHistory()) {
+                Map<String, Object> vData = new LinkedHashMap<>();
+                vData.put("version", v.version());
+                vData.put("publishedAt", v.createdAt().toString());
+                vData.put("changeReason", v.changeReason());
+                vData.put("usageCount", v.usageCount());
+                vData.put("successCount", v.successCount());
+                history.add(vData);
+            }
+            meta.put("history", history);
+
+            // Quality score
+            if (skill.getQualityScore() != null) {
+                meta.put("qualityScore", skill.getQualityScore().toMap());
+            }
+
+            // Sub-skills
+            if (!skill.getSubSkills().isEmpty()) {
+                meta.put("subSkills", skill.getSubSkills().stream()
+                    .map(GeneratedSkill::getName).collect(Collectors.toList()));
+            }
+
+            mapper.writeValue(skillDir.resolve("_meta.json").toFile(), meta);
+
+            // 3. Write references/ directory
+            if (!skill.getReferences().isEmpty()) {
+                Path refsDir = skillDir.resolve("references");
+                Files.createDirectories(refsDir);
+                for (Map.Entry<String, String> ref : skill.getReferences().entrySet()) {
+                    Files.writeString(refsDir.resolve(ref.getKey() + ".md"), ref.getValue());
+                }
+            }
+
+            // 4. Write resources/ directory
+            if (!skill.getResources().isEmpty()) {
+                Path resDir = skillDir.resolve("resources");
+                Files.createDirectories(resDir);
+                for (Map.Entry<String, String> res : skill.getResources().entrySet()) {
+                    Files.writeString(resDir.resolve(res.getKey()), res.getValue());
+                }
+            }
+
+            // 5. Save sub-skills as nested directories
+            for (GeneratedSkill subSkill : skill.getSubSkills()) {
+                Path subDir = skillDir.resolve(subSkill.getName());
+                Files.createDirectories(subDir);
+                Files.writeString(subDir.resolve("SKILL.md"), subSkill.toSkillMd());
+            }
 
             // Add to index
-            index.append(String.format("| %s | %s | %d | %.0f%% | %s | %s |\n",
-                skill.getName(), skill.getStatus(), skill.getUsageCount(),
-                skill.getEffectiveness() * 100, skill.getDomain(),
-                skill.getDescription().length() > 50
-                    ? skill.getDescription().substring(0, 47) + "..."
+            index.append(String.format("| [%s](%s/SKILL.md) | %s | %s | %s | %s | %s | %d | %s |\n",
+                skill.getName(), skill.getName(),
+                skill.getSkillType(), skill.getVersion(), skill.getStatus(), skill.getCategory(),
+                skill.getQualityScore() != null ? skill.getQualityScore().grade() : "N/A",
+                skill.getUsageCount(),
+                skill.getDescription().length() > 35
+                    ? skill.getDescription().substring(0, 32) + "..."
                     : skill.getDescription()));
         }
 
-        // Write index file
-        index.append("\n\n## Skill Details\n\n");
-        for (GeneratedSkill skill : activeSkills) {
-            index.append("### ").append(skill.getName()).append("\n");
-            index.append("- **ID:** ").append(skill.getId()).append("\n");
-            index.append("- **Description:** ").append(skill.getDescription()).append("\n");
-            index.append("- **Status:** ").append(skill.getStatus()).append("\n");
-            index.append("- **Usage:** ").append(skill.getUsageCount())
-                .append(" (").append(String.format("%.0f", skill.getEffectiveness() * 100)).append("% success)\n");
-            index.append("- **Code:**\n```groovy\n").append(skill.getCode()).append("\n```\n\n");
-        }
-
         Files.writeString(directory.resolve("SKILLS.md"), index.toString());
-
-        logger.info("Saved {} skills to {}", activeSkills.size(), directory);
+        logger.info("Saved {} skills as packages to {}", activeSkills.size(), directory);
     }
 
     /**
-     * Load skills from a directory of JSON files.
-     * Previously saved skills are restored with their code and metadata.
+     * Load skills from directory-based packages OR legacy JSON files.
+     * Supports both OpenClaw-style packages (SKILL.md + _meta.json) and old flat JSON.
      */
+    @SuppressWarnings("unchecked")
     public int load(Path directory) {
         if (!Files.exists(directory) || !Files.isDirectory(directory)) {
             logger.info("Skill directory does not exist: {}", directory);
@@ -323,46 +474,27 @@ public class SkillRegistry {
         int loaded = 0;
 
         try (var stream = Files.list(directory)) {
-            List<Path> skillFiles = stream
-                .filter(p -> p.toString().endsWith(".json"))
-                .collect(Collectors.toList());
+            List<Path> entries = stream.collect(Collectors.toList());
 
-            for (Path skillFile : skillFiles) {
+            for (Path entry : entries) {
                 try {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> data = mapper.readValue(skillFile.toFile(), Map.class);
-
-                    String name = (String) data.get("name");
-                    String description = (String) data.get("description");
-                    String domain = (String) data.getOrDefault("domain", "generated");
-                    String code = (String) data.get("code");
-
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> schema = (Map<String, Object>) data.get("parameterSchema");
-
-                    @SuppressWarnings("unchecked")
-                    List<String> testCases = (List<String>) data.get("testCases");
-
-                    if (code == null || code.isEmpty()) {
-                        logger.warn("Skipping skill file with no code: {}", skillFile);
-                        continue;
+                    if (Files.isDirectory(entry)) {
+                        // OpenClaw-style package: directory with SKILL.md + _meta.json
+                        GeneratedSkill skill = loadSkillPackage(entry, mapper);
+                        if (skill != null) {
+                            register(skill);
+                            loaded++;
+                        }
+                    } else if (entry.toString().endsWith(".json") && !entry.getFileName().toString().startsWith("_")) {
+                        // Legacy flat JSON file
+                        GeneratedSkill skill = loadLegacyJson(entry, mapper);
+                        if (skill != null) {
+                            register(skill);
+                            loaded++;
+                        }
                     }
-
-                    GeneratedSkill skill = new GeneratedSkill(name, description, domain, code, schema, testCases);
-
-                    String statusStr = (String) data.getOrDefault("status", "VALIDATED");
-                    try {
-                        skill.setStatus(SkillStatus.valueOf(statusStr));
-                    } catch (IllegalArgumentException e) {
-                        skill.setStatus(SkillStatus.VALIDATED);
-                    }
-
-                    register(skill);
-                    loaded++;
-                    logger.info("Loaded skill from file: {} ({})", name, skill.getId());
-
                 } catch (Exception e) {
-                    logger.warn("Failed to load skill from {}: {}", skillFile, e.getMessage());
+                    logger.warn("Failed to load skill from {}: {}", entry, e.getMessage());
                 }
             }
         } catch (IOException e) {
@@ -371,5 +503,155 @@ public class SkillRegistry {
 
         logger.info("Loaded {} skills from {}", loaded, directory);
         return loaded;
+    }
+
+    /**
+     * Load a skill from an OpenClaw-style package directory.
+     */
+    private GeneratedSkill loadSkillPackage(Path skillDir, ObjectMapper mapper) throws IOException {
+        Path skillMdPath = skillDir.resolve("SKILL.md");
+        Path metaPath = skillDir.resolve("_meta.json");
+
+        if (!Files.exists(skillMdPath)) return null;
+
+        // Parse SKILL.md
+        String skillMdContent = Files.readString(skillMdPath);
+        SkillDefinition def = SkillDefinition.fromSkillMd(skillMdContent);
+
+        if (def.getName() == null || def.getName().isBlank()) {
+            def.setName(skillDir.getFileName().toString());
+        }
+
+        // Load references/ directory
+        Path refsDir = skillDir.resolve("references");
+        if (Files.isDirectory(refsDir)) {
+            try (var refs = Files.list(refsDir)) {
+                Map<String, String> references = new LinkedHashMap<>();
+                refs.filter(Files::isRegularFile).forEach(f -> {
+                    try {
+                        String refName = f.getFileName().toString().replaceAll("\\.md$", "");
+                        references.put(refName, Files.readString(f));
+                    } catch (IOException e) {
+                        logger.warn("Failed to read reference: {}", f);
+                    }
+                });
+                def.setReferences(references);
+            }
+        }
+
+        // Load resources/ directory
+        Path resDir = skillDir.resolve("resources");
+        if (Files.isDirectory(resDir)) {
+            try (var res = Files.list(resDir)) {
+                Map<String, String> resources = new LinkedHashMap<>();
+                res.filter(Files::isRegularFile).forEach(f -> {
+                    try {
+                        resources.put(f.getFileName().toString(), Files.readString(f));
+                    } catch (IOException e) {
+                        logger.warn("Failed to read resource: {}", f);
+                    }
+                });
+                def.setResources(resources);
+            }
+        }
+
+        GeneratedSkill skill = new GeneratedSkill(def);
+
+        // Restore metadata from _meta.json
+        if (Files.exists(metaPath)) {
+            Map<String, Object> meta = mapper.readValue(metaPath.toFile(), Map.class);
+
+            String statusStr = (String) meta.getOrDefault("status", "VALIDATED");
+            try { skill.setStatus(SkillStatus.valueOf(statusStr)); }
+            catch (IllegalArgumentException e) { skill.setStatus(SkillStatus.VALIDATED); }
+
+            Map<String, Object> latest = (Map<String, Object>) meta.get("latest");
+            if (latest != null && latest.containsKey("version")) {
+                skill.setVersion((String) latest.get("version"));
+            }
+
+            skill.setParentSkillId((String) meta.get("parentSkillId"));
+
+            // Restore quality score
+            if (meta.containsKey("qualityScore")) {
+                Map<String, Object> qs = (Map<String, Object>) meta.get("qualityScore");
+                skill.setQualityScore(new SkillQualityScore(
+                    toInt(qs.get("documentation")), toInt(qs.get("testCoverage")),
+                    toInt(qs.get("errorHandling")), toInt(qs.get("codeComplexity")),
+                    toInt(qs.get("outputFormat"))
+                ));
+            }
+        }
+
+        // Load sub-skills (nested directories with SKILL.md)
+        try (var subs = Files.list(skillDir)) {
+            subs.filter(Files::isDirectory)
+                .filter(d -> !d.getFileName().toString().equals("references") &&
+                             !d.getFileName().toString().equals("resources"))
+                .forEach(subDir -> {
+                    try {
+                        GeneratedSkill subSkill = loadSkillPackage(subDir, mapper);
+                        if (subSkill != null) {
+                            skill.addSubSkill(subSkill);
+                        }
+                    } catch (IOException e) {
+                        logger.warn("Failed to load sub-skill: {}", subDir);
+                    }
+                });
+        }
+
+        logger.info("Loaded skill package: {} (type={}, v{})", skill.getName(), skill.getSkillType(), skill.getVersion());
+        return skill;
+    }
+
+    /**
+     * Load a skill from a legacy flat JSON file (backward compatibility).
+     */
+    @SuppressWarnings("unchecked")
+    private GeneratedSkill loadLegacyJson(Path jsonFile, ObjectMapper mapper) throws IOException {
+        Map<String, Object> data = mapper.readValue(jsonFile.toFile(), Map.class);
+
+        String name = (String) data.get("name");
+        String description = (String) data.get("description");
+        String domain = (String) data.getOrDefault("domain", "generated");
+        String code = (String) data.get("code");
+        Map<String, Object> schema = (Map<String, Object>) data.get("parameterSchema");
+        List<String> testCases = (List<String>) data.get("testCases");
+
+        if (code == null || code.isEmpty()) return null;
+
+        GeneratedSkill skill = new GeneratedSkill(name, description, domain, code, schema, testCases);
+
+        String statusStr = (String) data.getOrDefault("status", "VALIDATED");
+        try { skill.setStatus(SkillStatus.valueOf(statusStr)); }
+        catch (IllegalArgumentException e) { skill.setStatus(SkillStatus.VALIDATED); }
+
+        if (data.containsKey("version")) skill.setVersion((String) data.get("version"));
+        skill.setTriggerWhen((String) data.get("triggerWhen"));
+        skill.setAvoidWhen((String) data.get("avoidWhen"));
+        skill.setCategory((String) data.getOrDefault("category", "generated"));
+        skill.setTags(data.containsKey("tags") ? (List<String>) data.get("tags") : List.of());
+        skill.setParentSkillId((String) data.get("parentSkillId"));
+
+        if (data.containsKey("references")) skill.setReferences((Map<String, String>) data.get("references"));
+        if (data.containsKey("resources")) skill.setResources((Map<String, String>) data.get("resources"));
+
+        if (data.containsKey("qualityScore")) {
+            Map<String, Object> qs = (Map<String, Object>) data.get("qualityScore");
+            skill.setQualityScore(new SkillQualityScore(
+                toInt(qs.get("documentation")), toInt(qs.get("testCoverage")),
+                toInt(qs.get("errorHandling")), toInt(qs.get("codeComplexity")),
+                toInt(qs.get("outputFormat"))
+            ));
+        }
+
+        logger.info("Loaded legacy skill: {} v{}", name, skill.getVersion());
+        return skill;
+    }
+
+    private static int toInt(Object value) {
+        if (value instanceof Number n) return n.intValue();
+        if (value instanceof String s) return Integer.parseInt(s);
+        return 0;
     }
 }

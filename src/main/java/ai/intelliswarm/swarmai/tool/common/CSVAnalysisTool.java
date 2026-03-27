@@ -374,6 +374,36 @@ public class CSVAnalysisTool implements BaseTool {
         return false;
     }
 
+    // ==================== OpenClaw Metadata ====================
+
+    @Override
+    public String getTriggerWhen() {
+        return "User needs to analyze CSV/TSV data: statistics, filtering, counting, column operations.";
+    }
+
+    @Override
+    public String getAvoidWhen() {
+        return "Data is JSON, XML, or not in tabular format.";
+    }
+
+    @Override
+    public String getCategory() {
+        return "analysis";
+    }
+
+    @Override
+    public List<String> getTags() {
+        return List.of("csv", "data", "statistics", "tabular");
+    }
+
+    @Override
+    public Map<String, Object> getOutputSchema() {
+        return Map.of(
+            "type", "markdown",
+            "description", "Markdown-formatted analysis results: tables, statistics, filtered rows, or group counts depending on operation"
+        );
+    }
+
     @Override
     public int getMaxResponseLength() {
         return 12000;

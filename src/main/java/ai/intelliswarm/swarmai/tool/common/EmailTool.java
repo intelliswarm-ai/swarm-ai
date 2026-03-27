@@ -8,7 +8,10 @@ import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Component;
 
+import ai.intelliswarm.swarmai.tool.base.ToolRequirements;
+
 import java.util.*;
+import java.util.List;
 
 /**
  * Email Tool — sends emails via SMTP using Spring Mail.
@@ -140,6 +143,41 @@ public class EmailTool implements BaseTool {
 
     @Override
     public boolean isAsync() { return false; }
+
+    @Override
+    public String getTriggerWhen() {
+        return "User needs to send an email notification or message.";
+    }
+
+    @Override
+    public String getAvoidWhen() {
+        return "User needs Slack messaging or non-email communication.";
+    }
+
+    @Override
+    public ToolRequirements getRequirements() {
+        return ToolRequirements.builder()
+            .env("SMTP_HOST", "SMTP_USERNAME", "SMTP_PASSWORD")
+            .build();
+    }
+
+    @Override
+    public String getCategory() {
+        return "communication";
+    }
+
+    @Override
+    public List<String> getTags() {
+        return List.of("email", "send", "notification");
+    }
+
+    @Override
+    public Map<String, Object> getOutputSchema() {
+        return Map.of(
+            "type", "markdown",
+            "description", "Email send confirmation with recipient, subject, and body length"
+        );
+    }
 
     @Override
     public int getMaxUsageCount() { return 10; }

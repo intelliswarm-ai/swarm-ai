@@ -278,10 +278,21 @@ public class Agent {
         system.append("\nToday's date is: ").append(java.time.LocalDate.now()).append("\n");
 
         if (!tools.isEmpty()) {
-            system.append("\nYou have access to the following tools: ");
-            tools.forEach(tool -> system.append(tool.getFunctionName()).append(" (")
-                    .append(tool.getDescription()).append("), "));
-            system.setLength(system.length() - 2); // remove trailing ", "
+            system.append("\nYou have access to the following tools:\n\n");
+            for (BaseTool tool : tools) {
+                system.append("- **").append(tool.getFunctionName()).append("**");
+                system.append(" [").append(tool.getCategory()).append("]");
+                system.append(": ").append(tool.getDescription()).append("\n");
+                if (tool.getTriggerWhen() != null) {
+                    system.append("  USE WHEN: ").append(tool.getTriggerWhen()).append("\n");
+                }
+                if (tool.getAvoidWhen() != null) {
+                    system.append("  AVOID WHEN: ").append(tool.getAvoidWhen()).append("\n");
+                }
+                if (!tool.getTags().isEmpty()) {
+                    system.append("  Tags: ").append(String.join(", ", tool.getTags())).append("\n");
+                }
+            }
             system.append("\n");
         }
 

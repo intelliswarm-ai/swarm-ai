@@ -12,57 +12,43 @@ import ai.intelliswarm.swarmai.tool.base.BaseTool;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
- * Generates new tools (skills) from capability gap descriptions using an LLM.
+ * Generates new skills from capability gap descriptions using an LLM.
  *
- * Generated code is Groovy (Java-compatible) and can:
- * - Use full Java syntax and standard library
- * - Call existing tools via the 'tools' map (e.g., tools.web_scrape.execute(...))
- * - Access parameters via the 'params' map
+ * Now generates four types of skills:
+ * - PROMPT: Pure instruction-based (domain expertise, analysis frameworks)
+ * - CODE: Groovy script (data transformation, tool composition)
+ * - HYBRID: Instructions + code (complex analysis)
+ * - COMPOSITE: Router with sub-skills (multi-capability domains)
  *
- * Uses dynamic tool discovery: probes each available tool with a sample call
- * to capture its actual return format, then includes those samples in the prompt
- * so the LLM generates code that correctly handles tool outputs.
+ * The LLM decides the appropriate skill type based on the gap description.
  */
 public class SkillGenerator {
 
     private static final Logger logger = LoggerFactory.getLogger(SkillGenerator.class);
 
     private final ChatClient chatClient;
-
-    // Cached tool output samples from discovery
     private Map<String, String> toolOutputSamples = new HashMap<>();
 
     public SkillGenerator(ChatClient chatClient) {
         this.chatClient = chatClient;
     }
 
-    /**
-     * Register tool output format descriptions for skill generation prompts.
-     * Uses static descriptions derived from tool name and description — no live probing.
-     * This is called once per skill generation cycle; results are cached.
-     */
     public void discoverToolFormats(Map<String, BaseTool> tools) {
         for (Map.Entry<String, BaseTool> entry : tools.entrySet()) {
             String toolName = entry.getKey();
             BaseTool tool = entry.getValue();
-
             if (toolOutputSamples.containsKey(toolName)) continue;
-
             if (tool instanceof GeneratedSkill) {
                 toolOutputSamples.put(toolName, "(String) — generated skill that composes other tools");
             } else {
-                // Derive format description from tool metadata — no HTTP calls
                 toolOutputSamples.put(toolName, describeToolFormat(toolName, tool.getDescription()));
             }
         }
     }
 
-    /**
-     * Describe a tool's output format based on its name and description.
-     * Replaces live probing with static knowledge of known tool patterns.
-     */
     private String describeToolFormat(String toolName, String description) {
         return switch (toolName) {
             case "web_search" -> "(String) — returns search results as text with titles, URLs, and snippets";
@@ -86,6 +72,7 @@ public class SkillGenerator {
 
     /**
      * Generate a new skill from a capability gap description.
+     * The LLM chooses the appropriate skill type (PROMPT, CODE, HYBRID, COMPOSITE).
      */
     public GeneratedSkill generate(String gapDescription, List<String> existingToolNames) {
         logger.info("Generating skill for gap: {}", gapDescription);
@@ -93,10 +80,13 @@ public class SkillGenerator {
         String prompt = buildGenerationPrompt(gapDescription, existingToolNames);
 
         Agent generator = Agent.builder()
-            .role("Skill Generator")
-            .goal("Generate a Groovy/Java function that fills the described capability gap. " +
-                  "Respond ONLY with the structured format requested. No explanations.")
-            .backstory("You are an expert Java/Groovy programmer who writes concise, correct code.")
+            .role("Skill Architect")
+            .goal("Design and generate a skill definition that fills the described capability gap. " +
+                  "Choose the most appropriate skill type (PROMPT, CODE, HYBRID, or COMPOSITE). " +
+                  "Respond ONLY with the structured SKILL.md format requested.")
+            .backstory("You are an expert skill designer who creates self-describing, composable skills. " +
+                  "You understand that not every capability needs code — sometimes expert instructions " +
+                  "for an LLM are more powerful than a Groovy script.")
             .chatClient(chatClient)
             .temperature(0.2)
             .verbose(false)
@@ -104,7 +94,7 @@ public class SkillGenerator {
 
         Task generationTask = Task.builder()
             .description(prompt)
-            .expectedOutput("Structured skill definition with NAME, DESCRIPTION, CODE, and TEST_CASES sections")
+            .expectedOutput("A complete SKILL.md definition with frontmatter, body, and optional code")
             .agent(generator)
             .maxExecutionTime(60000)
             .build();
@@ -112,8 +102,7 @@ public class SkillGenerator {
         try {
             TaskOutput output = generationTask.execute(Collections.emptyList());
             String response = output.getRawOutput();
-            return parseGeneratedSkill(response, gapDescription);
-
+            return parseSkillDefinition(response, gapDescription);
         } catch (Exception e) {
             logger.error("Failed to generate skill for gap: {}", gapDescription, e);
             return null;
@@ -124,47 +113,42 @@ public class SkillGenerator {
      * Refine a skill that failed validation.
      */
     public GeneratedSkill refine(GeneratedSkill failed, String validationErrors) {
-        logger.info("Refining skill '{}' due to: {}", failed.getName(), validationErrors);
+        logger.info("Refining skill '{}' v{} due to: {}", failed.getName(), failed.getVersion(), validationErrors);
 
-        String prompt = String.format(
-            "The following Groovy skill failed validation:\n\n" +
-            "NAME: %s\nDESCRIPTION: %s\n" +
-            "CODE:\n```groovy\n%s\n```\n\n" +
-            "ERRORS: %s\n\n" +
-            "Fix the code. Remember:\n" +
-            "- Use ONLY params (Map) for input and tools (Map) for existing tools\n" +
-            "- ALL tool.execute() calls return a plain String (NOT JSON, NOT a Map)\n" +
-            "- Do NOT use JsonSlurper to parse tool results — they return markdown/text\n" +
-            "- Use String methods (.contains(), .split(), regex) to extract data from tool results\n" +
-            "- No file I/O, no network, no Runtime, no ProcessBuilder\n" +
-            "- Code is a FLAT SCRIPT — no function definitions, no class definitions\n" +
-            "- The last expression is the return value (a String)\n\n" +
-            "TEST_CASES must be simple:\n" +
-            "- 'result' variable holds the skill output (a String)\n" +
-            "- Use: assert result != null; assert result instanceof String; assert result.length() > 0\n\n" +
-            "Respond with:\nNAME: ...\nDESCRIPTION: ...\nCODE:\n```groovy\n...\n```\nTEST_CASES:\n```groovy\n...\n```",
-            failed.getName(), failed.getDescription(), failed.getCode(), validationErrors
-        );
+        StringBuilder prompt = new StringBuilder();
+        prompt.append("The following skill failed validation:\n\n");
+        prompt.append("```\n").append(failed.toSkillMd()).append("\n```\n\n");
+        prompt.append("ERRORS: ").append(validationErrors).append("\n\n");
+        prompt.append("Fix the skill. Remember:\n");
+        prompt.append("- For CODE/HYBRID skills: use ONLY params, tools, references, resources bindings\n");
+        prompt.append("- ALL tool.execute() calls return a plain String\n");
+        prompt.append("- No file I/O, no network, no Runtime, no ProcessBuilder\n");
+        prompt.append("- Code is a FLAT SCRIPT — no class definitions\n\n");
+        prompt.append("Respond with the complete fixed SKILL.md (frontmatter + body).\n");
 
         Agent refiner = Agent.builder()
             .role("Skill Refiner")
-            .goal("Fix the Groovy skill code based on the validation errors.")
-            .backstory("You fix Java/Groovy code bugs efficiently.")
+            .goal("Fix the skill definition based on validation errors.")
+            .backstory("You fix skill definitions efficiently, preserving the skill type and architecture.")
             .chatClient(chatClient)
             .temperature(0.1)
             .verbose(false)
             .build();
 
         Task refineTask = Task.builder()
-            .description(prompt)
-            .expectedOutput("Fixed skill definition")
+            .description(prompt.toString())
+            .expectedOutput("Fixed SKILL.md definition")
             .agent(refiner)
             .maxExecutionTime(60000)
             .build();
 
         try {
             TaskOutput output = refineTask.execute(Collections.emptyList());
-            return parseGeneratedSkill(output.getRawOutput(), failed.getDescription());
+            GeneratedSkill refined = parseSkillDefinition(output.getRawOutput(), failed.getDescription());
+            if (refined != null) {
+                refined.setVersion(SkillVersion.bumpPatch(failed.getVersion()));
+            }
+            return refined;
         } catch (Exception e) {
             logger.error("Failed to refine skill '{}'", failed.getName(), e);
             return null;
@@ -174,142 +158,344 @@ public class SkillGenerator {
     private String buildGenerationPrompt(String gapDescription, List<String> existingToolNames) {
         StringBuilder prompt = new StringBuilder();
 
-        prompt.append("Generate a Groovy tool to fill this capability gap:\n\n");
+        prompt.append("Generate a skill to fill this capability gap:\n\n");
         prompt.append("GAP: ").append(gapDescription).append("\n\n");
 
+        // Explain the four skill types
+        prompt.append("SKILL TYPES — choose the most appropriate:\n\n");
+        prompt.append("1. **PROMPT** — Pure instruction-based. The body is LLM instructions.\n");
+        prompt.append("   Best for: domain expertise, analysis frameworks, reasoning patterns, output formatting.\n");
+        prompt.append("   Example: A skill that teaches the LLM how to analyze financial statements.\n\n");
+        prompt.append("2. **CODE** — Groovy script execution in a sandbox.\n");
+        prompt.append("   Best for: data transformation, tool composition, computation pipelines.\n");
+        prompt.append("   Example: A skill that calls web_search + calculator to compute P/E ratios.\n\n");
+        prompt.append("3. **HYBRID** — Instructions + code. Code gathers data, instructions guide reasoning.\n");
+        prompt.append("   Best for: complex analysis needing both data processing and LLM reasoning.\n");
+        prompt.append("   Example: Code fetches financial data, instructions tell LLM how to analyze it.\n\n");
+        prompt.append("4. **COMPOSITE** — Router that dispatches to sub-skills.\n");
+        prompt.append("   Best for: multi-capability domains with distinct sub-tasks.\n");
+        prompt.append("   Example: 'finance' skill routes to 'analysis', 'reporting', 'alerts' sub-skills.\n\n");
+
         if (existingToolNames != null && !existingToolNames.isEmpty()) {
-            prompt.append("EXISTING TOOLS (available via 'tools' map — do NOT duplicate):\n");
+            prompt.append("EXISTING TOOLS (available via 'tools' map in CODE/HYBRID skills):\n");
             for (String name : existingToolNames) {
                 prompt.append("  - tools.").append(name).append(".execute(Map.of(\"param\", value))\n");
             }
             prompt.append("\n");
         }
 
-        prompt.append("AVAILABLE BINDINGS:\n");
-        prompt.append("  - params: Map<String, Object> — input parameters\n");
-        prompt.append("  - tools: Map<String, BaseTool> — existing tools you can call\n");
-        prompt.append("  - log: Logger — for logging\n\n");
-
-        prompt.append("CRITICAL — TOOL RETURN TYPES:\n");
-        prompt.append("- ALL tools return a plain String (not JSON, not a Map, not an object)\n");
-        prompt.append("- Do NOT use JsonSlurper to parse tool results — they are NOT JSON\n");
-        prompt.append("- Instead, use String methods: .contains(), .split(), regex, etc.\n\n");
-
-        // Include dynamically discovered tool output samples
         if (!toolOutputSamples.isEmpty()) {
-            prompt.append("ACTUAL TOOL OUTPUT SAMPLES (from live probing):\n");
+            prompt.append("TOOL OUTPUT FORMATS:\n");
             for (Map.Entry<String, String> sample : toolOutputSamples.entrySet()) {
-                prompt.append("  tools.").append(sample.getKey()).append(".execute(...) returns:\n");
-                prompt.append("  \"\"\"").append(sample.getValue()).append("\"\"\"\n\n");
+                prompt.append("  tools.").append(sample.getKey()).append(".execute(...): ")
+                    .append(sample.getValue()).append("\n");
             }
+            prompt.append("\n");
         }
 
+        prompt.append("BINDINGS AVAILABLE IN CODE:\n");
+        prompt.append("  - params: Map<String, Object> — input parameters\n");
+        prompt.append("  - tools: Map<String, BaseTool> — existing tools\n");
+        prompt.append("  - references: Map<String, String> — reference documents\n");
+        prompt.append("  - resources: Map<String, String> — templates and specs\n");
+        prompt.append("  - log: Logger\n\n");
 
-        prompt.append("RULES:\n");
-        prompt.append("- Write Groovy/Java code. The last expression is the return value.\n");
-        prompt.append("- You CAN call existing tools: tools.web_search.execute(Map.of(\"query\", q))\n");
-        prompt.append("- You CAN use Java standard library: String, Math, List, Map, etc.\n");
-        prompt.append("- You CAN use Groovy utilities: JsonOutput for OUTPUT formatting\n");
-        prompt.append("- You CANNOT use: Runtime, ProcessBuilder, File I/O, network classes, reflection\n");
-        prompt.append("- Keep it concise — under 30 lines.\n\n");
+        prompt.append("TEMPLATE VARIABLES IN PROMPT SKILLS:\n");
+        prompt.append("  Use {{paramName}} in the instruction body — will be replaced with parameter values.\n\n");
 
-        prompt.append("IMPORTANT RULES FOR CODE STRUCTURE:\n");
-        prompt.append("- Your code is a FLAT SCRIPT (not a class, not a function definition)\n");
-        prompt.append("- Input comes from 'params' map: params.get(\"ticker\") or params.ticker\n");
-        prompt.append("- Tools come from 'tools' map: tools.web_search.execute(Map.of(\"query\", q))\n");
-        prompt.append("- The LAST EXPRESSION is the return value (return a String)\n");
-        prompt.append("- Do NOT define a function with the same name as the skill\n");
-        prompt.append("- Do NOT try to parse tool output as JSON — it is plain text\n\n");
+        prompt.append("CODE RULES (for CODE/HYBRID types):\n");
+        prompt.append("- ALL tools return a plain String. Do NOT use JsonSlurper.\n");
+        prompt.append("- Flat script (no class/function definitions). Last expression is the return value.\n");
+        prompt.append("- No file I/O, no network, no Runtime, no ProcessBuilder.\n\n");
 
-        prompt.append("Respond in EXACTLY this format:\n\n");
-        prompt.append("NAME: snake_case_name\n");
-        prompt.append("DESCRIPTION: One line description\n");
-        prompt.append("CODE:\n```groovy\n// Flat script — params and tools are pre-bound\ndef ticker = params.get(\"ticker\") ?: \"AAPL\"\ndef searchResult = tools.web_search.execute(Map.of(\"query\", ticker + \" financial data\"))\n// searchResult is a plain String — use string operations\ndef result = \"Analysis for \" + ticker + \":\\n\" + searchResult\nresult\n```\n");
-        prompt.append("TEST_CASES:\n```groovy\n// The skill code has ALREADY executed — 'result' holds the return value\n// 'result' is a String — use simple assertions\nassert result != null\nassert result instanceof String\nassert result.length() > 0\n```\n");
+        prompt.append("Respond with a SKILL.md definition in EXACTLY this format:\n\n");
+        prompt.append("```\n");
+        prompt.append("---\n");
+        prompt.append("name: snake_case_name\n");
+        prompt.append("description: Detailed description of what this skill does (50+ chars)\n");
+        prompt.append("type: PROMPT|CODE|HYBRID|COMPOSITE\n");
+        prompt.append("triggerWhen: When should the LLM select this skill\n");
+        prompt.append("avoidWhen: When should the LLM NOT select this skill\n");
+        prompt.append("category: one of: data-io, web, computation, analysis, communication, generated\n");
+        prompt.append("tags: [tag1, tag2, tag3]\n");
+        prompt.append("---\n\n");
+
+        prompt.append("# Skill Name\n\n");
+        prompt.append("[For PROMPT/HYBRID: Write detailed LLM instructions here]\n");
+        prompt.append("[For PROMPT: Include workflow steps, output format rules, examples]\n");
+        prompt.append("[For COMPOSITE: Include routing table and sub-skill descriptions]\n\n");
+
+        prompt.append("## Code\n");
+        prompt.append("```groovy\n");
+        prompt.append("[For CODE/HYBRID: Write Groovy code here]\n");
+        prompt.append("[For PROMPT: Omit this section entirely]\n");
+        prompt.append("```\n\n");
+
+        prompt.append("## References\n");
+        prompt.append("[Optional: Reference documents for the skill to consult]\n\n");
+
+        prompt.append("## Resources\n");
+        prompt.append("### output-template\n");
+        prompt.append("[Optional: Template for structuring the output]\n\n");
+
+        prompt.append("## Examples\n");
+        prompt.append("[Optional: Input/output examples for few-shot prompting]\n\n");
+
+        prompt.append("## Test Cases\n");
+        prompt.append("```groovy\n");
+        prompt.append("[For CODE/HYBRID: Test assertions]\n");
+        prompt.append("assert result != null\nassert result instanceof String\n");
+        prompt.append("```\n");
+        prompt.append("```\n\n");
+
+        prompt.append("IMPORTANT: Generate the SKILL.md content directly. Do NOT wrap it in additional markdown code fences.\n");
 
         return prompt.toString();
     }
 
     /**
-     * Parse the LLM's response into a GeneratedSkill.
+     * Parse a SKILL.md-format response into a GeneratedSkill backed by a SkillDefinition.
      */
-    GeneratedSkill parseGeneratedSkill(String response, String fallbackDescription) {
-        String name = extractField(response, "NAME:");
-        String description = extractField(response, "DESCRIPTION:");
-        String code = extractCodeBlock(response, "CODE:");
-        List<String> testCases = new ArrayList<>();
-        String testCode = extractCodeBlock(response, "TEST_CASES:");
-        if (testCode != null && !testCode.isEmpty()) {
-            testCases.add(testCode);
+    GeneratedSkill parseSkillDefinition(String response, String fallbackDescription) {
+        if (response == null || response.isBlank()) return null;
+
+        // Try to find the SKILL.md content within the response
+        String skillMd = extractSkillMd(response);
+
+        // Parse using SkillDefinition's parser
+        SkillDefinition def = SkillDefinition.fromSkillMd(skillMd);
+
+        // Also try field-based extraction as fallback for LLMs that follow the old format
+        if (def.getName() == null || def.getName().isBlank()) {
+            String name = extractField(response, "NAME:");
+            if (name != null) def.setName(name);
         }
+        if (def.getDescription() == null || def.getDescription().isBlank()) {
+            String desc = extractField(response, "DESCRIPTION:");
+            if (desc != null) def.setDescription(desc);
+            else def.setDescription(fallbackDescription);
+        }
+        if (def.getCode() == null || def.getCode().isBlank()) {
+            String code = extractCodeBlock(response, "CODE:");
+            if (code == null) code = extractCodeBlock(response, "## Code");
+            if (code != null) def.setCode(code);
+        }
+
+        // Extract test cases
+        String testCode = extractCodeBlock(response, "TEST_CASES:");
+        if (testCode == null) testCode = extractCodeBlock(response, "## Test Cases");
+        if (testCode != null && !testCode.isBlank()) {
+            def.getTestCases().add(testCode);
+        }
+
+        // Extract routing info
+        if (def.getTriggerWhen() == null) {
+            String trigger = extractField(response, "TRIGGER_WHEN:");
+            if (trigger == null) trigger = extractField(response, "triggerWhen:");
+            if (trigger != null) def.setTriggerWhen(trigger);
+        }
+        if (def.getAvoidWhen() == null) {
+            String avoid = extractField(response, "AVOID_WHEN:");
+            if (avoid == null) avoid = extractField(response, "avoidWhen:");
+            if (avoid != null) def.setAvoidWhen(avoid);
+        }
+        if (def.getCategory() == null || "generated".equals(def.getCategory())) {
+            String cat = extractField(response, "CATEGORY:");
+            if (cat == null) cat = extractField(response, "category:");
+            if (cat != null) def.setCategory(cat.trim().toLowerCase());
+        }
+        if (def.getTags() == null || def.getTags().isEmpty()) {
+            String tagsStr = extractField(response, "TAGS:");
+            if (tagsStr == null) tagsStr = extractField(response, "tags:");
+            if (tagsStr != null) {
+                def.setTags(Arrays.stream(tagsStr.replaceAll("[\\[\\]]", "").split(","))
+                    .map(String::trim).filter(t -> !t.isEmpty())
+                    .collect(Collectors.toList()));
+            }
+        }
+
+        // Extract references section
+        extractReferences(response, def);
+
+        // Extract resources section
+        extractResources(response, def);
+
+        // Extract examples section
+        extractExamples(response, def);
 
         // Fallbacks
-        if (name == null || name.isEmpty()) name = "generated_skill_" + System.currentTimeMillis();
-        if (description == null || description.isEmpty()) description = fallbackDescription;
-        if (code == null || code.isEmpty()) {
-            logger.warn("No code block found in LLM response for skill generation");
-            return null;
+        if (def.getName() == null || def.getName().isBlank()) {
+            def.setName("generated_skill_" + System.currentTimeMillis());
+        }
+        if (def.getDescription() == null || def.getDescription().isBlank()) {
+            def.setDescription(fallbackDescription);
         }
 
-        Map<String, Object> schema = buildSchemaFromCode(code);
+        // Determine skill type if not explicitly set
+        if (def.getType() == null) {
+            def.setType(inferSkillType(def));
+        }
 
-        return new GeneratedSkill(name, description, "generated", code, schema, testCases);
+        // Validate that the skill has the minimum required content for its type
+        switch (def.getType()) {
+            case CODE -> {
+                if (def.getCode() == null || def.getCode().isBlank()) {
+                    logger.warn("CODE skill has no code — falling back to PROMPT type");
+                    if (def.getInstructionBody() != null && !def.getInstructionBody().isBlank()) {
+                        def.setType(SkillType.PROMPT);
+                    } else {
+                        return null;
+                    }
+                }
+            }
+            case PROMPT -> {
+                if (def.getInstructionBody() == null || def.getInstructionBody().isBlank()) {
+                    // Try to use description as minimal instruction
+                    def.setInstructionBody(def.getDescription());
+                }
+            }
+            case HYBRID -> {
+                if (def.getCode() == null && def.getInstructionBody() == null) {
+                    return null;
+                }
+            }
+            case COMPOSITE -> {
+                // Composite skills can work with just routing info in the instruction body
+            }
+        }
+
+        GeneratedSkill skill = new GeneratedSkill(def);
+        logger.info("Generated {} skill: {} (category={}, tags={})",
+            def.getType(), def.getName(), def.getCategory(), def.getTags());
+        return skill;
     }
+
+    private SkillType inferSkillType(SkillDefinition def) {
+        boolean hasCode = def.getCode() != null && !def.getCode().isBlank();
+        boolean hasInstructions = def.getInstructionBody() != null && !def.getInstructionBody().isBlank();
+        boolean hasRouting = !def.getRoutingTable().isEmpty();
+
+        if (hasRouting) return SkillType.COMPOSITE;
+        if (hasCode && hasInstructions) return SkillType.HYBRID;
+        if (hasCode) return SkillType.CODE;
+        return SkillType.PROMPT;
+    }
+
+    private String extractSkillMd(String response) {
+        // Try to find content between --- markers
+        int firstDash = response.indexOf("---");
+        if (firstDash >= 0) {
+            // Check if it's inside a code fence
+            int fenceBeforeDash = response.lastIndexOf("```", firstDash);
+            if (fenceBeforeDash >= 0 && !response.substring(fenceBeforeDash, firstDash).contains("\n```")) {
+                // The --- is inside a code fence, extract the content
+                int fenceEnd = response.indexOf("```", firstDash);
+                if (fenceEnd > firstDash) {
+                    return response.substring(firstDash, fenceEnd).trim();
+                }
+            }
+            return response.substring(firstDash).trim();
+        }
+        return response;
+    }
+
+    private void extractReferences(String response, SkillDefinition def) {
+        int refStart = response.indexOf("## References");
+        if (refStart < 0) return;
+
+        int nextSection = findNextSection(response, refStart + 14);
+        String refSection = response.substring(refStart + 14, nextSection).trim();
+
+        // Parse ### name\ncontent blocks
+        String[] parts = refSection.split("### ");
+        for (String part : parts) {
+            if (part.isBlank()) continue;
+            int nl = part.indexOf('\n');
+            if (nl > 0) {
+                String refName = part.substring(0, nl).trim();
+                String content = part.substring(nl + 1).trim();
+                if (!refName.isBlank() && !content.isBlank()) {
+                    def.getReferences().put(refName, content);
+                }
+            }
+        }
+    }
+
+    private void extractResources(String response, SkillDefinition def) {
+        int resStart = response.indexOf("## Resources");
+        if (resStart < 0) return;
+
+        int nextSection = findNextSection(response, resStart + 13);
+        String resSection = response.substring(resStart + 13, nextSection).trim();
+
+        String[] parts = resSection.split("### ");
+        for (String part : parts) {
+            if (part.isBlank()) continue;
+            int nl = part.indexOf('\n');
+            if (nl > 0) {
+                String resName = part.substring(0, nl).trim();
+                String content = part.substring(nl + 1).trim();
+                // Strip code fences from resource content
+                content = content.replaceAll("^```\\w*\\n?", "").replaceAll("\\n?```$", "").trim();
+                if (!resName.isBlank() && !content.isBlank()) {
+                    def.getResources().put(resName, content);
+                }
+            }
+        }
+    }
+
+    private void extractExamples(String response, SkillDefinition def) {
+        int exStart = response.indexOf("## Examples");
+        if (exStart < 0) return;
+
+        int nextSection = findNextSection(response, exStart + 11);
+        String exSection = response.substring(exStart + 11, nextSection).trim();
+
+        // Look for **Input:** / **Expected Output:** pairs
+        Pattern inputPattern = Pattern.compile("\\*\\*Input:\\*\\*\\s*(.+?)(?=\\*\\*|$)", Pattern.DOTALL);
+        Pattern outputPattern = Pattern.compile("\\*\\*(?:Expected )?Output:\\*\\*\\s*(.+?)(?=\\*\\*|###|$)", Pattern.DOTALL);
+
+        Matcher inputMatcher = inputPattern.matcher(exSection);
+        Matcher outputMatcher = outputPattern.matcher(exSection);
+
+        int idx = 1;
+        while (inputMatcher.find() && outputMatcher.find()) {
+            def.getExamples().add(new SkillDefinition.SkillExample(
+                "Example " + idx++,
+                inputMatcher.group(1).trim(),
+                outputMatcher.group(1).trim()
+            ));
+        }
+    }
+
+    private int findNextSection(String text, int fromIndex) {
+        int next = text.indexOf("\n## ", fromIndex);
+        return next >= 0 ? next : text.length();
+    }
+
+    // ==================== Legacy field extraction (backward compat) ====================
 
     private String extractField(String text, String fieldName) {
         int idx = text.indexOf(fieldName);
         if (idx == -1) return null;
-
         int start = idx + fieldName.length();
         int end = text.indexOf('\n', start);
         if (end == -1) end = text.length();
-
         return text.substring(start, end).trim();
     }
 
     private String extractCodeBlock(String text, String sectionName) {
         int sectionIdx = text.indexOf(sectionName);
         if (sectionIdx == -1) return null;
-
         String after = text.substring(sectionIdx);
-
-        // Find ```groovy ... ``` or ```java ... ``` or just ```
         int codeStart = after.indexOf("```groovy");
         if (codeStart == -1) codeStart = after.indexOf("```java");
         if (codeStart == -1) codeStart = after.indexOf("```");
         if (codeStart == -1) return null;
-
         int contentStart = after.indexOf('\n', codeStart);
         if (contentStart == -1) return null;
-
         int codeEnd = after.indexOf("```", contentStart + 1);
         if (codeEnd == -1) codeEnd = after.length();
-
         return after.substring(contentStart + 1, codeEnd).trim();
-    }
-
-    private Map<String, Object> buildSchemaFromCode(String code) {
-        Map<String, Object> schema = new HashMap<>();
-        schema.put("type", "object");
-
-        // Heuristic: look for params.get("xxx") or params.xxx references
-        Map<String, Object> properties = new HashMap<>();
-        Pattern paramPattern = Pattern.compile("params\\.(?:get\\([\"']|)(\\w+)");
-        Matcher matcher = paramPattern.matcher(code);
-        Set<String> seen = new HashSet<>();
-
-        while (matcher.find()) {
-            String paramName = matcher.group(1);
-            if (seen.add(paramName) && !paramName.equals("get")) {
-                properties.put(paramName, Map.of(
-                    "type", "string",
-                    "description", "Parameter: " + paramName
-                ));
-            }
-        }
-
-        schema.put("properties", properties);
-        schema.put("required", seen.stream().filter(s -> !s.equals("get")).toArray(String[]::new));
-        return schema;
     }
 }

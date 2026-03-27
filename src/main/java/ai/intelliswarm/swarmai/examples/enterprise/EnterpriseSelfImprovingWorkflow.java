@@ -13,6 +13,7 @@ import ai.intelliswarm.swarmai.task.output.OutputFormat;
 import ai.intelliswarm.swarmai.task.output.TaskOutput;
 import ai.intelliswarm.swarmai.tenant.*;
 import ai.intelliswarm.swarmai.tool.base.BaseTool;
+import ai.intelliswarm.swarmai.tool.base.ToolHealthChecker;
 import ai.intelliswarm.swarmai.tool.common.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -359,11 +360,32 @@ public class EnterpriseSelfImprovingWorkflow {
     // Planning — same as SelfImprovingWorkflow
     // =====================================================================
 
+    /**
+     * Build an enriched tool catalog with routing rules, categories, and tags.
+     */
     private String buildToolCatalog() {
         StringBuilder catalog = new StringBuilder();
-        for (BaseTool tool : allTools) {
-            catalog.append("  - ").append(tool.getFunctionName()).append(": ")
+        catalog.append("Tools organized by category with routing hints:\n\n");
+
+        Map<String, List<BaseTool>> byCategory = allTools.stream()
+            .collect(Collectors.groupingBy(BaseTool::getCategory));
+
+        for (Map.Entry<String, List<BaseTool>> entry : byCategory.entrySet()) {
+            catalog.append("## ").append(entry.getKey().toUpperCase()).append("\n");
+            for (BaseTool tool : entry.getValue()) {
+                catalog.append("  - **").append(tool.getFunctionName()).append("**: ")
                     .append(tool.getDescription()).append("\n");
+                if (tool.getTriggerWhen() != null) {
+                    catalog.append("    USE WHEN: ").append(tool.getTriggerWhen()).append("\n");
+                }
+                if (tool.getAvoidWhen() != null) {
+                    catalog.append("    AVOID WHEN: ").append(tool.getAvoidWhen()).append("\n");
+                }
+                if (!tool.getTags().isEmpty()) {
+                    catalog.append("    Tags: ").append(String.join(", ", tool.getTags())).append("\n");
+                }
+            }
+            catalog.append("\n");
         }
         return catalog.toString();
     }

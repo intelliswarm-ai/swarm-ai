@@ -162,6 +162,34 @@ public class SECFilingsTool implements BaseTool {
     }
 
     @Override
+    public String getTriggerWhen() {
+        return "User needs SEC filing data, 10-K, 10-Q reports, or regulatory information for a company.";
+    }
+
+    @Override
+    public String getAvoidWhen() {
+        return "User needs general web search, non-financial data, or non-US regulatory info.";
+    }
+
+    @Override
+    public String getCategory() {
+        return "analysis";
+    }
+
+    @Override
+    public List<String> getTags() {
+        return List.of("sec", "filings", "regulatory", "finance", "edgar");
+    }
+
+    @Override
+    public Map<String, Object> getOutputSchema() {
+        return Map.of(
+            "type", "markdown",
+            "description", "SEC filings analysis report with company info, filing summaries, financial data, and XBRL metrics"
+        );
+    }
+
+    @Override
     public int getMaxResponseLength() {
         return 20000; // SEC filings need room for financial data, tables, and XBRL metrics
     }

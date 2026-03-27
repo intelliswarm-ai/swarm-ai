@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 import java.io.*;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.List;
 
 /**
  * Shell Command Tool — executes whitelisted shell commands with timeout and output capture.
@@ -200,6 +201,34 @@ public class ShellCommandTool implements BaseTool {
 
     @Override
     public boolean isAsync() { return false; }
+
+    @Override
+    public String getTriggerWhen() {
+        return "User needs system introspection: list processes, check disk, run git commands, or execute whitelisted shell commands.";
+    }
+
+    @Override
+    public String getAvoidWhen() {
+        return "User needs file reading (use file_read), web access, or mathematical calculations.";
+    }
+
+    @Override
+    public String getCategory() {
+        return "computation";
+    }
+
+    @Override
+    public List<String> getTags() {
+        return List.of("shell", "command", "system", "process");
+    }
+
+    @Override
+    public Map<String, Object> getOutputSchema() {
+        return Map.of(
+            "type", "markdown",
+            "description", "Command execution result with exit code, stdout, and stderr"
+        );
+    }
 
     public record Request(String command, Integer timeout) {}
 }

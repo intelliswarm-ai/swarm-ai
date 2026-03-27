@@ -7,6 +7,7 @@ import ai.intelliswarm.swarmai.task.Task;
 import ai.intelliswarm.swarmai.task.output.OutputFormat;
 import ai.intelliswarm.swarmai.process.ProcessType;
 import ai.intelliswarm.swarmai.tool.common.*;
+import ai.intelliswarm.swarmai.tool.base.ToolHealthChecker;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
@@ -272,6 +273,21 @@ public class CodebaseAnalysisWorkflow {
             .eventPublisher(eventPublisher)
             .config("basePath", basePath)
             .build();
+
+        logger.info("=".repeat(80));
+        logger.info("CODEBASE ANALYSIS WORKFLOW");
+        logger.info("=".repeat(80));
+        logger.info("Path: {}", basePath);
+        logger.info("Process: PARALLEL");
+        logger.info("Tools: {} [{}], {} [{}], {} [{}], {} [{}], {} [{}], {} [{}], {} [{}]",
+                directoryReadTool.getFunctionName(), directoryReadTool.getCategory(),
+                fileReadTool.getFunctionName(), fileReadTool.getCategory(),
+                fileWriteTool.getFunctionName(), fileWriteTool.getCategory(),
+                shellCommandTool.getFunctionName(), shellCommandTool.getCategory(),
+                codeExecutionTool.getFunctionName(), codeExecutionTool.getCategory(),
+                xmlParseTool.getFunctionName(), xmlParseTool.getCategory(),
+                jsonTransformTool.getFunctionName(), jsonTransformTool.getCategory());
+        logger.info("=".repeat(80));
 
         Map<String, Object> inputs = new HashMap<>();
         inputs.put("basePath", basePath);
