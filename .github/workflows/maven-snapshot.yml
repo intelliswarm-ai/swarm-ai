@@ -96,6 +96,8 @@ jobs:
     name: Publish to OSSRH
     runs-on: ubuntu-latest
     needs: [ unit-tests, integration-tests ]
+    # Only run if OSSRH credentials are configured
+    if: secrets.OSSRH_USERNAME != '' && secrets.MAVEN_GPG_PRIVATE_KEY != ''
 
     steps:
     - name: Checkout code
@@ -194,7 +196,8 @@ jobs:
   upload-artifacts:
     name: Upload Artifacts
     runs-on: ubuntu-latest
-    needs: [ publish-ossrh, publish-github ]
+    needs: [ unit-tests, integration-tests ]
+    if: always()
 
     steps:
     - name: Checkout code
