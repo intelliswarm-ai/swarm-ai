@@ -402,7 +402,7 @@ public class SelfImprovingProcess implements Process {
                     for (String processed : processedGapDescriptions) {
                         Set<String> processedTokens = tokenizeForDedup(processed);
                         double overlap = jaccardSimilaritySimple(gapTokens, processedTokens);
-                        if (overlap > 0.50) {
+                        if (overlap > 0.35) {
                             isDuplicateGap = true;
                             gapsSkippedAsDuplicate++;
                             logger.info("Gap SKIPPED (duplicate of previously processed gap, overlap={:.0f}%): {}",

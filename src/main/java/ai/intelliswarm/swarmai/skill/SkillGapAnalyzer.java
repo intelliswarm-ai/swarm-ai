@@ -56,6 +56,15 @@ public class SkillGapAnalyzer {
                 new CoverageResult(0.0, List.of()), SkillType.CODE);
         }
 
+        // 0b. Impossible-capability detection — reject gaps requiring external services we don't have
+        String impossibleReason = detectImpossibleCapability(gapDescription);
+        if (impossibleReason != null) {
+            reasons.add("REJECTED: Requires external service not available: " + impossibleReason);
+            logger.info("Gap rejected (impossible capability): {} — {}", truncate(gapDescription, 60), impossibleReason);
+            return new GapAnalysis(gapDescription, Recommendation.SKIP, 0.0, reasons,
+                new CoverageResult(0.0, List.of()), SkillType.CODE);
+        }
+
         // 1. Clarity check — is the gap specific enough to implement?
         double clarityScore = assessClarity(gapDescription);
         score += clarityScore * 0.20;
@@ -189,6 +198,50 @@ public class SkillGapAnalyzer {
     }
 
     private record ToolErrorCheck(boolean isToolError, String reason) {}
+
+    /**
+     * Detect gaps requesting capabilities that require external services we don't have.
+     * No amount of skill generation can create sentiment analysis, NLP, or real-time feeds
+     * without actual external APIs. These are "impossible" with our current tool stack.
+     */
+    private String detectImpossibleCapability(String gap) {
+        String lower = gap.toLowerCase();
+
+        // Sentiment analysis / NLP — requires external NLP API (not buildable from our tools)
+        if ((lower.contains("sentiment") && (lower.contains("analysis") || lower.contains("analyz"))) ||
+            (lower.contains("nlp") || lower.contains("natural language processing")) ||
+            (lower.contains("opinion mining") || lower.contains("emotion detection"))) {
+            return "Sentiment analysis requires an external NLP service (not buildable from http_request + web_scrape). " +
+                "The agent should instead scrape user reviews from real sites and present them as-is.";
+        }
+
+        // Social media APIs — require OAuth tokens and platform-specific APIs
+        if ((lower.contains("social media") && (lower.contains("api") || lower.contains("gather") || lower.contains("aggregate"))) ||
+            (lower.contains("twitter") || lower.contains("reddit api") || lower.contains("facebook api"))) {
+            return "Social media APIs require platform-specific OAuth credentials we don't have.";
+        }
+
+        // Real-time data feeds — require WebSocket/streaming connections
+        if (lower.contains("real-time") && (lower.contains("feed") || lower.contains("stream") || lower.contains("live"))) {
+            return "Real-time data feeds require WebSocket/streaming infrastructure we don't have.";
+        }
+
+        // User feedback aggregation from "multiple platforms" — too vague and requires multiple APIs
+        if (lower.contains("user feedback") && (lower.contains("aggregate") || lower.contains("multiple") || lower.contains("forums"))) {
+            if (lower.contains("automatically") || lower.contains("gather")) {
+                return "Automatic user feedback aggregation from multiple platforms requires platform-specific APIs. " +
+                    "The agent should instead use web_scrape on specific known review pages.";
+            }
+        }
+
+        // Machine learning / model training — requires ML infrastructure
+        if ((lower.contains("machine learning") || lower.contains("train") || lower.contains("model")) &&
+            (lower.contains("classify") || lower.contains("predict") || lower.contains("neural"))) {
+            return "ML model training/inference requires ML infrastructure we don't have.";
+        }
+
+        return null;
+    }
 
     private double assessClarity(String gap) {
         if (gap.length() < MIN_GAP_DESCRIPTION_LENGTH) return 0.1;
