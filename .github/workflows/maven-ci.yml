@@ -84,7 +84,7 @@ jobs:
 
     - name: Generate integration test report
       uses: dorny/test-reporter@v1
-      if: success() || failure()
+      if: (success() || failure()) && hashFiles('target/failsafe-reports/*.xml') != ''
       with:
         name: Integration Tests
         path: target/failsafe-reports/*.xml
