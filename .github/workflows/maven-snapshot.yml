@@ -16,6 +16,11 @@ concurrency:
   group: snapshot-deploy
   cancel-in-progress: false
 
+permissions:
+  contents: read
+  checks: write
+  packages: write
+
 jobs:
   # ============================================
   # Run full regression suite before publishing
@@ -78,7 +83,7 @@ jobs:
 
     - name: Generate integration test report
       uses: dorny/test-reporter@v1
-      if: (success() || failure()) && github.event.inputs.skip_tests != 'true'
+      if: (success() || failure()) && github.event.inputs.skip_tests != 'true' && hashFiles('target/failsafe-reports/*.xml') != ''
       with:
         name: Integration Tests
         path: target/failsafe-reports/*.xml
