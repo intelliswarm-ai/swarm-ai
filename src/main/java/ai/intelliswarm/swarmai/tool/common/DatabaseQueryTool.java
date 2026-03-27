@@ -7,8 +7,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
+import ai.intelliswarm.swarmai.tool.base.ToolRequirements;
+
 import javax.sql.DataSource;
 import java.util.*;
+import java.util.List;
 import java.util.stream.Collectors;
 
 /**
@@ -187,6 +190,41 @@ public class DatabaseQueryTool implements BaseTool {
     @Override
     public boolean isAsync() {
         return false;
+    }
+
+    @Override
+    public String getTriggerWhen() {
+        return "User needs to query a database, run SQL, or retrieve structured data from a data store.";
+    }
+
+    @Override
+    public String getAvoidWhen() {
+        return "Data is in files (use file tools) or available via web APIs.";
+    }
+
+    @Override
+    public ToolRequirements getRequirements() {
+        return ToolRequirements.builder()
+            .env("DATABASE_URL")
+            .build();
+    }
+
+    @Override
+    public String getCategory() {
+        return "data-io";
+    }
+
+    @Override
+    public List<String> getTags() {
+        return List.of("database", "sql", "query");
+    }
+
+    @Override
+    public Map<String, Object> getOutputSchema() {
+        return Map.of(
+            "type", "markdown",
+            "description", "Query results as a markdown table with column headers, row count, and original query"
+        );
     }
 
     public record Request(String query, Integer maxRows) {}

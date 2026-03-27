@@ -219,6 +219,36 @@ public class PDFReadTool implements BaseTool {
         return false;
     }
 
+    // ==================== OpenClaw Metadata ====================
+
+    @Override
+    public String getTriggerWhen() {
+        return "User needs to extract text from PDF documents or read PDF file contents.";
+    }
+
+    @Override
+    public String getAvoidWhen() {
+        return "File is not a PDF or user needs to read plain text, CSV, JSON files.";
+    }
+
+    @Override
+    public String getCategory() {
+        return "data-io";
+    }
+
+    @Override
+    public List<String> getTags() {
+        return List.of("pdf", "document", "extract", "read");
+    }
+
+    @Override
+    public Map<String, Object> getOutputSchema() {
+        return Map.of(
+            "type", "markdown",
+            "description", "Extracted PDF text with metadata header (file path, size, page count, title, author)"
+        );
+    }
+
     @Override
     public int getMaxResponseLength() {
         return 15000;

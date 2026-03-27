@@ -362,6 +362,49 @@ public class FileReadTool implements BaseTool {
         return false;
     }
 
+    // ==================== OpenClaw Metadata ====================
+
+    @Override
+    public String getTriggerWhen() {
+        return "User needs to read file contents, inspect config files, or load data from disk.";
+    }
+
+    @Override
+    public String getAvoidWhen() {
+        return "Data is already available in context or comes from a web API.";
+    }
+
+    @Override
+    public String getCategory() {
+        return "data-io";
+    }
+
+    @Override
+    public List<String> getTags() {
+        return List.of("file", "read", "text", "json", "csv", "yaml");
+    }
+
+    @Override
+    public Map<String, Object> getOutputSchema() {
+        return Map.of(
+            "type", "string",
+            "description", "File contents as text, with format auto-detection"
+        );
+    }
+
+    @Override
+    public String smokeTest() {
+        try {
+            Path tempFile = Files.createTempFile("swarm-file-read-smoke", ".txt");
+            Files.writeString(tempFile, "smoke-test");
+            String content = Files.readString(tempFile);
+            Files.deleteIfExists(tempFile);
+            return "smoke-test".equals(content) ? null : "File read/write round-trip failed";
+        } catch (IOException e) {
+            return "File system access check failed: " + e.getMessage();
+        }
+    }
+
     @Override
     public int getMaxResponseLength() {
         return 12000; // Files can be large — allow more room

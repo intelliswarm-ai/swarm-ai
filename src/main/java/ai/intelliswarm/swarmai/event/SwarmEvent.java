@@ -72,6 +72,7 @@ public class SwarmEvent extends ApplicationEvent {
         SKILL_VALIDATION_FAILED,
         SKILL_REGISTERED,
         SKILL_REUSED,
+        SKILL_GENERATION_SKIPPED,
         SKILL_PROMOTED,
 
         // Budget Events

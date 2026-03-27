@@ -18,6 +18,7 @@ import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -585,6 +586,34 @@ public class ReportGeneratorTool implements BaseTool {
     @Override
     public boolean isAsync() {
         return false;
+    }
+
+    @Override
+    public String getTriggerWhen() {
+        return "User needs to generate a structured report, executive summary, or formatted document from analysis results.";
+    }
+
+    @Override
+    public String getAvoidWhen() {
+        return "User just needs raw data or simple text output.";
+    }
+
+    @Override
+    public String getCategory() {
+        return "analysis";
+    }
+
+    @Override
+    public List<String> getTags() {
+        return List.of("report", "document", "summary", "output");
+    }
+
+    @Override
+    public Map<String, Object> getOutputSchema() {
+        return Map.of(
+            "type", "json",
+            "description", "Report generation result with format, content, word count, generated timestamp, and optional file path"
+        );
     }
 
     @Override

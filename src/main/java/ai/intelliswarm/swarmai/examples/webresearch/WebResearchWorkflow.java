@@ -7,6 +7,7 @@ import ai.intelliswarm.swarmai.task.Task;
 import ai.intelliswarm.swarmai.task.output.OutputFormat;
 import ai.intelliswarm.swarmai.process.ProcessType;
 import ai.intelliswarm.swarmai.tool.common.*;
+import ai.intelliswarm.swarmai.tool.base.ToolHealthChecker;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
@@ -278,6 +279,19 @@ public class WebResearchWorkflow {
             .eventPublisher(eventPublisher)
             .config("query", query)
             .build();
+
+        logger.info("=".repeat(80));
+        logger.info("WEB RESEARCH WORKFLOW");
+        logger.info("=".repeat(80));
+        logger.info("Query: {}", query);
+        logger.info("Process: HIERARCHICAL");
+        logger.info("Tools: {} [{}], {} [{}], {} [{}], {} [{}], {} [{}]",
+                webScrapeTool.getFunctionName(), webScrapeTool.getCategory(),
+                httpRequestTool.getFunctionName(), httpRequestTool.getCategory(),
+                jsonTransformTool.getFunctionName(), jsonTransformTool.getCategory(),
+                fileWriteTool.getFunctionName(), fileWriteTool.getCategory(),
+                fileReadTool.getFunctionName(), fileReadTool.getCategory());
+        logger.info("=".repeat(80));
 
         Map<String, Object> inputs = new HashMap<>();
         inputs.put("query", query);

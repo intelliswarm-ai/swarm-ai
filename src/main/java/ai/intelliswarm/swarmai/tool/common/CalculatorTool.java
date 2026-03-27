@@ -4,6 +4,7 @@ import ai.intelliswarm.swarmai.tool.base.BaseTool;
 import org.springframework.stereotype.Component;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 import javax.script.ScriptEngine;
@@ -84,6 +85,35 @@ public class CalculatorTool implements BaseTool {
     @Override
     public boolean isAsync() {
         return false;
+    }
+
+    @Override
+    public String getTriggerWhen() {
+        return "User needs mathematical calculations: arithmetic, percentages, ratios, growth rates, financial formulas.";
+    }
+
+    @Override
+    public String getAvoidWhen() {
+        return "User asks for data retrieval, text analysis, web searches, or file operations that don't involve math.";
+    }
+
+    @Override
+    public String getCategory() {
+        return "computation";
+    }
+
+    @Override
+    public List<String> getTags() {
+        return List.of("math", "arithmetic", "finance", "calculation");
+    }
+
+    @Override
+    public Map<String, Object> getOutputSchema() {
+        return Map.of(
+            "type", "string",
+            "description", "Numeric result as a string (e.g., '42', '3.14')",
+            "example", "42.0"
+        );
     }
 
     // Request record for Spring AI function binding

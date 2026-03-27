@@ -243,6 +243,48 @@ public class FileWriteTool implements BaseTool {
         return false;
     }
 
+    // ==================== OpenClaw Metadata ====================
+
+    @Override
+    public String getTriggerWhen() {
+        return "User needs to save output, write reports, create files, or persist data to disk.";
+    }
+
+    @Override
+    public String getAvoidWhen() {
+        return "User only needs to display results, or data should go to an API instead.";
+    }
+
+    @Override
+    public String getCategory() {
+        return "data-io";
+    }
+
+    @Override
+    public List<String> getTags() {
+        return List.of("file", "write", "save", "output");
+    }
+
+    @Override
+    public Map<String, Object> getOutputSchema() {
+        return Map.of(
+            "type", "markdown",
+            "description", "Confirmation message with file path, size, line count, and write mode"
+        );
+    }
+
+    @Override
+    public String smokeTest() {
+        try {
+            Path tempFile = Files.createTempFile("swarm-file-write-smoke", ".txt");
+            Files.writeString(tempFile, "smoke-test");
+            Files.deleteIfExists(tempFile);
+            return null;
+        } catch (IOException e) {
+            return "File system write check failed: " + e.getMessage();
+        }
+    }
+
     // Request record for Spring AI function binding
     public record Request(String path, String content, String mode) {}
 }

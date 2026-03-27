@@ -9,6 +9,7 @@ import ai.intelliswarm.swarmai.process.ProcessType;
 import ai.intelliswarm.swarmai.tool.common.CalculatorTool;
 import ai.intelliswarm.swarmai.tool.common.WebSearchTool;
 import ai.intelliswarm.swarmai.tool.common.SECFilingsTool;
+import ai.intelliswarm.swarmai.tool.base.ToolHealthChecker;
 import org.springframework.ai.chat.client.ChatClient;
 
 import org.springframework.context.ApplicationEventPublisher;
@@ -279,6 +280,10 @@ public class DueDiligenceWorkflow {
         logger.info("Research streams: Financial Health | News & Sentiment | Legal & Regulatory");
         logger.info("Process: {}", ddSwarm.getProcessType());
         logger.info("Agents: DD Director + 3 Specialist Analysts");
+        logger.info("Tools: {} [{}], {} [{}], {} [{}]",
+                calculatorTool.getFunctionName(), calculatorTool.getCategory(),
+                webSearchTool.getFunctionName(), webSearchTool.getCategory(),
+                secFilingsTool.getFunctionName(), secFilingsTool.getCategory());
         logger.info("=".repeat(60));
 
         Map<String, Object> inputs = new HashMap<>();

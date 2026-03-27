@@ -8,7 +8,10 @@ import org.springframework.http.*;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
+import ai.intelliswarm.swarmai.tool.base.ToolRequirements;
+
 import java.util.*;
+import java.util.List;
 
 /**
  * Slack Webhook Tool — sends messages to Slack channels via incoming webhooks.
@@ -113,6 +116,41 @@ public class SlackWebhookTool implements BaseTool {
 
     @Override
     public boolean isAsync() { return false; }
+
+    @Override
+    public String getTriggerWhen() {
+        return "User needs to send a message to a Slack channel via webhook.";
+    }
+
+    @Override
+    public String getAvoidWhen() {
+        return "User needs email (use email tool) or non-Slack communication.";
+    }
+
+    @Override
+    public ToolRequirements getRequirements() {
+        return ToolRequirements.builder()
+            .env("SLACK_WEBHOOK_URL")
+            .build();
+    }
+
+    @Override
+    public String getCategory() {
+        return "communication";
+    }
+
+    @Override
+    public List<String> getTags() {
+        return List.of("slack", "webhook", "notification", "messaging");
+    }
+
+    @Override
+    public Map<String, Object> getOutputSchema() {
+        return Map.of(
+            "type", "markdown",
+            "description", "Slack message send confirmation with message length, channel, and username"
+        );
+    }
 
     @Override
     public int getMaxUsageCount() { return 20; }

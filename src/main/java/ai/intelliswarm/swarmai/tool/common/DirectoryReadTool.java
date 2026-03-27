@@ -294,6 +294,49 @@ public class DirectoryReadTool implements BaseTool {
         return false;
     }
 
+    // ==================== OpenClaw Metadata ====================
+
+    @Override
+    public String getTriggerWhen() {
+        return "User needs to list files, browse directories, or find files matching a pattern.";
+    }
+
+    @Override
+    public String getAvoidWhen() {
+        return "User needs file contents (use file_read) or web data.";
+    }
+
+    @Override
+    public String getCategory() {
+        return "data-io";
+    }
+
+    @Override
+    public List<String> getTags() {
+        return List.of("directory", "file-system", "listing", "glob");
+    }
+
+    @Override
+    public Map<String, Object> getOutputSchema() {
+        return Map.of(
+            "type", "markdown",
+            "description", "Markdown table of directory entries with name, type, size, and last-modified date"
+        );
+    }
+
+    @Override
+    public String smokeTest() {
+        try {
+            Path cwd = Path.of(".").toAbsolutePath().normalize();
+            if (!Files.isDirectory(cwd)) {
+                return "Current working directory is not accessible";
+            }
+            return null;
+        } catch (Exception e) {
+            return "Directory access check failed: " + e.getMessage();
+        }
+    }
+
     @Override
     public int getMaxResponseLength() {
         return 12000;

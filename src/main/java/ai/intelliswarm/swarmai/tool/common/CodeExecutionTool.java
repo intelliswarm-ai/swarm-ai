@@ -11,6 +11,7 @@ import javax.script.ScriptException;
 import java.io.*;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.List;
 
 /**
  * Code Execution Tool — executes code snippets in a sandboxed environment.
@@ -265,6 +266,34 @@ public class CodeExecutionTool implements BaseTool {
     @Override
     public boolean isAsync() {
         return false;
+    }
+
+    @Override
+    public String getTriggerWhen() {
+        return "User needs to run code snippets, evaluate expressions, or execute scripts.";
+    }
+
+    @Override
+    public String getAvoidWhen() {
+        return "Simple math (use calculator) or file reading operations.";
+    }
+
+    @Override
+    public String getCategory() {
+        return "computation";
+    }
+
+    @Override
+    public List<String> getTags() {
+        return List.of("code", "execute", "javascript", "shell");
+    }
+
+    @Override
+    public Map<String, Object> getOutputSchema() {
+        return Map.of(
+            "type", "markdown",
+            "description", "Code execution result with language, exit code, stdout, and stderr"
+        );
     }
 
     public record Request(String code, String language, Integer timeout) {}

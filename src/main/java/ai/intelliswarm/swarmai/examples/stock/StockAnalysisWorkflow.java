@@ -18,11 +18,15 @@ import org.springframework.stereotype.Component;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
+import ai.intelliswarm.swarmai.tool.base.BaseTool;
+import ai.intelliswarm.swarmai.tool.base.ToolHealthChecker;
 import ai.intelliswarm.swarmai.tool.common.CalculatorTool;
 import ai.intelliswarm.swarmai.tool.common.WebSearchTool;
 import ai.intelliswarm.swarmai.tool.common.SECFilingsTool;
@@ -63,7 +67,7 @@ public class StockAnalysisWorkflow {
     }
     
     public void run(String... args) throws Exception {
-        logger.info("📊 Starting Stock Analysis Workflow with SwarmAI Framework");
+        logger.info("📊 Starting Stock Analysis Workflow with SwarmAI Framework (Enhanced Tool Routing)");
         
         try {
             // Default stock to analyze - can be overridden via command line args
@@ -82,6 +86,33 @@ public class StockAnalysisWorkflow {
 
         String toolEvidence = buildToolEvidence(companyStock);
         logEvidenceWarnings(toolEvidence, companyStock);
+
+        // =====================================================================
+        // TOOL HEALTH CHECK — Filter out non-operational tools before assignment
+        // =====================================================================
+
+        List<BaseTool> allTools = List.of(calculatorTool, webSearchTool, secFilingsTool);
+        List<BaseTool> healthyTools = ToolHealthChecker.filterOperational(allTools);
+        if (healthyTools.size() < allTools.size()) {
+            logger.warn("Tool health check: {}/{} tools operational", healthyTools.size(), allTools.size());
+            Map<String, ToolHealthChecker.HealthCheckResult> results = ToolHealthChecker.checkAll(allTools);
+            results.forEach((name, result) -> {
+                if (!result.healthy()) {
+                    logger.warn("  {} UNHEALTHY: {}", name, result.issues());
+                }
+            });
+        }
+
+        // Log tool routing metadata for diagnostics
+        logToolRoutingMetadata(healthyTools);
+
+        // Partition healthy tools by role for targeted agent assignment
+        List<BaseTool> financialTools = healthyTools.stream()
+            .filter(t -> t == calculatorTool || t == webSearchTool || t == secFilingsTool)
+            .collect(Collectors.toList());
+        List<BaseTool> researchTools = healthyTools.stream()
+            .filter(t -> t == webSearchTool || t == secFilingsTool)
+            .collect(Collectors.toList());
 
         // =====================================================================
         // AGENTS - Each agent has an accuracy-focused goal and rigorous backstory
@@ -115,9 +146,7 @@ public class StockAnalysisWorkflow {
                            "Your reports are trusted because they clearly distinguish between hard data, " +
                            "analyst estimates, and your own assumptions.")
                 .chatClient(chatClient)
-                .tool(calculatorTool)
-                .tool(webSearchTool)
-                .tool(secFilingsTool)
+                .tools(financialTools)
                 .verbose(true)
                 .maxRpm(10)
                 .temperature(0.1)
@@ -135,8 +164,7 @@ public class StockAnalysisWorkflow {
                            "of each piece of information. You clearly separate confirmed facts from " +
                            "analyst opinions and market rumors.")
                 .chatClient(chatClient)
-                .tool(webSearchTool)
-                .tool(secFilingsTool)
+                .tools(researchTools)
                 .verbose(true)
                 .maxRpm(12)
                 .temperature(0.2)
@@ -154,9 +182,7 @@ public class StockAnalysisWorkflow {
                            "certainty or understate risk. You always reference the specific data points that " +
                            "support your conclusions, citing which prior analysis they came from.")
                 .chatClient(chatClient)
-                .tool(calculatorTool)
-                .tool(webSearchTool)
-                .tool(secFilingsTool)
+                // No tools — synthesis agent reasons over prior outputs, doesn't need tool access
                 .verbose(true)
                 .maxRpm(10)
                 .temperature(0.2)
@@ -300,6 +326,7 @@ public class StockAnalysisWorkflow {
         logger.info("Executing Stock Analysis Workflow for {}", companyStock);
         logger.info("Team: 3 Specialized Financial Agents");
         logger.info("Process: PARALLEL (3 independent streams + 1 synthesis)");
+        logger.info("Tools: {}/{} operational (with routing metadata)", healthyTools.size(), allTools.size());
         logger.info("Dynamic Context: {} token window", "128K");
         
         Map<String, Object> inputs = new HashMap<>();
@@ -338,6 +365,34 @@ public class StockAnalysisWorkflow {
 
         // Display observability summary
         displayObservabilitySummary(correlationId);
+    }
+
+    /**
+     * Log routing metadata for each tool: category, trigger/avoid conditions, and tags.
+     */
+    private void logToolRoutingMetadata(List<BaseTool> tools) {
+        logger.info("Tool Routing Metadata ({} tools):", tools.size());
+        Map<String, List<BaseTool>> byCategory = tools.stream()
+            .collect(Collectors.groupingBy(BaseTool::getCategory));
+
+        for (Map.Entry<String, List<BaseTool>> entry : byCategory.entrySet()) {
+            logger.info("  [{}]", entry.getKey().toUpperCase());
+            for (BaseTool tool : entry.getValue()) {
+                StringBuilder meta = new StringBuilder();
+                meta.append("    ").append(tool.getFunctionName())
+                    .append(": ").append(tool.getDescription());
+                if (tool.getTriggerWhen() != null) {
+                    meta.append(" | USE WHEN: ").append(tool.getTriggerWhen());
+                }
+                if (tool.getAvoidWhen() != null) {
+                    meta.append(" | AVOID WHEN: ").append(tool.getAvoidWhen());
+                }
+                if (!tool.getTags().isEmpty()) {
+                    meta.append(" | Tags: ").append(String.join(", ", tool.getTags()));
+                }
+                logger.info("{}", meta);
+            }
+        }
     }
 
     private static final int MAX_EVIDENCE_PER_SOURCE = 15000; // ~4K tokens per source
