@@ -852,7 +852,11 @@ public class SelfImprovingProcess implements Process {
             "json", "status code",            // HTTP response data
             "search results",                 // web_search output
             "scraped", "fetched",             // web_scrape output
-            "command output",                 // shell_command output
+            "command output", "exit code",    // shell_command output
+            "**command:**", "**stdout:**",    // shell_command formatted output
+            "nmap", "scan report",            // nmap output
+            "open port", "filtered",          // port scan results
+            "mac address", "host is up",      // network scan results
             "calculated", "calculation",      // calculator output
             "file content", "csv data",       // file tool output
             "retrieved:", "source:",          // data attribution

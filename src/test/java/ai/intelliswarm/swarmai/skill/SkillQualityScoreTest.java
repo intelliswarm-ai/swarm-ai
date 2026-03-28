@@ -12,8 +12,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class SkillQualityScoreTest {
 
     @Test
-    @DisplayName("assess() handles PROMPT skills that do not include code")
-    void assess_promptSkillWithoutCode_doesNotThrowAndUsesZeroCodeScores() {
+    @DisplayName("assess() handles PROMPT skills without code — scores instruction body quality")
+    void assess_promptSkillWithoutCode_doesNotThrowAndScoresInstructionBody() {
         SkillDefinition definition = new SkillDefinition();
         definition.setName("prompt_only_skill");
         definition.setDescription("A prompt-only skill definition with enough detail for documentation scoring.");
@@ -29,8 +29,26 @@ class SkillQualityScoreTest {
 
         SkillQualityScore score = assertDoesNotThrow(() -> SkillQualityScore.assess(skill));
 
+        // PROMPT skills score on instruction body structure, not code
+        // Body has heading (#) and lists (- ), so complexity = 10 + 5 + 5 = 20
+        assertEquals(20, score.codeComplexityScore());
+        // No constraints or error/fallback terms in body
         assertEquals(0, score.errorHandlingScore());
+    }
+
+    @Test
+    @DisplayName("assess() handles PROMPT skills with null code — no NPE")
+    void assess_promptSkillWithNullCode_doesNotThrow() {
+        SkillDefinition definition = new SkillDefinition();
+        definition.setName("null_code_skill");
+        definition.setDescription("Skill with null code field to verify NPE protection.");
+        definition.setType(SkillType.PROMPT);
+        // No instruction body, no code — minimal skill
+        GeneratedSkill skill = new GeneratedSkill(definition);
+
+        SkillQualityScore score = assertDoesNotThrow(() -> SkillQualityScore.assess(skill));
         assertEquals(0, score.codeComplexityScore());
+        assertEquals(0, score.errorHandlingScore());
         assertEquals(0, score.outputFormatScore());
     }
 }

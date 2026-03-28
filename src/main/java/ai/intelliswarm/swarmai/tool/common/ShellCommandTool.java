@@ -20,7 +20,8 @@ public class ShellCommandTool implements BaseTool {
 
     private static final Logger logger = LoggerFactory.getLogger(ShellCommandTool.class);
 
-    private static final int DEFAULT_TIMEOUT_SECONDS = 60;
+    private static final int DEFAULT_TIMEOUT_SECONDS = 120;
+    private static final int MAX_TIMEOUT_SECONDS = 300;
     private static final int MAX_OUTPUT_LENGTH = 8000;
 
     // Only these commands are allowed (read-only, safe introspection + network scanning)
@@ -54,7 +55,7 @@ public class ShellCommandTool implements BaseTool {
     public Object execute(Map<String, Object> parameters) {
         String command = (String) parameters.get("command");
         Integer timeout = parameters.get("timeout") != null
-            ? Math.min(((Number) parameters.get("timeout")).intValue(), DEFAULT_TIMEOUT_SECONDS)
+            ? Math.min(((Number) parameters.get("timeout")).intValue(), MAX_TIMEOUT_SECONDS)
             : DEFAULT_TIMEOUT_SECONDS;
 
         logger.info("ShellCommandTool: command='{}', timeout={}s", command, timeout);

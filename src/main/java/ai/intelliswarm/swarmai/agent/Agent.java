@@ -278,7 +278,9 @@ public class Agent {
         system.append("\nToday's date is: ").append(java.time.LocalDate.now()).append("\n");
 
         if (!tools.isEmpty()) {
-            system.append("\nYou have access to the following tools:\n\n");
+            system.append("\nYou have access to the following tools. " +
+                "You MUST actively call these tools to gather real data — do NOT answer from general knowledge alone. " +
+                "Call the appropriate tool function for every step that requires external data or action.\n\n");
             for (BaseTool tool : tools) {
                 system.append("- **").append(tool.getFunctionName()).append("**");
                 system.append(" [").append(tool.getCategory()).append("]");
@@ -293,7 +295,8 @@ public class Agent {
                     system.append("  Tags: ").append(String.join(", ", tool.getTags())).append("\n");
                 }
             }
-            system.append("\n");
+            system.append("\nIMPORTANT: Always call the tool functions above to gather data. " +
+                "Never produce a final answer without first calling at least one tool.\n");
         }
 
         // Anti-hallucination guardrails

@@ -42,13 +42,20 @@ public record SkillQualityScore(
     }
 
     /**
-     * Assess a generated skill's quality based on its code and metadata.
+     * Assess a generated skill's quality based on its code, instruction body, and metadata.
+     * Adapts scoring dimensions based on skill type:
+     * - CODE skills: scored on code quality (error handling, complexity, output format)
+     * - PROMPT skills: scored on instruction quality (structure, constraints, examples)
+     * - HYBRID/COMPOSITE: scored on both dimensions where applicable
      */
     public static SkillQualityScore assess(GeneratedSkill skill) {
         String code = skill.getCode();
         boolean hasCode = code != null && !code.isBlank();
         String normalizedCode = hasCode ? code : "";
         String desc = skill.getDescription();
+        String body = skill.getInstructionBody();
+        boolean hasBody = body != null && !body.isBlank();
+        SkillType skillType = skill.getSkillType();
 
         // 1. Documentation: description quality + parameter descriptions in schema
         int docScore = 0;
@@ -66,29 +73,45 @@ public record SkillQualityScore(
         int testCount = skill.getTestCases() != null ? skill.getTestCases().size() : 0;
         if (testCount >= 1) testScore += 10;
         if (testCount >= 2) testScore += 5;
-        // Check for meaningful assertions
         if (skill.getTestCases() != null) {
             for (String test : skill.getTestCases()) {
                 if (test.contains("assert") && test.contains("result")) testScore += 5;
                 break; // only check first
             }
         }
+        // PROMPT skills get test credit for having self-check items or examples
+        if (!hasCode && hasBody) {
+            SkillDefinition def = skill.getDefinition();
+            if (def.getSelfCheckItems() != null && !def.getSelfCheckItems().isEmpty()) testScore += 10;
+            if (def.getExamples() != null && !def.getExamples().isEmpty()) testScore += 5;
+            testScore = Math.min(20, testScore);
+        }
 
-        // 3. Error handling: try/catch, null checks, default values
+        // 3. Error handling / Guardrails
         int errorScore = 0;
-        if (normalizedCode.contains("try") && normalizedCode.contains("catch")) errorScore += 10;
-        if (normalizedCode.contains("?:") || normalizedCode.contains("!= null") || normalizedCode.contains("?: \"")) errorScore += 5;
-        if (normalizedCode.contains("Error:") || normalizedCode.contains("error")) errorScore += 5;
+        if (hasCode) {
+            if (normalizedCode.contains("try") && normalizedCode.contains("catch")) errorScore += 10;
+            if (normalizedCode.contains("?:") || normalizedCode.contains("!= null") || normalizedCode.contains("?: \"")) errorScore += 5;
+            if (normalizedCode.contains("Error:") || normalizedCode.contains("error")) errorScore += 5;
+        }
+        if (hasBody) {
+            // PROMPT skills: constraints and guardrails serve the same purpose as error handling
+            SkillDefinition def = skill.getDefinition();
+            if (def.getConstraints() != null && !def.getConstraints().isEmpty()) errorScore += 10;
+            if (body.toLowerCase().contains("do not") || body.toLowerCase().contains("never") ||
+                body.toLowerCase().contains("avoid")) errorScore += 5;
+            if (body.toLowerCase().contains("error") || body.toLowerCase().contains("fallback") ||
+                body.toLowerCase().contains("if unable")) errorScore += 5;
+        }
         errorScore = Math.min(20, errorScore);
 
-        // 4. Code complexity: lower is better
+        // 4. Structure / Complexity
         int complexityScore = 0;
         if (hasCode) {
             complexityScore = 20;
             int lineCount = normalizedCode.split("\n").length;
             if (lineCount > 50) complexityScore -= 5;
             if (lineCount > 100) complexityScore -= 5;
-            // Nesting depth check
             int maxNesting = 0, currentNesting = 0;
             for (char c : normalizedCode.toCharArray()) {
                 if (c == '{') currentNesting++;
@@ -98,13 +121,28 @@ public record SkillQualityScore(
             if (maxNesting > 4) complexityScore -= 5;
             if (maxNesting > 6) complexityScore -= 5;
             complexityScore = Math.max(0, complexityScore);
+        } else if (hasBody) {
+            // PROMPT skills: well-structured instructions score higher
+            complexityScore = 10; // base score for having a body
+            if (body.contains("#")) complexityScore += 5; // has headings
+            if (body.contains("- ") || body.contains("* ") || body.contains("1.")) complexityScore += 5; // has lists/steps
+            complexityScore = Math.min(20, complexityScore);
         }
 
         // 5. Output format: consistent result formatting
         int outputScore = 0;
-        if (normalizedCode.contains("result") || normalizedCode.contains("return") || normalizedCode.contains("output")) outputScore += 10;
-        if (normalizedCode.contains("\\n") || normalizedCode.contains("StringBuilder") || normalizedCode.contains("String.format")) outputScore += 5;
-        if (normalizedCode.contains("\"Error:") || normalizedCode.contains("catch")) outputScore += 5; // error cases produce output
+        if (hasCode) {
+            if (normalizedCode.contains("result") || normalizedCode.contains("return") || normalizedCode.contains("output")) outputScore += 10;
+            if (normalizedCode.contains("\\n") || normalizedCode.contains("StringBuilder") || normalizedCode.contains("String.format")) outputScore += 5;
+            if (normalizedCode.contains("\"Error:") || normalizedCode.contains("catch")) outputScore += 5;
+        }
+        if (hasBody) {
+            SkillDefinition def = skill.getDefinition();
+            if (def.getOutputFormat() != null) outputScore += 10;
+            if (def.getResources().containsKey("output-template")) outputScore += 5;
+            if (body.contains("## Output") || body.contains("output format") ||
+                body.toLowerCase().contains("format your response")) outputScore += 5;
+        }
         outputScore = Math.min(20, outputScore);
 
         return new SkillQualityScore(docScore, testScore, errorScore, complexityScore, outputScore);
