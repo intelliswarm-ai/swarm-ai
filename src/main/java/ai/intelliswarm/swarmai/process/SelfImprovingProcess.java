@@ -154,6 +154,7 @@ public class SelfImprovingProcess implements Process {
         }
 
         List<TaskOutput> allOutputs = new ArrayList<>();
+        List<String> commandLedger = new ArrayList<>();
         int iteration = 0;
         boolean approved = false;
         String reviewFeedback = null;
@@ -199,27 +200,38 @@ public class SelfImprovingProcess implements Process {
                 // Evolve the analysis task — don't repeat previous work, push forward
                 if (reviewFeedback != null && !orderedTasks.isEmpty()) {
                     Task analysisTask = orderedTasks.get(0);
-                    String previousOutput = allOutputs.stream()
-                        .map(TaskOutput::getRawOutput)
-                        .filter(o -> o != null && !o.startsWith("Error:"))
-                        .collect(Collectors.joining("\n"));
-                    String previousSummary = previousOutput.length() > 2000
-                        ? previousOutput.substring(0, 2000) + "\n[... truncated ...]"
-                        : previousOutput;
+
+                    // Build structured summary from command ledger instead of raw output
+                    String ledgerText = commandLedger.isEmpty() ? "(no commands executed yet)" :
+                        commandLedger.stream()
+                            .map(cmd -> "- " + cmd)
+                            .collect(Collectors.joining("\n"));
 
                     String evolvedDescription = String.format(
                         "CONTINUE from where the previous iteration left off. Do NOT repeat completed work.\n\n" +
-                        "PREVIOUS ITERATION RESULTS (already done — do NOT redo):\n%s\n\n" +
+                        "COMMANDS ALREADY EXECUTED (DO NOT REPEAT THESE):\n%s\n\n" +
                         "REVIEWER FEEDBACK (what to do NOW):\n%s\n\n" +
                         "%s" +
                         "YOUR TASK: Address the reviewer's feedback by taking NEW actions. " +
                         "Use different commands, scan different targets, or try exploitation tools (hydra, nikto, etc.). " +
                         "Do NOT re-run commands that already succeeded.",
-                        previousSummary,
+                        ledgerText.length() > 4000 ? ledgerText.substring(0, 4000) + "\n[... truncated ...]" : ledgerText,
                         reviewFeedback,
                         toolErrorSummary != null ?
                             "TOOL ERRORS (adapt your approach):\n" + toolErrorSummary + "\n\n" : ""
                     );
+
+                    // Inject reviewer's specific next commands
+                    ReviewResult lastReview = ReviewResult.parse(reviewFeedback);
+                    if (lastReview != null && lastReview.hasNextCommands()) {
+                        evolvedDescription += "\n\nMANDATORY COMMANDS TO EXECUTE (run these FIRST before anything else):\n";
+                        int cmdNum = 1;
+                        for (String cmd : lastReview.nextCommands()) {
+                            evolvedDescription += cmdNum++ + ". " + cmd + "\n";
+                        }
+                        evolvedDescription += "\nYou MUST call shell_command with each of these commands. Do NOT skip them.\n";
+                    }
+
                     analysisTask.setDescription(evolvedDescription);
                 }
             }
@@ -279,6 +291,10 @@ public class SelfImprovingProcess implements Process {
             }
 
             allOutputs = new ArrayList<>(iterationOutputs);
+
+            // Build command ledger for self-adjustment
+            List<String> newCommands = extractExecutedCommands(iterationOutputs);
+            commandLedger.addAll(newCommands);
 
             // 2a0. Extract tool errors from iteration output for self-adjustment feedback
             toolErrorSummary = extractToolErrors(iterationOutputs);
@@ -791,6 +807,10 @@ public class SelfImprovingProcess implements Process {
             "CAPABILITY_GAPS:\n" +
             "- NO_TOOL: [describe a missing tool capability that would improve the output]\n" +
             "- INSUFFICIENT_TOOL: [describe a tool that exists but doesn't work well enough]\n\n" +
+            "NEXT_COMMANDS:\n" +
+            "- [If exploitation or deeper scanning is needed, list SPECIFIC shell commands to run next iteration]\n" +
+            "- [Include full command with arguments, e.g., 'hydra -l admin -P /usr/share/nmap/nselib/data/passwords.lst 192.168.1.1 http-get /']\n" +
+            "- [If no further commands needed, omit this section]\n\n" +
             "If the output fully meets all objectives, use VERDICT: APPROVED and omit the other sections.\n" +
             "If there are quality issues but no missing tools, include QUALITY_ISSUES but omit CAPABILITY_GAPS.\n" +
             "Only include CAPABILITY_GAPS if a NEW TOOL would genuinely help — not just prompt improvements.",
@@ -974,6 +994,55 @@ public class SelfImprovingProcess implements Process {
             summary.append("- ... and ").append(errors.size() - 10).append(" more errors\n");
         }
         return summary.toString();
+    }
+
+    /**
+     * Extract executed shell commands from iteration outputs to build a structured ledger.
+     * Parses the ShellCommandTool output format: **Command:** `...` / **Exit Code:** N
+     */
+    private List<String> extractExecutedCommands(List<TaskOutput> outputs) {
+        List<String> commands = new ArrayList<>();
+        java.util.regex.Pattern cmdPattern = java.util.regex.Pattern.compile(
+            "\\*\\*Command:\\*\\*\\s*`([^`]+)`");
+        java.util.regex.Pattern exitPattern = java.util.regex.Pattern.compile(
+            "\\*\\*Exit Code:\\*\\*\\s*(\\d+)");
+
+        for (TaskOutput output : outputs) {
+            String text = output.getRawOutput();
+            if (text == null) continue;
+
+            // Split by command blocks
+            String[] blocks = text.split("(?=\\*\\*Command:\\*\\*)");
+            for (String block : blocks) {
+                java.util.regex.Matcher cmdMatcher = cmdPattern.matcher(block);
+                if (cmdMatcher.find()) {
+                    String cmd = cmdMatcher.group(1);
+                    String status = "OK";
+
+                    java.util.regex.Matcher exitMatcher = exitPattern.matcher(block);
+                    if (exitMatcher.find() && !"0".equals(exitMatcher.group(1))) {
+                        status = "EXIT " + exitMatcher.group(1);
+                    }
+
+                    if (block.contains("timed out")) status = "TIMEOUT";
+                    if (block.contains("Error:")) status = "ERROR";
+
+                    // Brief result summary (first 80 chars of stdout)
+                    String brief = "";
+                    int stdoutIdx = block.indexOf("**stdout:**");
+                    if (stdoutIdx >= 0) {
+                        String after = block.substring(stdoutIdx + 11).trim();
+                        // Remove code fences
+                        after = after.replaceAll("```\\w*\\n?", "").trim();
+                        brief = after.length() > 80 ? after.substring(0, 80) + "..." : after;
+                        brief = brief.replace("\n", " ").trim();
+                    }
+
+                    commands.add(cmd + " [" + status + "]" + (brief.isEmpty() ? "" : " — " + brief));
+                }
+            }
+        }
+        return commands;
     }
 
     private double jaccardSimilaritySimple(Set<String> a, Set<String> b) {

@@ -65,6 +65,15 @@ public class SkillGapAnalyzer {
                 new CoverageResult(0.0, List.of()), SkillType.CODE);
         }
 
+        // 0c. Meta-skill detection — reject skills that teach the LLM what it already knows
+        String metaReason = detectMetaSkill(gapDescription);
+        if (metaReason != null) {
+            reasons.add("REJECTED: Meta-skill detected: " + metaReason);
+            logger.info("Gap rejected (meta-skill): {} — {}", truncate(gapDescription, 60), metaReason);
+            return new GapAnalysis(gapDescription, Recommendation.SKIP, 0.0, reasons,
+                new CoverageResult(0.0, List.of()), SkillType.CODE);
+        }
+
         // 1. Clarity check — is the gap specific enough to implement?
         double clarityScore = assessClarity(gapDescription);
         score += clarityScore * 0.20;
@@ -116,6 +125,14 @@ public class SkillGapAnalyzer {
             recommendation = Recommendation.USE_EXISTING;
         } else {
             recommendation = Recommendation.SKIP;
+        }
+
+        // Block PROMPT skills unless score is very high — they rarely add real capability
+        if (complexity.recommendedType() == SkillType.PROMPT &&
+            recommendation != Recommendation.SKIP &&
+            score < 0.70) {
+            recommendation = Recommendation.SKIP;
+            reasons.add("PROMPT skill blocked (score " + String.format("%.2f", score) + " < 0.70). Only CODE/HYBRID/COMPOSITE skills are generated for capability gaps.");
         }
 
         GapAnalysis analysis = new GapAnalysis(
@@ -243,6 +260,33 @@ public class SkillGapAnalyzer {
         return null;
     }
 
+    /**
+     * Detect whether a gap describes a "meta-skill" — something that teaches the LLM
+     * what it already knows (methodologies, frameworks, structured approaches).
+     * These produce PROMPT skills that add no real capability.
+     */
+    private String detectMetaSkill(String gap) {
+        String lower = gap.toLowerCase();
+        // Skills about "how to think" rather than "what data to process"
+        String[] metaPatterns = {
+            "orchestrat", "workflow guide", "methodology", "structured approach",
+            "guide the llm", "teach the agent", "step-by-step framework",
+            "best practices for", "how to approach"
+        };
+        boolean hasMetaPattern = false;
+        for (String pattern : metaPatterns) {
+            if (lower.contains(pattern)) { hasMetaPattern = true; break; }
+        }
+        if (!hasMetaPattern) return null;
+
+        // Exception: if it also has tool-composition language, it might be a real tool
+        String[] toolPatterns = {"parse", "extract", "transform", "calculate", "compose", "pipeline", "execute"};
+        for (String pattern : toolPatterns) {
+            if (lower.contains(pattern)) return null; // Has tool language, allow it
+        }
+        return "Gap describes a methodology/workflow rather than a data-processing tool. The LLM already knows methodologies.";
+    }
+
     private double assessClarity(String gap) {
         if (gap.length() < MIN_GAP_DESCRIPTION_LENGTH) return 0.1;
 
@@ -346,7 +390,7 @@ public class SkillGapAnalyzer {
         else if (needsToolComposition && needsExpertise) recommended = SkillType.HYBRID;
         else if (needsToolComposition || needsDataTransform) recommended = SkillType.CODE;
         else if (needsReasoning && needsExpertise) recommended = SkillType.HYBRID;
-        else recommended = SkillType.PROMPT;
+        else recommended = SkillType.CODE; // Default to CODE — PROMPT skills rarely add real capability
 
         boolean justifies = needsToolComposition || needsDataTransform || needsRouting ||
                            (needsExpertise && lower.length() > 50);

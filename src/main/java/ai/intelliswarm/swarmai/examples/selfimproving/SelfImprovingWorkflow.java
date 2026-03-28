@@ -170,14 +170,21 @@ public class SelfImprovingWorkflow {
                   "- If tool calls returned errors, that is a QUALITY_ISSUE (agent should try different URLs)\n" +
                   "- A capability gap means: 'there is no existing tool that can do X' — NOT 'the agent " +
                   "didn't use the existing tools well enough'\n" +
-                  "- Maximum 1 capability gap per review. Prefer QUALITY_ISSUES over CAPABILITY_GAPS.")
+                  "- Maximum 1 capability gap per review. Prefer QUALITY_ISSUES over CAPABILITY_GAPS.\n\n" +
+                  "NEXT_COMMANDS RULES:\n" +
+                  "- When exploitation has NOT been attempted, you MUST provide specific commands in NEXT_COMMANDS.\n" +
+                  "- Target discovered services with appropriate tools: hydra for credential testing, " +
+                  "nikto for web scanning, enum4linux/smbclient for SMB, nmap scripts for deeper enumeration.\n" +
+                  "- Include full command syntax with target IP and port.\n" +
+                  "- Maximum 5 commands per review.")
             .backstory("You are a strict QA director. You almost never flag capability gaps because " +
                       "the existing tools (http_request, web_scrape, calculator, json_transform) can " +
                       "handle most data gathering tasks when used with REAL URLs. Your main focus is " +
                       "quality: did the agents use tools with real URLs? Did they extract useful data? " +
                       "Did they cite sources? If the report is based on LLM knowledge instead of tool " +
                       "data, that is a quality problem — the agent should be told to actually call the " +
-                      "APIs listed in its task description.")
+                      "APIs listed in its task description. When you see open services that haven't been tested for vulnerabilities, " +
+                      "always provide NEXT_COMMANDS with specific exploitation commands.")
             .chatClient(chatClient)
             .verbose(true)
             .maxRpm(10)

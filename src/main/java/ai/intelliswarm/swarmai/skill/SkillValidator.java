@@ -133,6 +133,13 @@ public class SkillValidator {
                 logger.warn("Skill '{}' test warnings (non-blocking): {}", skill.getName(), testErrors);
             }
         }
+
+        // Require at least 2 test cases for CODE skills
+        if (skill.getTestCases().size() < 2) {
+            logger.warn("Skill '{}' has only {} test case(s) — minimum 2 required for CODE skills",
+                skill.getName(), skill.getTestCases().size());
+            // Non-blocking warning for now, but affects quality score
+        }
     }
 
     private void validateCompositeSkill(GeneratedSkill skill, List<String> errors) {
@@ -170,7 +177,9 @@ public class SkillValidator {
         try {
             org.codehaus.groovy.control.CompilerConfiguration config = new org.codehaus.groovy.control.CompilerConfiguration();
             org.codehaus.groovy.control.customizers.ImportCustomizer imports = new org.codehaus.groovy.control.customizers.ImportCustomizer();
-            imports.addStarImports("java.util", "java.math", "groovy.json", "groovy.xml");
+            imports.addStarImports("java.util", "java.math", "groovy.json", "groovy.xml",
+                "java.util.regex", "java.time");
+            imports.addImports("java.net.URLEncoder", "java.net.URLDecoder");
             config.addCompilationCustomizers(imports);
 
             groovy.lang.GroovyShell shell = new groovy.lang.GroovyShell(config);

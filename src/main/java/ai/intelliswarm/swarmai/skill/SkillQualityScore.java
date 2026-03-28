@@ -79,6 +79,12 @@ public record SkillQualityScore(
                 break; // only check first
             }
         }
+        // CODE skills with no tests get capped at 0 (grade F, effectively blocked from promotion)
+        if (hasCode && testCount == 0) {
+            testScore = 0;
+            // Cap total at registration threshold
+        }
+
         // PROMPT skills get test credit for having self-check items or examples
         if (!hasCode && hasBody) {
             SkillDefinition def = skill.getDefinition();

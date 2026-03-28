@@ -161,20 +161,46 @@ public class SkillGenerator {
         prompt.append("Generate a skill to fill this capability gap:\n\n");
         prompt.append("GAP: ").append(gapDescription).append("\n\n");
 
-        // Explain the four skill types
+        prompt.append("SKILL TYPE RULES:\n");
+        prompt.append("- ALWAYS generate CODE or HYBRID skills. NEVER generate PROMPT-only skills.\n");
+        prompt.append("- CODE skills must compose existing tools to create new data-processing capabilities.\n");
+        prompt.append("- The LLM already knows methodologies and frameworks — a PROMPT skill that teaches it what it already knows is USELESS.\n\n");
+
         prompt.append("SKILL TYPES — choose the most appropriate:\n\n");
-        prompt.append("1. **PROMPT** — Pure instruction-based. The body is LLM instructions.\n");
-        prompt.append("   Best for: domain expertise, analysis frameworks, reasoning patterns, output formatting.\n");
-        prompt.append("   Example: A skill that teaches the LLM how to analyze financial statements.\n\n");
-        prompt.append("2. **CODE** — Groovy script execution in a sandbox.\n");
-        prompt.append("   Best for: data transformation, tool composition, computation pipelines.\n");
+        prompt.append("1. **CODE** (preferred) — Groovy script execution in a sandbox.\n");
+        prompt.append("   Best for: data transformation, tool composition, computation pipelines, parsing output.\n");
         prompt.append("   Example: A skill that calls web_search + calculator to compute P/E ratios.\n\n");
-        prompt.append("3. **HYBRID** — Instructions + code. Code gathers data, instructions guide reasoning.\n");
+        prompt.append("2. **HYBRID** — Instructions + code. Code gathers data, instructions guide reasoning.\n");
         prompt.append("   Best for: complex analysis needing both data processing and LLM reasoning.\n");
         prompt.append("   Example: Code fetches financial data, instructions tell LLM how to analyze it.\n\n");
-        prompt.append("4. **COMPOSITE** — Router that dispatches to sub-skills.\n");
+        prompt.append("3. **COMPOSITE** — Router that dispatches to sub-skills.\n");
         prompt.append("   Best for: multi-capability domains with distinct sub-tasks.\n");
         prompt.append("   Example: 'finance' skill routes to 'analysis', 'reporting', 'alerts' sub-skills.\n\n");
+        prompt.append("4. **PROMPT** (AVOID) — Pure instruction-based. Almost never useful.\n");
+        prompt.append("   Only if there is absolutely no code component possible.\n\n");
+
+        prompt.append("GOOD CODE SKILL EXAMPLES:\n\n");
+        prompt.append("Example 1 — nmap output parser:\n");
+        prompt.append("```groovy\n");
+        prompt.append("def scanOutput = params.get(\"scanOutput\")\n");
+        prompt.append("if (!scanOutput) { scanOutput = tools.shell_command.execute(Map.of(\"command\", \"nmap -sV --top-ports 100 \" + params.get(\"target\"))) }\n");
+        prompt.append("def hosts = []\n");
+        prompt.append("def currentHost = null\n");
+        prompt.append("scanOutput.split(\"\\n\").each { line ->\n");
+        prompt.append("    def hostMatch = (line =~ /Nmap scan report for (\\S+)/)\n");
+        prompt.append("    if (hostMatch) { currentHost = [ip: hostMatch[0][1], ports: []] ; hosts << currentHost }\n");
+        prompt.append("    def portMatch = (line =~ /(\\d+)\\/tcp\\s+open\\s+(\\S+)\\s*(.*)/)\n");
+        prompt.append("    if (portMatch && currentHost) { currentHost.ports << [port: portMatch[0][1], service: portMatch[0][2], version: portMatch[0][3].trim()] }\n");
+        prompt.append("}\n");
+        prompt.append("return hosts.collect { h -> h.ip + \": \" + h.ports.collect { p -> p.port + \"/\" + p.service + (p.version ? \" (\" + p.version + \")\" : \"\") }.join(\", \") }.join(\"\\n\")\n");
+        prompt.append("```\n\n");
+        prompt.append("Example 2 — service vulnerability checker:\n");
+        prompt.append("```groovy\n");
+        prompt.append("def service = params.get(\"service\")\n");
+        prompt.append("def version = params.get(\"version\")\n");
+        prompt.append("def searchResult = tools.http_request.execute(Map.of(\"url\", \"https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=\" + java.net.URLEncoder.encode(service + \" \" + version, \"UTF-8\")))\n");
+        prompt.append("return \"CVE search for \" + service + \" \" + version + \":\\n\" + searchResult\n");
+        prompt.append("```\n\n");
 
         if (existingToolNames != null && !existingToolNames.isEmpty()) {
             prompt.append("EXISTING TOOLS (available via 'tools' map in CODE/HYBRID skills):\n");
@@ -204,16 +230,18 @@ public class SkillGenerator {
         prompt.append("  Use {{paramName}} in the instruction body — will be replaced with parameter values.\n\n");
 
         prompt.append("CODE RULES (for CODE/HYBRID types):\n");
-        prompt.append("- ALL tools return a plain String. Do NOT use JsonSlurper.\n");
+        prompt.append("- ALL tools return a plain String. Use regex or string operations to parse.\n");
+        prompt.append("- You CAN use: groovy.json.JsonSlurper for JSON parsing, java.util.regex for regex, java.net.URLEncoder for URLs.\n");
         prompt.append("- Flat script (no class/function definitions). Last expression is the return value.\n");
-        prompt.append("- No file I/O, no network, no Runtime, no ProcessBuilder.\n\n");
+        prompt.append("- No file I/O, no Runtime, no ProcessBuilder, no Socket.\n");
+        prompt.append("- MUST include at least 2 test cases with real assertions.\n\n");
 
         prompt.append("Respond with a SKILL.md definition in EXACTLY this format:\n\n");
         prompt.append("```\n");
         prompt.append("---\n");
         prompt.append("name: snake_case_name\n");
         prompt.append("description: Detailed description of what this skill does (50+ chars)\n");
-        prompt.append("type: PROMPT|CODE|HYBRID|COMPOSITE\n");
+        prompt.append("type: CODE|HYBRID|COMPOSITE\n");
         prompt.append("triggerWhen: When should the LLM select this skill\n");
         prompt.append("avoidWhen: When should the LLM NOT select this skill\n");
         prompt.append("category: one of: data-io, web, computation, analysis, communication, generated\n");
@@ -221,14 +249,12 @@ public class SkillGenerator {
         prompt.append("---\n\n");
 
         prompt.append("# Skill Name\n\n");
-        prompt.append("[For PROMPT/HYBRID: Write detailed LLM instructions here]\n");
-        prompt.append("[For PROMPT: Include workflow steps, output format rules, examples]\n");
+        prompt.append("[For HYBRID: Write detailed LLM instructions here]\n");
         prompt.append("[For COMPOSITE: Include routing table and sub-skill descriptions]\n\n");
 
         prompt.append("## Code\n");
         prompt.append("```groovy\n");
-        prompt.append("[For CODE/HYBRID: Write Groovy code here]\n");
-        prompt.append("[For PROMPT: Omit this section entirely]\n");
+        prompt.append("[For CODE/HYBRID: Write Groovy code here — REQUIRED]\n");
         prompt.append("```\n\n");
 
         prompt.append("## References\n");
@@ -243,8 +269,13 @@ public class SkillGenerator {
 
         prompt.append("## Test Cases\n");
         prompt.append("```groovy\n");
-        prompt.append("[For CODE/HYBRID: Test assertions]\n");
-        prompt.append("assert result != null\nassert result instanceof String\n");
+        prompt.append("// Test 1: Basic execution\n");
+        prompt.append("assert result != null && result instanceof String\n");
+        prompt.append("assert result.length() > 10  // Must produce meaningful output\n");
+        prompt.append("```\n");
+        prompt.append("```groovy\n");
+        prompt.append("// Test 2: Verify output structure\n");
+        prompt.append("assert result.contains(\":\") || result.contains(\"\\n\")  // Must have structured output\n");
         prompt.append("```\n");
         prompt.append("```\n\n");
 

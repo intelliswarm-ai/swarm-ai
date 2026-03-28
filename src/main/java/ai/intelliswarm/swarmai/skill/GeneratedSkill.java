@@ -358,7 +358,9 @@ public class GeneratedSkill implements BaseTool {
     private CompilerConfiguration createSandboxedConfig() {
         CompilerConfiguration config = new CompilerConfiguration();
         ImportCustomizer imports = new ImportCustomizer();
-        imports.addStarImports("java.util", "java.math", "groovy.json", "groovy.xml");
+        imports.addStarImports("java.util", "java.math", "groovy.json", "groovy.xml",
+            "java.util.regex", "java.time");
+        imports.addImports("java.net.URLEncoder", "java.net.URLDecoder");
         config.addCompilationCustomizers(imports);
 
         SecureASTCustomizer secure = new SecureASTCustomizer();
