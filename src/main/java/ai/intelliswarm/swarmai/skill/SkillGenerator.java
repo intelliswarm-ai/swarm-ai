@@ -123,8 +123,10 @@ public class SkillGenerator {
         prompt.append("- For CODE/HYBRID skills: use ONLY params, tools, references, resources bindings\n");
         prompt.append("- ALL tool.execute() calls return a plain String\n");
         prompt.append("- No file I/O, no network, no Runtime, no ProcessBuilder\n");
-        prompt.append("- Code is a FLAT SCRIPT — no class definitions\n\n");
-        prompt.append("Respond with the complete fixed SKILL.md (frontmatter + body).\n");
+        prompt.append("- Code is a FLAT SCRIPT — no class definitions\n");
+        prompt.append("- Integration tests are REQUIRED — they verify the skill works end-to-end\n");
+        prompt.append("- Fix both the code AND the integration tests if needed\n\n");
+        prompt.append("Respond with the complete fixed SKILL.md (frontmatter + body + integration tests).\n");
 
         Agent refiner = Agent.builder()
             .role("Skill Refiner")
@@ -234,7 +236,17 @@ public class SkillGenerator {
         prompt.append("- You CAN use: groovy.json.JsonSlurper for JSON parsing, java.util.regex for regex, java.net.URLEncoder for URLs.\n");
         prompt.append("- Flat script (no class/function definitions). Last expression is the return value.\n");
         prompt.append("- No file I/O, no Runtime, no ProcessBuilder, no Socket.\n");
-        prompt.append("- MUST include at least 2 test cases with real assertions.\n\n");
+        prompt.append("- MUST include at least 2 test cases with real assertions.\n");
+        prompt.append("- MUST include at least 2 integration tests (see below).\n\n");
+
+        prompt.append("INTEGRATION TESTS — REQUIRED:\n");
+        prompt.append("Integration tests verify the skill works end-to-end through skill.execute().\n");
+        prompt.append("Unlike test cases (which test Groovy code in isolation), integration tests:\n");
+        prompt.append("- Define input parameters that will be passed to skill.execute()\n");
+        prompt.append("- Assert on the actual output from the full execution pipeline\n");
+        prompt.append("- Optionally verify which tools were called during execution\n");
+        prompt.append("Each skill MUST include at least 2 integration tests.\n");
+        prompt.append("The 'output' variable in assertions is the String returned by skill.execute().\n\n");
 
         prompt.append("Respond with a SKILL.md definition in EXACTLY this format:\n\n");
         prompt.append("```\n");
@@ -276,7 +288,30 @@ public class SkillGenerator {
         prompt.append("```groovy\n");
         prompt.append("// Test 2: Verify output structure\n");
         prompt.append("assert result.contains(\":\") || result.contains(\"\\n\")  // Must have structured output\n");
-        prompt.append("```\n");
+        prompt.append("```\n\n");
+
+        prompt.append("## Integration Tests\n\n");
+        prompt.append("### test_basic_execution\n");
+        prompt.append("Verify the skill produces meaningful output for a standard input\n\n");
+        prompt.append("**Input:**\n```yaml\n");
+        prompt.append("[key: value pairs — the parameters to pass to skill.execute()]\n");
+        prompt.append("```\n\n");
+        prompt.append("**Assertions:**\n```groovy\n");
+        prompt.append("assert output != null : \"Output should not be null\"\n");
+        prompt.append("assert output.length() > 20 : \"Output should be meaningful\"\n");
+        prompt.append("[Add specific assertions that verify the skill's actual purpose]\n");
+        prompt.append("```\n\n");
+        prompt.append("**Expected tool calls:** [tool1, tool2 — tools the skill should call]\n\n");
+
+        prompt.append("### test_output_format\n");
+        prompt.append("Verify output structure and content quality\n\n");
+        prompt.append("**Input:**\n```yaml\n");
+        prompt.append("[different input params to test a different scenario]\n");
+        prompt.append("```\n\n");
+        prompt.append("**Assertions:**\n```groovy\n");
+        prompt.append("assert output != null\n");
+        prompt.append("[Assertions that verify the output format, structure, or specific content]\n");
+        prompt.append("```\n\n");
         prompt.append("```\n\n");
 
         prompt.append("IMPORTANT: Generate the SKILL.md content directly. Do NOT wrap it in additional markdown code fences.\n");
@@ -353,6 +388,26 @@ public class SkillGenerator {
 
         // Extract examples section
         extractExamples(response, def);
+
+        // Integration tests are parsed by SkillDefinition.fromSkillMd() via parseIntegrationTests().
+        // If fromSkillMd didn't find them (e.g., non-standard format), try the raw response too.
+        if (def.getIntegrationTests().isEmpty() && response.contains("## Integration Tests")) {
+            SkillDefinition tempDef = new SkillDefinition();
+            // Re-parse integration tests section from the raw response
+            int itStart = response.indexOf("## Integration Tests");
+            if (itStart >= 0) {
+                try {
+                    // Use reflection-free approach: create a minimal SKILL.md with just the IT section
+                    String itSection = response.substring(itStart);
+                    SkillDefinition parsed = SkillDefinition.fromSkillMd("---\nname: temp\ndescription: temp\ntype: CODE\n---\n\n" + itSection);
+                    if (!parsed.getIntegrationTests().isEmpty()) {
+                        def.getIntegrationTests().addAll(parsed.getIntegrationTests());
+                    }
+                } catch (Exception e) {
+                    logger.debug("Failed to parse integration tests from raw response: {}", e.getMessage());
+                }
+            }
+        }
 
         // Fallbacks
         if (def.getName() == null || def.getName().isBlank()) {

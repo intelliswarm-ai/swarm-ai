@@ -312,6 +312,17 @@ public class SkillRegistry {
     }
 
     /**
+     * Archive a skill — marks it as no longer active but preserves it in registry.
+     * Used by SkillCurator to demote surplus or failing skills.
+     */
+    public void archive(String skillId) {
+        getById(skillId).ifPresent(skill -> {
+            skill.setStatus(SkillStatus.CANDIDATE); // Demote back to candidate
+            logger.info("Skill archived: {} (id={})", skill.getName(), skillId);
+        });
+    }
+
+    /**
      * Get registry statistics, now including category and quality distributions.
      */
     public Map<String, Object> getStats() {
@@ -440,7 +451,81 @@ public class SkillRegistry {
                 }
             }
 
-            // 5. Save sub-skills as nested directories
+            // 5. Write tests/ directory — self-contained integration tests
+            List<SkillDefinition.IntegrationTest> integrationTests = skill.getDefinition().getIntegrationTests();
+            if (integrationTests != null && !integrationTests.isEmpty()) {
+                Path testsDir = skillDir.resolve("tests");
+                Files.createDirectories(testsDir);
+
+                // Write each integration test as an individual .groovy file
+                List<Map<String, Object>> testManifest = new ArrayList<>();
+                for (SkillDefinition.IntegrationTest test : integrationTests) {
+                    String safeName = test.name().replaceAll("[^a-zA-Z0-9_]", "_");
+
+                    // Build self-contained test script
+                    StringBuilder testScript = new StringBuilder();
+                    testScript.append("// Integration Test: ").append(test.name()).append("\n");
+                    if (test.description() != null && !test.description().isBlank()) {
+                        testScript.append("// ").append(test.description()).append("\n");
+                    }
+                    testScript.append("//\n");
+                    testScript.append("// This test verifies the skill works end-to-end through skill.execute().\n");
+                    testScript.append("// To run: load the skill, call skill.runIntegrationTests()\n");
+                    testScript.append("//\n");
+                    testScript.append("// Input params:\n");
+                    if (test.inputParams() != null) {
+                        test.inputParams().forEach((k, v) ->
+                            testScript.append("//   ").append(k).append(": ").append(v).append("\n"));
+                    }
+                    if (test.expectedToolCalls() != null && !test.expectedToolCalls().isEmpty()) {
+                        testScript.append("// Expected tool calls: ")
+                            .append(String.join(", ", test.expectedToolCalls())).append("\n");
+                    }
+                    testScript.append("\n// --- Assertions (run against 'output' from skill.execute()) ---\n");
+                    testScript.append(test.assertionCode()).append("\n");
+
+                    Files.writeString(testsDir.resolve(safeName + ".groovy"), testScript.toString());
+
+                    // Build manifest entry
+                    Map<String, Object> entry = new LinkedHashMap<>();
+                    entry.put("name", test.name());
+                    entry.put("description", test.description());
+                    entry.put("file", safeName + ".groovy");
+                    entry.put("inputParams", test.inputParams());
+                    entry.put("expectedToolCalls", test.expectedToolCalls());
+                    testManifest.add(entry);
+                }
+
+                // Write TEST_MANIFEST.json
+                mapper.writeValue(testsDir.resolve("TEST_MANIFEST.json").toFile(), testManifest);
+
+                // Write README for reproducibility
+                StringBuilder testReadme = new StringBuilder();
+                testReadme.append("# Integration Tests for ").append(skill.getName()).append("\n\n");
+                testReadme.append("These tests verify the skill works end-to-end through its `execute()` pipeline.\n\n");
+                testReadme.append("## How to run\n\n");
+                testReadme.append("```java\n");
+                testReadme.append("// Load the skill\n");
+                testReadme.append("GeneratedSkill skill = registry.getById(\"").append(skill.getId()).append("\").get();\n");
+                testReadme.append("skill.setAvailableTools(toolMap); // inject real tools\n\n");
+                testReadme.append("// Run all integration tests\n");
+                testReadme.append("var results = skill.runIntegrationTests();\n");
+                testReadme.append("System.out.println(results.summary());\n");
+                testReadme.append("assert results.allPassed() : \"Integration tests failed\";\n");
+                testReadme.append("```\n\n");
+                testReadme.append("## Tests\n\n");
+                testReadme.append("| Test | Description | Expected Tools |\n");
+                testReadme.append("|------|-------------|----------------|\n");
+                for (SkillDefinition.IntegrationTest test : integrationTests) {
+                    testReadme.append("| ").append(test.name()).append(" | ")
+                        .append(test.description() != null ? test.description() : "")
+                        .append(" | ").append(test.expectedToolCalls() != null
+                            ? String.join(", ", test.expectedToolCalls()) : "").append(" |\n");
+                }
+                Files.writeString(testsDir.resolve("README.md"), testReadme.toString());
+            }
+
+            // 6. Save sub-skills as nested directories
             for (GeneratedSkill subSkill : skill.getSubSkills()) {
                 Path subDir = skillDir.resolve(subSkill.getName());
                 Files.createDirectories(subDir);
@@ -558,6 +643,64 @@ public class SkillRegistry {
             }
         }
 
+        // Load integration tests from tests/ directory (if not already parsed from SKILL.md)
+        Path testsDir = skillDir.resolve("tests");
+        if (Files.isDirectory(testsDir) && (def.getIntegrationTests() == null || def.getIntegrationTests().isEmpty())) {
+            Path manifestPath = testsDir.resolve("TEST_MANIFEST.json");
+            if (Files.exists(manifestPath)) {
+                try {
+                    @SuppressWarnings("unchecked")
+                    List<Map<String, Object>> manifest = mapper.readValue(manifestPath.toFile(), List.class);
+                    List<SkillDefinition.IntegrationTest> loadedTests = new ArrayList<>();
+                    for (Map<String, Object> entry : manifest) {
+                        String testName = (String) entry.get("name");
+                        String testDesc = (String) entry.get("description");
+                        @SuppressWarnings("unchecked")
+                        Map<String, String> inputParams = entry.get("inputParams") != null
+                            ? (Map<String, String>) entry.get("inputParams") : Map.of();
+                        @SuppressWarnings("unchecked")
+                        List<String> expectedTools = entry.get("expectedToolCalls") != null
+                            ? (List<String>) entry.get("expectedToolCalls") : List.of();
+
+                        // Read assertion code from the .groovy file
+                        String testFile = (String) entry.get("file");
+                        String assertionCode = "";
+                        if (testFile != null) {
+                            Path groovyPath = testsDir.resolve(testFile);
+                            if (Files.exists(groovyPath)) {
+                                String content = Files.readString(groovyPath);
+                                // Extract assertion code (everything after the header comments)
+                                int assertStart = content.indexOf("// --- Assertions");
+                                if (assertStart >= 0) {
+                                    int nextLine = content.indexOf('\n', assertStart);
+                                    if (nextLine >= 0) {
+                                        assertionCode = content.substring(nextLine + 1).trim();
+                                    }
+                                } else {
+                                    // Fallback: use non-comment lines
+                                    assertionCode = Arrays.stream(content.split("\n"))
+                                        .filter(line -> !line.trim().startsWith("//"))
+                                        .collect(Collectors.joining("\n")).trim();
+                                }
+                            }
+                        }
+
+                        if (testName != null && !assertionCode.isBlank()) {
+                            loadedTests.add(new SkillDefinition.IntegrationTest(
+                                testName, testDesc, inputParams, assertionCode, expectedTools));
+                        }
+                    }
+                    if (!loadedTests.isEmpty()) {
+                        def.setIntegrationTests(loadedTests);
+                        logger.info("Loaded {} integration tests from tests/ for skill '{}'",
+                            loadedTests.size(), def.getName());
+                    }
+                } catch (Exception e) {
+                    logger.warn("Failed to load integration tests from {}: {}", testsDir, e.getMessage());
+                }
+            }
+        }
+
         GeneratedSkill skill = new GeneratedSkill(def);
 
         // Restore metadata from _meta.json
@@ -590,7 +733,8 @@ public class SkillRegistry {
         try (var subs = Files.list(skillDir)) {
             subs.filter(Files::isDirectory)
                 .filter(d -> !d.getFileName().toString().equals("references") &&
-                             !d.getFileName().toString().equals("resources"))
+                             !d.getFileName().toString().equals("resources") &&
+                             !d.getFileName().toString().equals("tests"))
                 .forEach(subDir -> {
                     try {
                         GeneratedSkill subSkill = loadSkillPackage(subDir, mapper);

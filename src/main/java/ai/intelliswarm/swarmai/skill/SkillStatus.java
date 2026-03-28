@@ -10,5 +10,6 @@ public enum SkillStatus {
     VALIDATED,   // Passed sandbox tests and security scan
     ACTIVE,      // In use within current workflow execution
     PROMOTED,    // Met promotion threshold (5+ uses, 70%+ success)
-    PERMANENT    // Persisted to disk, loaded on startup
+    PERMANENT,   // Persisted to disk, loaded on startup
+    CURATED      // Published to curated repository after quality assessment
 }

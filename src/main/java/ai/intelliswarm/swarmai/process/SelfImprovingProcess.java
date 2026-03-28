@@ -531,15 +531,25 @@ public class SelfImprovingProcess implements Process {
                             skillRegistry.register(skill);
                             skillsGenerated++;
 
+                            // Log integration test results if available
+                            String integrationSummary = "";
+                            if (validation.hasIntegrationTestResults()) {
+                                integrationSummary = String.format(", integration tests: %d/%d passed",
+                                    validation.integrationTestsPassed(),
+                                    validation.integrationTestsPassed() + validation.integrationTestsFailed());
+                            }
+
                             publishEvent(SwarmEvent.Type.SKILL_VALIDATED,
-                                "Skill validated: " + skill.getName(), swarmId,
-                                Map.of("skillName", skill.getName(), "skillId", skill.getId()));
+                                "Skill validated: " + skill.getName() + integrationSummary, swarmId,
+                                Map.of("skillName", skill.getName(), "skillId", skill.getId(),
+                                    "integrationTestsPassed", validation.integrationTestsPassed(),
+                                    "integrationTestsFailed", validation.integrationTestsFailed()));
                             publishEvent(SwarmEvent.Type.SKILL_REGISTERED,
                                 "Skill registered: " + skill.getName(), swarmId,
                                 Map.of("skillName", skill.getName(), "skillId", skill.getId()));
 
-                            logger.info("New skill validated and registered: {} ({})",
-                                skill.getName(), skill.getId());
+                            logger.info("New skill validated and registered: {} ({}{})",
+                                skill.getName(), skill.getId(), integrationSummary);
 
                             // Rebuild agents with new skill
                             rebuildAgentsWithSkill(skill);
@@ -547,21 +557,28 @@ public class SelfImprovingProcess implements Process {
 
                             // Persist to memory for future runs
                             saveToMemory("skill-generated", String.format(
-                                "Generated skill '%s' for gap: %s",
-                                skill.getName(), truncate(gap, 150)),
+                                "Generated skill '%s' for gap: %s%s",
+                                skill.getName(), truncate(gap, 150), integrationSummary),
                                 Map.of("skillName", skill.getName(), "gap", gap,
                                     "iteration", iteration));
 
                         } else {
+                            // Include integration test failures in the error context for refinement
+                            String allErrors = validation.errorsAsString();
+                            if (validation.hasIntegrationTestResults() && validation.integrationTestsFailed() > 0) {
+                                allErrors += "; Integration test failures: " +
+                                    String.join("; ", validation.integrationTestResults().failureMessages());
+                            }
+
                             logger.warn("Skill '{}' failed validation: {}",
-                                skill.getName(), validation.errorsAsString());
+                                skill.getName(), allErrors);
 
                             publishEvent(SwarmEvent.Type.SKILL_VALIDATION_FAILED,
                                 "Skill validation failed: " + skill.getName(), swarmId,
-                                Map.of("skillName", skill.getName(), "errors", validation.errorsAsString()));
+                                Map.of("skillName", skill.getName(), "errors", allErrors));
 
-                            // Try to refine once
-                            GeneratedSkill refined = generator.refine(skill, validation.errorsAsString());
+                            // Try to refine once — include integration test failures in feedback
+                            GeneratedSkill refined = generator.refine(skill, allErrors);
                             if (refined != null) {
                                 refined.setAvailableTools(existingToolsMap);
                                 SkillValidator.ValidationResult retryValidation = skillValidator.validate(refined);
@@ -571,20 +588,26 @@ public class SelfImprovingProcess implements Process {
                                     skillRegistry.register(refined);
                                     skillsGenerated++;
 
+                                    String retryIntSummary = retryValidation.hasIntegrationTestResults()
+                                        ? String.format(", integration tests: %d/%d passed",
+                                            retryValidation.integrationTestsPassed(),
+                                            retryValidation.integrationTestsPassed() + retryValidation.integrationTestsFailed())
+                                        : "";
+
                                     publishEvent(SwarmEvent.Type.SKILL_VALIDATED,
-                                        "Refined skill validated: " + refined.getName(), swarmId,
+                                        "Refined skill validated: " + refined.getName() + retryIntSummary, swarmId,
                                         Map.of("skillName", refined.getName(), "refined", true));
                                     publishEvent(SwarmEvent.Type.SKILL_REGISTERED,
                                         "Refined skill registered: " + refined.getName(), swarmId,
                                         Map.of("skillName", refined.getName(), "skillId", refined.getId()));
 
-                                    logger.info("Refined skill validated: {}", refined.getName());
+                                    logger.info("Refined skill validated: {}{}", refined.getName(), retryIntSummary);
                                     rebuildAgentsWithSkill(refined);
                                     existingNames.add(refined.getFunctionName());
 
                                     saveToMemory("skill-refined", String.format(
                                         "Skill '%s' required refinement for gap: %s (original errors: %s)",
-                                        refined.getName(), truncate(gap, 100), truncate(validation.errorsAsString(), 100)),
+                                        refined.getName(), truncate(gap, 100), truncate(allErrors, 100)),
                                         Map.of("skillName", refined.getName(), "gap", gap));
                                 } else {
                                     logger.warn("Refined skill also failed. Skipping gap: {}", gap);
