@@ -1,9 +1,6 @@
 /*
- * SwarmAI Framework - A Java implementation inspired by CrewAI
- *
- * This file is part of SwarmAI, a derivative work based on CrewAI.
- * Original CrewAI: Copyright (c) 2025 crewAI, Inc. (MIT License)
- * SwarmAI adaptations: Copyright (c) 2025 IntelliSwarm.ai (MIT License)
+ * SwarmAI Framework
+ * Copyright (c) 2025 IntelliSwarm.ai (MIT License)
  *
  * Licensed under the MIT License. See LICENSE file for details.
  */

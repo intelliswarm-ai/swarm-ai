@@ -11,31 +11,31 @@
 
 The Java multi-agent framework with self-improving skills, quality-gated tool generation, and enterprise governance.
 
-Built on Spring AI 1.0.4 GA and Spring Boot 3.4. Inspired by CrewAI and OpenClaw, designed for the Java enterprise ecosystem.
+Built on Spring AI 1.0.4 GA and Spring Boot 3.4, designed for the Java enterprise ecosystem.
 
 ## Why SwarmAI Over Other Frameworks?
 
-| Capability | SwarmAI | LangChain4j | Spring AI | Koog | CrewAI |
-|-----------|---------|-------------|-----------|------|--------|
-| Anti-hallucination guardrails | Built-in | No | No | No | No |
-| Token cost tracking | Built-in | No | No | No | No |
-| Parallel task execution | Yes | Yes | Manual | Yes | No |
-| MCP tool integration | Yes (stdio) | Yes | Yes (1.1+) | Yes | Yes |
-| Persistent memory (Redis/JDBC) | Yes | Yes | Yes | Yes | Yes |
-| RAG pipeline | Yes | Advanced | Yes | Yes | Yes |
-| Dynamic context management | Model-aware | No | No | History compression | No |
-| Spring Boot native | Yes | Adapter | Native | Adapter | N/A (Python) |
-| Iterative refinement loops | Yes (reviewer-driven) | No | No | No | No |
-| Self-improving workflows | Yes (4 skill types, quality-gated) | No | No | No | No |
-| Tool routing metadata | Yes (triggerWhen/avoidWhen/categories) | No | No | No | No |
-| Tool health checks | Yes (pre-flight validation) | No | No | No | No |
-| Enterprise governance | Yes (multi-tenancy, budgets, approval gates) | No | No | No | No |
-| Process types | 5 (Seq/Hier/Parallel/Iterative/Self-Improving) | 5 | Manual | 3 | 2 |
-| Language | Java 21 | Java | Java | Kotlin/Java | Python |
+| Capability | SwarmAI | LangChain4j | Spring AI | Koog |
+|-----------|---------|-------------|-----------|------|
+| Anti-hallucination guardrails | Built-in | No | No | No |
+| Token cost tracking | Built-in | No | No | No |
+| Parallel task execution | Yes | Yes | Manual | Yes |
+| MCP tool integration | Yes (stdio) | Yes | Yes (1.1+) | Yes |
+| Persistent memory (Redis/JDBC) | Yes | Yes | Yes | Yes |
+| RAG pipeline | Yes | Advanced | Yes | Yes |
+| Dynamic context management | Model-aware | No | No | History compression |
+| Spring Boot native | Yes | Adapter | Native | Adapter |
+| Iterative refinement loops | Yes (reviewer-driven) | No | No | No |
+| Self-improving workflows | Yes (4 skill types, quality-gated) | No | No | No |
+| Tool routing metadata | Yes (triggerWhen/avoidWhen/categories) | No | No | No |
+| Tool health checks | Yes (pre-flight validation) | No | No | No |
+| Enterprise governance | Yes (multi-tenancy, budgets, approval gates) | No | No | No |
+| Process types | 5 (Seq/Hier/Parallel/Iterative/Self-Improving) | 5 | Manual | 3 |
+| Language | Java 21 | Java | Java | Kotlin/Java |
 
 ### What Makes SwarmAI Different
 
-**1. Self-Improving Skill Architecture** — The core differentiator. When a reviewer identifies a missing capability, the framework generates new skills at runtime — not just Groovy code snippets, but rich skill packages inspired by [OpenClaw](https://github.com/openclaw/skills). Four skill types adapt to the problem:
+**1. Self-Improving Skill Architecture** — The core differentiator. When a reviewer identifies a missing capability, the framework generates new skills at runtime — not just Groovy code snippets, but rich skill packages. Four skill types adapt to the problem:
 
 | Skill Type | What It Does | Best For |
 |-----------|-------------|---------|
@@ -409,4 +409,4 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 ## Credits
 
-Inspired by [CrewAI](https://github.com/joaomdmoura/crewAI) (MIT License) for multi-agent patterns and [OpenClaw](https://github.com/openclaw/skills) for skill architecture. SwarmAI brings these patterns to Java with Spring AI integration, quality-gated skill generation, enterprise governance, and token economics. See [ATTRIBUTION.md](ATTRIBUTION.md) for details.
+SwarmAI brings multi-agent patterns to Java with Spring AI integration, quality-gated skill generation, enterprise governance, and token economics.

@@ -2,8 +2,6 @@
 *.class
 
 
-#crew
-.crewAI
 
 # Log file
 *.log
@@ -75,9 +73,6 @@ Thumbs.db
 application-*.properties
 !application-*.yml
 
-# CrewAI folders
-crewAI-examples/
-crewAI/
 
 # Internal docs (commercial analysis, roadmap)
 docs/

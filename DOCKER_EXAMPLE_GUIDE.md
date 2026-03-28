@@ -487,7 +487,6 @@ See [`examples/iterative/README.md`](examples/iterative/README.md) for the full 
 - **API Reference**: http://localhost:8080/swagger-ui.html
 - **Source Code**: Browse the complete implementation
 - **License**: MIT License - see [LICENSE](LICENSE)
-- **Attribution**: Based on CrewAI - see [ATTRIBUTION.md](ATTRIBUTION.md)
 
 ---
 

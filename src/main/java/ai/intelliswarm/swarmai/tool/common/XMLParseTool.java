@@ -326,7 +326,7 @@ public class XMLParseTool implements BaseTool {
     @Override
     public boolean isAsync() { return false; }
 
-    // ==================== OpenClaw Metadata ====================
+    // ==================== Tool Routing Metadata ====================
 
     @Override
     public String getTriggerWhen() {

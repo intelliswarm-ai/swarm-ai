@@ -3,9 +3,9 @@ package ai.intelliswarm.swarmai.skill;
 import java.util.*;
 
 /**
- * A rich, self-describing skill definition inspired by OpenClaw's SKILL.md format.
+ * A rich, self-describing skill definition using the SKILL.md format.
  *
- * In OpenClaw, a SKILL.md IS the skill — it contains both metadata (YAML frontmatter)
+ * A SKILL.md IS the skill — it contains both metadata (YAML frontmatter)
  * and behavioral instructions (markdown body). This class captures that pattern in Java:
  *
  * <pre>
@@ -66,7 +66,7 @@ public class SkillDefinition {
     /**
      * The skill's instructions/prompt body (for PROMPT and HYBRID types).
      * This is the markdown content that gets injected into the agent's system prompt
-     * when the skill is active. Like OpenClaw's SKILL.md body after the frontmatter.
+     * when the skill is active. The SKILL.md body after the frontmatter.
      */
     private String instructionBody;
 
@@ -80,7 +80,7 @@ public class SkillDefinition {
 
     /**
      * Reference documents the skill can consult during execution.
-     * Like OpenClaw's references/ directory.
+     * Corresponds to the references/ directory.
      * Key: document name, Value: document content.
      * Available in code as `references.get("name")` and in prompts as injected context.
      */
@@ -88,7 +88,7 @@ public class SkillDefinition {
 
     /**
      * Resource files: templates, specs, schemas the skill uses for output.
-     * Like OpenClaw's resources/ directory.
+     * Corresponds to the resources/ directory.
      * Key: resource name, Value: resource content.
      * Example: {"output-template": "# Report for {{ticker}}\n## Summary\n..."}
      */
@@ -96,13 +96,13 @@ public class SkillDefinition {
 
     /**
      * Example inputs and expected outputs for the skill.
-     * Like OpenClaw's examples/ directory. Used for few-shot prompting.
+     * Corresponds to the examples/ directory. Used for few-shot prompting.
      */
     private List<SkillExample> examples;
 
     /**
      * Self-check items — quality checklist auto-evaluated after generation.
-     * Like OpenClaw's SELF_CHECK.md.
+     * Corresponds to SELF_CHECK.md.
      */
     private List<String> selfCheckItems;
 
@@ -118,7 +118,7 @@ public class SkillDefinition {
      */
     private Map<String, String> routingTable;
 
-    // ==================== Advanced Patterns (from OpenClaw research) ====================
+    // ==================== Advanced Patterns ====================
 
     /**
      * Hard constraints / "red lines" the skill must never violate.
@@ -145,7 +145,7 @@ public class SkillDefinition {
 
     /**
      * Scripts that the skill can execute.
-     * Inspired by OpenClaw's scripts/ directory pattern.
+     * Corresponds to the scripts/ directory pattern.
      * Key: script filename, Value: script content.
      * Referenced in instructions via {baseDir}/scripts/filename.
      */

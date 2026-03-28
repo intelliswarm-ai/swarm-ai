@@ -10,7 +10,7 @@ import java.util.stream.Collectors;
 /**
  * Analyzes capability gaps to determine whether a new skill should be generated.
  *
- * Inspired by OpenClaw's "context window is a public good" philosophy:
+ * Follows the "context window is a public good" philosophy:
  * every skill competes for tokens with conversation history and other tools.
  * The bar for creating a skill is high — it must justify its existence by
  * providing knowledge that the LLM cannot already produce, being reusable,

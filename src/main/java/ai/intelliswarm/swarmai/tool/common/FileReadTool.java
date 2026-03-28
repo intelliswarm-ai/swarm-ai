@@ -362,7 +362,7 @@ public class FileReadTool implements BaseTool {
         return false;
     }
 
-    // ==================== OpenClaw Metadata ====================
+    // ==================== Tool Routing Metadata ====================
 
     @Override
     public String getTriggerWhen() {

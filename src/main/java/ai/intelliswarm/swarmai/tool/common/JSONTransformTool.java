@@ -387,7 +387,7 @@ public class JSONTransformTool implements BaseTool {
         return false;
     }
 
-    // ==================== OpenClaw Metadata ====================
+    // ==================== Tool Routing Metadata ====================
 
     @Override
     public String getTriggerWhen() {

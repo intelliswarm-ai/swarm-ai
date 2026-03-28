@@ -189,4 +189,3 @@ Replace mock implementations in tools with:
 - [SwarmAI Documentation](../../README.md)
 - [Agent Development Guide](../../docs/agents.md)
 - [Tool Development Guide](../../docs/tools.md)
-- [CrewAI Migration Guide](../../docs/migration.md)

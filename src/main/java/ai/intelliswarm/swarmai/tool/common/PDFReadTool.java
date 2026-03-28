@@ -219,7 +219,7 @@ public class PDFReadTool implements BaseTool {
         return false;
     }
 
-    // ==================== OpenClaw Metadata ====================
+    // ==================== Tool Routing Metadata ====================
 
     @Override
     public String getTriggerWhen() {

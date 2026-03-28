@@ -6,7 +6,7 @@ import java.util.Map;
 /**
  * Quality assessment of a generated skill.
  * Scores across multiple dimensions to inform promotion decisions.
- * Inspired by OpenClaw's SELF_CHECK.md rubric.
+ * Based on the SELF_CHECK.md rubric.
  */
 public record SkillQualityScore(
     int documentationScore,     // 0-20: description quality, parameter docs

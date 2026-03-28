@@ -11,7 +11,7 @@
     <packaging>jar</packaging>
 
     <name>SwarmAI Framework</name>
-    <description>Java multi-agent framework inspired by CrewAI, built on Spring AI</description>
+    <description>Java multi-agent framework built on Spring AI</description>
     <url>https://github.com/intelliswarm/swarmai</url>
     
     <licenses>

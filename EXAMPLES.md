@@ -577,4 +577,4 @@ spec:
 
 ---
 
-*This example demonstrates the power of collaborative AI intelligence through the SwarmAI Framework - a Java implementation inspired by CrewAI.*
+*This example demonstrates the power of collaborative AI intelligence through the SwarmAI Framework.*

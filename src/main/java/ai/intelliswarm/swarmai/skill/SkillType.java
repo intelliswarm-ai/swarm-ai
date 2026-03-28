@@ -1,16 +1,16 @@
 package ai.intelliswarm.swarmai.skill;
 
 /**
- * Execution mode for a generated skill, inspired by OpenClaw's multi-modal skill architecture.
+ * Execution mode for a generated skill supporting multi-modal skill architecture.
  *
- * OpenClaw skills range from pure prompt-based (SKILL.md is just LLM instructions) to
+ * Skills range from pure prompt-based (SKILL.md is just LLM instructions) to
  * code-backed (scripts/) to hybrid (prompt + scripts). This enum captures that spectrum.
  */
 public enum SkillType {
     /**
      * Pure prompt skill — the skill body is an LLM instruction/prompt that gets injected
      * into the agent's system prompt. No code execution; the LLM follows the instructions
-     * to produce the output. Like an OpenClaw SKILL.md with no scripts/ directory.
+     * to produce the output. Like a SKILL.md with no scripts/ directory.
      *
      * Best for: domain expertise, analysis frameworks, output formatting, reasoning patterns.
      */
@@ -35,7 +35,7 @@ public enum SkillType {
 
     /**
      * Composite skill — a router that dispatches to sub-skills based on intent.
-     * Like an OpenClaw parent skill with nested sub-skill directories.
+     * A parent skill with nested sub-skill directories.
      * The body contains routing rules (intent → sub-skill mapping).
      *
      * Best for: multi-capability domains (e.g., "finance" routes to analysis, reporting, alerts).

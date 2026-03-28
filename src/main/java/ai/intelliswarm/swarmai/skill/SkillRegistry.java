@@ -340,7 +340,7 @@ public class SkillRegistry {
     // ==================== Persistence ====================
 
     /**
-     * Save skills as directory-based packages (OpenClaw-style).
+     * Save skills as directory-based packages.
      *
      * Each skill becomes a directory:
      * <pre>
@@ -461,7 +461,7 @@ public class SkillRegistry {
 
     /**
      * Load skills from directory-based packages OR legacy JSON files.
-     * Supports both OpenClaw-style packages (SKILL.md + _meta.json) and old flat JSON.
+     * Supports both skill packages (SKILL.md + _meta.json) and legacy flat JSON.
      */
     @SuppressWarnings("unchecked")
     public int load(Path directory) {
@@ -479,7 +479,7 @@ public class SkillRegistry {
             for (Path entry : entries) {
                 try {
                     if (Files.isDirectory(entry)) {
-                        // OpenClaw-style package: directory with SKILL.md + _meta.json
+                        // Skill package: directory with SKILL.md + _meta.json
                         GeneratedSkill skill = loadSkillPackage(entry, mapper);
                         if (skill != null) {
                             register(skill);
@@ -506,7 +506,7 @@ public class SkillRegistry {
     }
 
     /**
-     * Load a skill from an OpenClaw-style package directory.
+     * Load a skill from a package directory.
      */
     private GeneratedSkill loadSkillPackage(Path skillDir, ObjectMapper mapper) throws IOException {
         Path skillMdPath = skillDir.resolve("SKILL.md");

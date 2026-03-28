@@ -243,7 +243,7 @@ public class FileWriteTool implements BaseTool {
         return false;
     }
 
-    // ==================== OpenClaw Metadata ====================
+    // ==================== Tool Routing Metadata ====================
 
     @Override
     public String getTriggerWhen() {

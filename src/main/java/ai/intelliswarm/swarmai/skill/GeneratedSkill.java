@@ -16,7 +16,7 @@ import java.util.*;
 /**
  * A dynamically generated tool backed by a rich SkillDefinition.
  *
- * Supports four execution modes inspired by OpenClaw's multi-modal skill architecture:
+ * Supports four execution modes via multi-modal skill architecture:
  *
  * <b>PROMPT</b> — Pure instruction-based. The skill body is injected into the agent's
  * system prompt as expert instructions. The LLM follows the instructions to produce output.
@@ -35,7 +35,7 @@ import java.util.*;
  * The routing table maps intent patterns to child skills. Best for: multi-capability
  * domains (e.g., "finance" routes to analysis, reporting, alerts).
  *
- * Skills are persisted as directory-based packages (like OpenClaw):
+ * Skills are persisted as directory-based packages:
  * <pre>
  * output/skills/financial-analysis/
  *   SKILL.md          # The full skill definition (frontmatter + body)
