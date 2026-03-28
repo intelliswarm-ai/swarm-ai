@@ -34,7 +34,8 @@ public class SelfImprovingProcess implements Process {
     private static final Logger logger = LoggerFactory.getLogger(SelfImprovingProcess.class);
 
     /** Hard safety cap — never iterate more than this regardless of convergence. */
-    private static final int ABSOLUTE_MAX_ITERATIONS = 10;
+    /** Hard safety cap — never iterate more than this regardless of configuration. */
+    private static final int ABSOLUTE_MAX_ITERATIONS = 20;
 
     private final List<Agent> originalAgents;
     private final Agent reviewerAgent;
@@ -156,6 +157,7 @@ public class SelfImprovingProcess implements Process {
         int iteration = 0;
         boolean approved = false;
         String reviewFeedback = null;
+        String toolErrorSummary = null;
         int skillsGenerated = 0;
 
         // Convergence tracking
@@ -193,20 +195,38 @@ public class SelfImprovingProcess implements Process {
                 for (Task task : orderedTasks) {
                     task.reset();
                 }
+
+                // Evolve the analysis task — don't repeat previous work, push forward
+                if (reviewFeedback != null && !orderedTasks.isEmpty()) {
+                    Task analysisTask = orderedTasks.get(0);
+                    String previousOutput = allOutputs.stream()
+                        .map(TaskOutput::getRawOutput)
+                        .filter(o -> o != null && !o.startsWith("Error:"))
+                        .collect(Collectors.joining("\n"));
+                    String previousSummary = previousOutput.length() > 2000
+                        ? previousOutput.substring(0, 2000) + "\n[... truncated ...]"
+                        : previousOutput;
+
+                    String evolvedDescription = String.format(
+                        "CONTINUE from where the previous iteration left off. Do NOT repeat completed work.\n\n" +
+                        "PREVIOUS ITERATION RESULTS (already done — do NOT redo):\n%s\n\n" +
+                        "REVIEWER FEEDBACK (what to do NOW):\n%s\n\n" +
+                        "%s" +
+                        "YOUR TASK: Address the reviewer's feedback by taking NEW actions. " +
+                        "Use different commands, scan different targets, or try exploitation tools (hydra, nikto, etc.). " +
+                        "Do NOT re-run commands that already succeeded.",
+                        previousSummary,
+                        reviewFeedback,
+                        toolErrorSummary != null ?
+                            "TOOL ERRORS (adapt your approach):\n" + toolErrorSummary + "\n\n" : ""
+                    );
+                    analysisTask.setDescription(evolvedDescription);
+                }
             }
 
             // 1. Execute all tasks with current agents
             List<TaskOutput> iterationOutputs = new ArrayList<>();
             List<TaskOutput> contextOutputs = new ArrayList<>();
-
-            // Inject reviewer feedback from previous iteration
-            if (reviewFeedback != null) {
-                TaskOutput feedbackContext = TaskOutput.builder()
-                    .taskId("reviewer-feedback")
-                    .rawOutput("REVIEWER FEEDBACK FROM PREVIOUS ITERATION:\n" + reviewFeedback)
-                    .build();
-                contextOutputs.add(feedbackContext);
-            }
 
             for (Task task : orderedTasks) {
                 // Find the current agent for this task (may have been rebuilt with new tools)
@@ -259,6 +279,12 @@ public class SelfImprovingProcess implements Process {
             }
 
             allOutputs = new ArrayList<>(iterationOutputs);
+
+            // 2a0. Extract tool errors from iteration output for self-adjustment feedback
+            toolErrorSummary = extractToolErrors(iterationOutputs);
+            if (toolErrorSummary != null) {
+                logger.info("Iteration {}: Tool errors detected — will feed back for self-adjustment", iteration);
+            }
 
             // 2a. Tool-evidence quality check — detect if agents used tools or relied on LLM knowledge
             String outputToReview = iterationOutputs.stream()
@@ -541,7 +567,11 @@ public class SelfImprovingProcess implements Process {
                 }
                 boolean sameGaps = !currentGaps.isEmpty() && currentGaps.equals(previousGaps);
 
-                if (!outputGrew || sameGaps) {
+                // Check if agent adapted (tool errors changed) — if so, don't count as stale
+                boolean agentAdapted = toolErrorSummary != null &&
+                    (previousOutputLength > 0 && !sameGaps);
+
+                if ((!outputGrew && sameGaps) && !agentAdapted) {
                     staleIterations++;
                 } else {
                     staleIterations = 0;
@@ -550,7 +580,7 @@ public class SelfImprovingProcess implements Process {
                 previousOutputLength = currentOutputLength;
                 previousGaps = currentGaps;
 
-                if (staleIterations >= 2) {
+                if (staleIterations >= 3) {
                     logger.info("Self-Improving Process: Auto-stopping — no meaningful progress for {} iterations " +
                         "(output growth stalled: {}, repeated gaps: {})", staleIterations, !outputGrew, sameGaps);
                     break;
@@ -898,6 +928,52 @@ public class SelfImprovingProcess implements Process {
         }
 
         return null; // evidence looks OK
+    }
+
+    /**
+     * Extract tool execution errors from iteration outputs for self-adjustment feedback.
+     * Scans output text for timeout, error, and failure patterns so the next iteration
+     * can adapt its approach (e.g., scan individual hosts instead of full subnet).
+     */
+    private String extractToolErrors(List<TaskOutput> outputs) {
+        List<String> errors = new ArrayList<>();
+        String[] errorPatterns = {
+            "timed out", "Command timed out", "Error: Command",
+            "Error: Failed to execute", "Error: Command is required",
+            "execution failed", "no hosts were scanned",
+            "invalid", "connection refused", "host is down"
+        };
+
+        for (TaskOutput output : outputs) {
+            String text = output.getRawOutput();
+            if (text == null) continue;
+
+            // Extract lines containing error patterns
+            for (String line : text.split("\n")) {
+                String lineLower = line.toLowerCase();
+                for (String pattern : errorPatterns) {
+                    if (lineLower.contains(pattern.toLowerCase())) {
+                        String trimmed = line.trim();
+                        if (trimmed.length() > 200) trimmed = trimmed.substring(0, 200) + "...";
+                        if (!errors.contains(trimmed)) {
+                            errors.add(trimmed);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (errors.isEmpty()) return null;
+
+        StringBuilder summary = new StringBuilder();
+        for (int i = 0; i < Math.min(errors.size(), 10); i++) {
+            summary.append("- ").append(errors.get(i)).append("\n");
+        }
+        if (errors.size() > 10) {
+            summary.append("- ... and ").append(errors.size() - 10).append(" more errors\n");
+        }
+        return summary.toString();
     }
 
     private double jaccardSimilaritySimple(Set<String> a, Set<String> b) {

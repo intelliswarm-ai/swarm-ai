@@ -127,6 +127,13 @@ public class Agent {
                     .system(systemPrompt)
                     .user(userPrompt);
 
+            // Override model per-agent if specified (otherwise uses Spring default)
+            if (modelName != null && !modelName.isBlank()) {
+                requestBuilder.options(org.springframework.ai.openai.OpenAiChatOptions.builder()
+                        .model(modelName)
+                        .build());
+            }
+
             if (!tools.isEmpty()) {
                 // Split tools: Spring bean tools use toolNames(), dynamic tools use toolCallbacks()
                 List<String> springToolNames = new ArrayList<>();
@@ -312,6 +319,10 @@ public class Agent {
                 "internal codename, or misspelling.\"\n");
         system.append("5. Use today's date for any timelines or recommendations. Do not reference past dates " +
                 "as future actions.\n");
+        system.append("6. SELF-ADJUSTMENT: If a tool call fails, times out, or returns an error, " +
+                "you MUST adapt your approach immediately. Try a narrower scope, different parameters, " +
+                "or an alternative tool. For example: if scanning an entire subnet times out, scan " +
+                "individual hosts; if a full port scan times out, use --top-ports 100.\n");
 
         return system.toString();
     }

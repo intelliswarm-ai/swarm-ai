@@ -24,7 +24,7 @@ public class ShellCommandTool implements BaseTool {
     private static final int MAX_TIMEOUT_SECONDS = 300;
     private static final int MAX_OUTPUT_LENGTH = 8000;
 
-    // Only these commands are allowed (read-only, safe introspection + network scanning)
+    // Allowed commands: system introspection, network scanning, and authorized pentesting
     private static final Set<String> ALLOWED_COMMANDS = Set.of(
         "echo", "date", "hostname", "whoami", "pwd", "uname",
         "ls", "dir", "cat", "head", "tail", "wc", "sort", "uniq", "cut",
@@ -33,10 +33,14 @@ public class ShellCommandTool implements BaseTool {
         "ps", "top", "df", "du", "free", "uptime",
         "java", "javac", "mvn", "gradle", "node", "npm", "python", "pip",
         "git", "docker", "kubectl",
-        // Network scanning and diagnostics (read-only)
+        // Network scanning and diagnostics
         "nmap", "ping", "arp", "arp-scan", "ip", "ifconfig",
         "netstat", "ss", "traceroute", "tracepath", "dig", "nslookup", "host",
-        "curl", "wget"
+        "curl", "wget",
+        // Pentesting and exploitation (authorized local network testing)
+        "hydra", "nikto", "gobuster", "dirb", "sqlmap",
+        "searchsploit", "msfconsole", "enum4linux", "smbclient", "rpcclient",
+        "snmpwalk", "onesixtyone", "nbtscan", "medusa"
     );
 
     @Override

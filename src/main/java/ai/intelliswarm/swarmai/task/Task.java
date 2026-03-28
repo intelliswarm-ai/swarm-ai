@@ -283,6 +283,7 @@ public class Task {
     // Getters
     public String getId() { return id; }
     public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
     public String getExpectedOutput() { return expectedOutput; }
     public List<BaseTool> getTools() { return new ArrayList<>(tools); }
     public Agent getAgent() { return agent; }

@@ -139,7 +139,7 @@ public class SelfImprovingWorkflow {
             .verbose(true)
             .maxRpm(15)
             .temperature(0.2)
-            .modelName("gpt-4o-mini")
+            .modelName("gpt-4.1")
             .build();
 
         Agent writer = Agent.builder()
@@ -153,7 +153,7 @@ public class SelfImprovingWorkflow {
             .verbose(true)
             .maxRpm(10)
             .temperature(0.3)
-            .modelName("gpt-4o-mini")
+            .modelName("gpt-4.1")
             .build();
 
         Agent reviewer = Agent.builder()
@@ -182,7 +182,7 @@ public class SelfImprovingWorkflow {
             .verbose(true)
             .maxRpm(10)
             .temperature(0.1)
-            .modelName("gpt-4o-mini")
+            .modelName("gpt-4.1")
             .build();
 
         Task analysisTask = Task.builder()
@@ -215,7 +215,7 @@ public class SelfImprovingWorkflow {
             .task(analysisTask)
             .task(reportTask)
             .process(ProcessType.SELF_IMPROVING)
-            .config("maxIterations", 3)
+            .config("maxIterations", 15)
             .config("qualityCriteria", plan.qualityCriteria)
             .verbose(true)
             .maxRpm(20)
@@ -328,7 +328,7 @@ public class SelfImprovingWorkflow {
             .chatClient(chatClient)
             .temperature(0.1)
             .verbose(false)
-            .modelName("gpt-4o-mini")
+            .modelName("gpt-4.1")
             .build();
 
         String prompt = String.format(
@@ -345,15 +345,25 @@ public class SelfImprovingWorkflow {
             "- ONLY use URLs from the KNOWN-GOOD API ENDPOINTS list in the tool catalog\n" +
             "- In the ANALYSIS_TASK description, include SPECIFIC real URLs the agent should fetch\n" +
             "- If a topic doesn't have a known API, use Wikipedia + GitHub + HN Algolia endpoints\n\n" +
+            "SECURITY/PENTESTING RULES (if the query involves scanning, hacking, or security assessment):\n" +
+            "- The ANALYSIS_TASK must include ALL phases: discovery, enumeration, AND exploitation.\n" +
+            "- Discovery: identify live hosts with nmap -sP on the subnet\n" +
+            "- Enumeration: scan top ports + service versions on each discovered host individually " +
+            "(nmap -sV --top-ports 100 per host, NOT the entire subnet at once)\n" +
+            "- Exploitation: attempt to exploit found vulnerabilities (e.g., default credentials with hydra, " +
+            "web vuln scanning with nikto, SMB enumeration with enum4linux/smbclient)\n" +
+            "- Include specific commands for each phase in the task description.\n" +
+            "- If a command times out, include fallback strategies (narrower scope, fewer ports).\n\n" +
             "Respond in EXACTLY this format (no extra text):\n\n" +
-            "ANALYST_ROLE: [role name for the primary analyst, e.g., 'Network Security Analyst' or 'Financial Data Analyst']\n" +
+            "ANALYST_ROLE: [role name for the primary analyst, e.g., 'Penetration Testing Specialist']\n" +
             "ANALYST_GOAL: [1-2 sentence goal describing what the analyst should accomplish for this specific query]\n" +
             "ANALYST_BACKSTORY: [1-2 sentence backstory establishing the analyst's expertise relevant to this query]\n" +
             "RECOMMENDED_TOOLS: [comma-separated list of tool names from the catalog above. " +
             "ONLY include tools whose USE WHEN hints match this query's needs.]\n" +
             "ANALYSIS_TASK: [Detailed task description telling the analyst exactly what to do. " +
             "Be specific about what data to gather, what commands to run, what to analyze. " +
-            "Reference specific tools by name. Do NOT include generic filler — every sentence should be actionable.]\n" +
+            "Reference specific tools by name. Include specific commands for each phase. " +
+            "Include fallback strategies if commands fail or time out.]\n" +
             "ANALYSIS_EXPECTED_OUTPUT: [1 sentence describing what the analysis output should contain]\n" +
             "REPORT_TASK: [Task description for the report writer. Specify what sections the report needs, " +
             "what format to use, and what the report should cover based on the query.]\n" +
