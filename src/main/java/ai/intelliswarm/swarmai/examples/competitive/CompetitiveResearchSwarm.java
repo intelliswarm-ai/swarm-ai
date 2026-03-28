@@ -101,7 +101,7 @@ public class CompetitiveResearchSwarm {
                 .tools(healthyTools)
                 .verbose(true)
                 .temperature(0.2)
-                .modelName("gpt-4.1")
+                .modelName("gpt-4o-mini")
                 .build();
 
         // Report writer - synthesizes all company analyses
@@ -115,7 +115,7 @@ public class CompetitiveResearchSwarm {
                 .chatClient(chatClient)
                 .verbose(true)
                 .temperature(0.3)
-                .modelName("gpt-4.1")
+                .modelName("gpt-4o-mini")
                 .build();
 
         // Reviewer - drives deeper analysis with NEXT_COMMANDS

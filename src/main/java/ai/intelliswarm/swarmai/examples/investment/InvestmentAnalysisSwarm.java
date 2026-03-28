@@ -115,7 +115,7 @@ public class InvestmentAnalysisSwarm {
             .tools(healthyTools)
             .verbose(true)
             .temperature(0.2)
-            .modelName("gpt-4.1")
+            .modelName("gpt-4o-mini")
             .build();
 
         // Investment memo writer — synthesizes all company analyses
@@ -131,7 +131,7 @@ public class InvestmentAnalysisSwarm {
             .chatClient(chatClient)
             .verbose(true)
             .temperature(0.3)
-            .modelName("gpt-4.1")
+            .modelName("gpt-4o-mini")
             .build();
 
         // Reviewer — drives deeper analysis with NEXT_COMMANDS
