@@ -68,22 +68,42 @@ public record SkillQualityScore(
             if (props != null && !props.isEmpty()) docScore += 5;
         }
 
-        // 2. Test coverage: number and quality of test cases
+        // 2. Test coverage: unit test cases + integration tests
         int testScore = 0;
         int testCount = skill.getTestCases() != null ? skill.getTestCases().size() : 0;
-        if (testCount >= 1) testScore += 10;
-        if (testCount >= 2) testScore += 5;
+        int integrationTestCount = skill.getIntegrationTests() != null ? skill.getIntegrationTests().size() : 0;
+
+        // Unit test cases (max 10 points)
+        if (testCount >= 1) testScore += 5;
+        if (testCount >= 2) testScore += 3;
         if (skill.getTestCases() != null) {
             for (String test : skill.getTestCases()) {
-                if (test.contains("assert") && test.contains("result")) testScore += 5;
+                if (test.contains("assert") && test.contains("result")) testScore += 2;
                 break; // only check first
             }
         }
-        // PROMPT skills get test credit for having self-check items or examples
+
+        // Integration tests (max 10 points) — valued higher because they verify real behavior
+        if (integrationTestCount >= 1) testScore += 5;
+        if (integrationTestCount >= 2) testScore += 3;
+        if (skill.getIntegrationTests() != null) {
+            for (SkillDefinition.IntegrationTest it : skill.getIntegrationTests()) {
+                if (it.assertionCode() != null && it.assertionCode().contains("assert")) testScore += 2;
+                break; // only check first
+            }
+        }
+
+        // CODE skills with no tests at all get capped at 0
+        if (hasCode && testCount == 0 && integrationTestCount == 0) {
+            testScore = 0;
+        }
+
+        // PROMPT skills get test credit for having self-check items, examples, or integration tests
         if (!hasCode && hasBody) {
             SkillDefinition def = skill.getDefinition();
-            if (def.getSelfCheckItems() != null && !def.getSelfCheckItems().isEmpty()) testScore += 10;
-            if (def.getExamples() != null && !def.getExamples().isEmpty()) testScore += 5;
+            if (def.getSelfCheckItems() != null && !def.getSelfCheckItems().isEmpty()) testScore += 5;
+            if (def.getExamples() != null && !def.getExamples().isEmpty()) testScore += 3;
+            if (integrationTestCount >= 1) testScore += 2;
             testScore = Math.min(20, testScore);
         }
 

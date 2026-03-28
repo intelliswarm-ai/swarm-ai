@@ -315,7 +315,208 @@ public class GeneratedSkill implements BaseTool {
                 .collect(java.util.stream.Collectors.joining(", "));
     }
 
-    // ==================== Test Execution ====================
+    // ==================== Integration Test Execution ====================
+
+    /**
+     * Result of a single integration test execution.
+     */
+    public record IntegrationTestResult(
+        String testName,
+        boolean passed,
+        String message,
+        long durationMs,
+        List<String> toolsCalled,
+        List<String> missingToolCalls
+    ) {
+        public String summary() {
+            return String.format("[%s] %s — %s (%dms, tools: %s%s)",
+                passed ? "PASS" : "FAIL", testName, message, durationMs,
+                toolsCalled.isEmpty() ? "none" : String.join(", ", toolsCalled),
+                missingToolCalls.isEmpty() ? "" : ", MISSING: " + String.join(", ", missingToolCalls));
+        }
+    }
+
+    /**
+     * Aggregated results of all integration tests for this skill.
+     */
+    public record IntegrationTestResults(
+        List<IntegrationTestResult> results,
+        int passed,
+        int failed,
+        int total,
+        long totalDurationMs
+    ) {
+        public boolean allPassed() { return failed == 0 && total > 0; }
+
+        public String summary() {
+            StringBuilder sb = new StringBuilder();
+            sb.append(String.format("Integration Tests: %d/%d passed (%dms)\n", passed, total, totalDurationMs));
+            for (IntegrationTestResult r : results) {
+                sb.append("  ").append(r.summary()).append("\n");
+            }
+            return sb.toString();
+        }
+
+        public List<String> failureMessages() {
+            return results.stream()
+                .filter(r -> !r.passed())
+                .map(IntegrationTestResult::summary)
+                .collect(java.util.stream.Collectors.toList());
+        }
+    }
+
+    /**
+     * Run all integration tests defined in this skill's definition.
+     *
+     * Unlike unit-level testCases (which execute Groovy in isolation with mock tools),
+     * integration tests exercise the full skill.execute() pipeline:
+     *
+     * 1. Wraps available tools with call-tracking proxies
+     * 2. For each integration test:
+     *    a. Prepares input params from the test definition
+     *    b. Calls this.execute(params) — the real pipeline with real tools
+     *    c. Runs Groovy assertion code against the actual output
+     *    d. Verifies expected tool calls were made
+     * 3. Returns structured results with pass/fail, timing, and tool call traces
+     *
+     * This makes each skill a self-verifiable package — anyone can call
+     * skill.runIntegrationTests() to confirm it actually works.
+     *
+     * @return IntegrationTestResults with per-test results and aggregates
+     */
+    public IntegrationTestResults runIntegrationTests() {
+        List<SkillDefinition.IntegrationTest> tests = definition.getIntegrationTests();
+        if (tests == null || tests.isEmpty()) {
+            return new IntegrationTestResults(List.of(), 0, 0, 0, 0);
+        }
+
+        List<IntegrationTestResult> results = new ArrayList<>();
+        int passed = 0, failed = 0;
+        long totalDuration = 0;
+
+        for (SkillDefinition.IntegrationTest test : tests) {
+            long start = System.currentTimeMillis();
+            List<String> toolsCalled = Collections.synchronizedList(new ArrayList<>());
+
+            try {
+                // 1. Install tracking proxies around available tools
+                Map<String, BaseTool> trackedTools = wrapToolsWithTracking(availableTools, toolsCalled);
+                Map<String, BaseTool> originalTools = this.availableTools;
+                this.availableTools = trackedTools;
+
+                try {
+                    // 2. Prepare input params
+                    Map<String, Object> params = new HashMap<>();
+                    if (test.inputParams() != null) {
+                        params.putAll(test.inputParams());
+                    }
+
+                    // 3. Execute skill through the full pipeline
+                    Object output = this.execute(params);
+                    // Undo the usage/success count bump from the test execution
+                    this.usageCount--;
+                    this.successCount--;
+
+                    String outputStr = output != null ? output.toString() : "";
+
+                    // 4. Run assertion code
+                    String assertionError = runAssertions(test.assertionCode(), outputStr);
+
+                    // 5. Verify expected tool calls
+                    List<String> missingToolCalls = new ArrayList<>();
+                    if (test.expectedToolCalls() != null) {
+                        for (String expected : test.expectedToolCalls()) {
+                            if (!toolsCalled.contains(expected)) {
+                                missingToolCalls.add(expected);
+                            }
+                        }
+                    }
+
+                    long duration = System.currentTimeMillis() - start;
+                    totalDuration += duration;
+
+                    if (assertionError != null) {
+                        results.add(new IntegrationTestResult(test.name(), false,
+                            "Assertion failed: " + assertionError, duration, new ArrayList<>(toolsCalled), missingToolCalls));
+                        failed++;
+                    } else if (!missingToolCalls.isEmpty()) {
+                        results.add(new IntegrationTestResult(test.name(), false,
+                            "Missing expected tool calls", duration, new ArrayList<>(toolsCalled), missingToolCalls));
+                        failed++;
+                    } else {
+                        results.add(new IntegrationTestResult(test.name(), true,
+                            "OK", duration, new ArrayList<>(toolsCalled), List.of()));
+                        passed++;
+                    }
+                } finally {
+                    // Restore original tools
+                    this.availableTools = originalTools;
+                }
+
+            } catch (Exception e) {
+                long duration = System.currentTimeMillis() - start;
+                totalDuration += duration;
+                results.add(new IntegrationTestResult(test.name(), false,
+                    "Exception: " + e.getMessage(), duration, new ArrayList<>(toolsCalled), List.of()));
+                failed++;
+            }
+        }
+
+        IntegrationTestResults testResults = new IntegrationTestResults(
+            results, passed, failed, passed + failed, totalDuration);
+
+        logger.info("Integration tests for skill '{}': {}/{} passed ({}ms)",
+            name, passed, passed + failed, totalDuration);
+
+        return testResults;
+    }
+
+    /**
+     * Wrap tools with tracking proxies that record which tools get called.
+     */
+    private Map<String, BaseTool> wrapToolsWithTracking(Map<String, BaseTool> tools, List<String> callLog) {
+        Map<String, BaseTool> tracked = new HashMap<>();
+        for (Map.Entry<String, BaseTool> entry : tools.entrySet()) {
+            BaseTool original = entry.getValue();
+            String toolName = entry.getKey();
+            tracked.put(toolName, new BaseTool() {
+                public String getFunctionName() { return original.getFunctionName(); }
+                public String getDescription() { return original.getDescription(); }
+                public Object execute(Map<String, Object> p) {
+                    callLog.add(toolName);
+                    Map<String, Object> safeParams = new HashMap<>();
+                    p.forEach((k, v) -> safeParams.put(k, v != null ? v.toString() : null));
+                    return original.execute(safeParams);
+                }
+                public Map<String, Object> getParameterSchema() { return original.getParameterSchema(); }
+                public boolean isAsync() { return original.isAsync(); }
+            });
+        }
+        return tracked;
+    }
+
+    /**
+     * Run Groovy assertion code against an output string.
+     * @return null if assertions pass, error message if they fail.
+     */
+    private String runAssertions(String assertionCode, String output) {
+        if (assertionCode == null || assertionCode.isBlank()) return null;
+        try {
+            CompilerConfiguration config = createSandboxedConfig();
+            Binding binding = new Binding();
+            binding.setVariable("output", output);
+            binding.setVariable("log", logger);
+            GroovyShell shell = new GroovyShell(binding, config);
+            shell.evaluate(assertionCode);
+            return null; // All assertions passed
+        } catch (AssertionError e) {
+            return e.getMessage() != null ? e.getMessage() : "Assertion failed";
+        } catch (Exception e) {
+            return "Assertion error: " + e.getMessage();
+        }
+    }
+
+    // ==================== Unit Test Execution ====================
 
     public Object executeTest(String testCode) {
         CompilerConfiguration config = createSandboxedConfig();
@@ -358,7 +559,9 @@ public class GeneratedSkill implements BaseTool {
     private CompilerConfiguration createSandboxedConfig() {
         CompilerConfiguration config = new CompilerConfiguration();
         ImportCustomizer imports = new ImportCustomizer();
-        imports.addStarImports("java.util", "java.math", "groovy.json", "groovy.xml");
+        imports.addStarImports("java.util", "java.math", "groovy.json", "groovy.xml",
+            "java.util.regex", "java.time");
+        imports.addImports("java.net.URLEncoder", "java.net.URLDecoder");
         config.addCompilationCustomizers(imports);
 
         SecureASTCustomizer secure = new SecureASTCustomizer();
@@ -576,6 +779,7 @@ public class GeneratedSkill implements BaseTool {
     public SkillDefinition getDefinition() { return definition; }
     public SkillType getSkillType() { return definition.getType(); }
     public String getInstructionBody() { return definition.getInstructionBody(); }
+    public List<SkillDefinition.IntegrationTest> getIntegrationTests() { return definition.getIntegrationTests(); }
 
     /**
      * Get the full SKILL.md representation of this skill.

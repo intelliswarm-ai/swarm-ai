@@ -1,6 +1,7 @@
 package ai.intelliswarm.swarmai.examples.selfimproving;
 
 import ai.intelliswarm.swarmai.agent.Agent;
+import ai.intelliswarm.swarmai.config.WorkflowProperties;
 import ai.intelliswarm.swarmai.swarm.Swarm;
 import ai.intelliswarm.swarmai.swarm.SwarmOutput;
 import ai.intelliswarm.swarmai.task.Task;
@@ -20,24 +21,19 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * Self-Improving Workflow — Fully Dynamic, with Enhanced Skill Architecture
+ * Self-Improving Workflow — Fully Dynamic, Config-Driven
+ *
+ * All execution parameters are externalized to {@link WorkflowProperties}
+ * (bound from {@code swarmai.workflow.*} in application.yml). No hardcoded
+ * model names, temperatures, timeouts, or API endpoints.
  *
  * Given ANY user query, this workflow:
- * 1. PLANS: An LLM planner analyzes the query, available tools (with routing metadata),
- *    and determines what agents, tasks, and approach are needed
+ * 1. PLANS: An LLM planner analyzes the query and available tools
  * 2. HEALTH CHECK: Verifies tools are operational before assignment
  * 3. EXECUTES: The self-improving loop runs with dynamically defined tasks
- * 4. GAP ANALYSIS: Before generating skills, evaluates whether generation is warranted
- * 5. SKILL GENERATION: Creates PROMPT, CODE, HYBRID, or COMPOSITE skills as appropriate
+ * 4. GAP ANALYSIS: Evaluates whether skill generation is warranted
+ * 5. SKILL GENERATION: Creates CODE, HYBRID, or COMPOSITE skills with integration tests
  * 6. IMPROVES: Re-executes with expanded toolkit, converges automatically
- *
- * Enhancements over previous version:
- * - Tool catalog includes routing rules (triggerWhen/avoidWhen), categories, and tags
- *   so the planner makes better tool selections
- * - SkillGapAnalyzer prevents unnecessary skill generation (quality over quantity)
- * - Skills can be pure-prompt (domain expertise), code (data pipelines),
- *   hybrid (reasoning + data), or composite (multi-capability routers)
- * - Tool health checks filter out tools with missing requirements
  *
  * Usage: java -jar app.jar self-improving "any query here"
  */
@@ -48,6 +44,7 @@ public class SelfImprovingWorkflow {
 
     private final ChatClient.Builder chatClientBuilder;
     private final ApplicationEventPublisher eventPublisher;
+    private final WorkflowProperties config;
 
     // All available tools — injected by Spring
     private final List<BaseTool> allTools;
@@ -55,6 +52,7 @@ public class SelfImprovingWorkflow {
     public SelfImprovingWorkflow(
             ChatClient.Builder chatClientBuilder,
             ApplicationEventPublisher eventPublisher,
+            WorkflowProperties config,
             CalculatorTool calculatorTool,
             WebSearchTool webSearchTool,
             FileWriteTool fileWriteTool,
@@ -65,6 +63,7 @@ public class SelfImprovingWorkflow {
             JSONTransformTool jsonTransformTool) {
         this.chatClientBuilder = chatClientBuilder;
         this.eventPublisher = eventPublisher;
+        this.config = config;
 
         // Collect all tools that agents can use
         this.allTools = List.of(
@@ -77,18 +76,22 @@ public class SelfImprovingWorkflow {
         String query = args.length > 0 ? String.join(" ", args) : "Analyze AAPL stock performance";
 
         logger.info("\n" + "=".repeat(80));
-        logger.info("SELF-IMPROVING WORKFLOW (Enhanced Skill Architecture)");
+        logger.info("SELF-IMPROVING WORKFLOW (Config-Driven)");
         logger.info("=".repeat(80));
         logger.info("Query: {}", query);
+        logger.info("Model: {}", config.getModel());
+        logger.info("Max iterations: {}", config.getMaxIterations());
         logger.info("Process: SELF_IMPROVING (plan -> execute -> gap-analyze -> generate skills -> re-execute)");
-        logger.info("Skill types: PROMPT | CODE | HYBRID | COMPOSITE");
         logger.info("Available tools: {}", allTools.stream().map(BaseTool::getFunctionName).collect(Collectors.joining(", ")));
 
+        // Filter tools based on config (empty = all tools)
+        List<BaseTool> configuredTools = filterToolsByConfig(allTools);
+
         // Run health checks on tools before starting
-        List<BaseTool> healthyTools = ToolHealthChecker.filterOperational(allTools);
-        if (healthyTools.size() < allTools.size()) {
-            logger.warn("Tool health check: {}/{} tools operational", healthyTools.size(), allTools.size());
-            Map<String, ToolHealthChecker.HealthCheckResult> results = ToolHealthChecker.checkAll(allTools);
+        List<BaseTool> healthyTools = ToolHealthChecker.filterOperational(configuredTools);
+        if (healthyTools.size() < configuredTools.size()) {
+            logger.warn("Tool health check: {}/{} tools operational", healthyTools.size(), configuredTools.size());
+            Map<String, ToolHealthChecker.HealthCheckResult> results = ToolHealthChecker.checkAll(configuredTools);
             results.forEach((name, result) -> {
                 if (!result.healthy()) {
                     logger.warn("  {} UNHEALTHY: {}", name, result.issues());
@@ -100,6 +103,21 @@ public class SelfImprovingWorkflow {
         logger.info("=".repeat(80));
 
         runSelfImproving(query, healthyTools);
+    }
+
+    /**
+     * Filter available tools based on the configured tool list.
+     * If config.tools is empty, all tools are returned.
+     */
+    private List<BaseTool> filterToolsByConfig(List<BaseTool> available) {
+        List<String> configured = config.getTools();
+        if (configured == null || configured.isEmpty()) {
+            return available;
+        }
+        Set<String> allowed = new HashSet<>(configured);
+        return available.stream()
+            .filter(t -> allowed.contains(t.getFunctionName()))
+            .collect(Collectors.toList());
     }
 
     private void runSelfImproving(String query, List<BaseTool> tools) {
@@ -115,15 +133,19 @@ public class SelfImprovingWorkflow {
 
         logger.info("Plan generated:");
         logger.info("  Analyst role: {}", plan.analystRole);
-        logger.info("  Analyst goal: {}", plan.analystGoal);
+        logger.info("  Analyst goal: {}", truncate(plan.analystGoal, 100));
         logger.info("  Analysis task: {}", truncate(plan.analysisTaskDescription, 100));
         logger.info("  Report task: {}", truncate(plan.reportTaskDescription, 100));
         logger.info("  Quality criteria: {}", truncate(plan.qualityCriteria, 100));
         logger.info("  Recommended tools: {}", plan.recommendedTools);
 
         // =====================================================================
-        // PHASE 2: BUILD — Create agents and tasks from the plan
+        // PHASE 2: BUILD — Create agents and tasks from the plan + config
         // =====================================================================
+
+        WorkflowProperties.AgentDef analystCfg = config.getAgents().getAnalyst();
+        WorkflowProperties.AgentDef writerCfg = config.getAgents().getWriter();
+        WorkflowProperties.AgentDef reviewerCfg = config.getAgents().getReviewer();
 
         List<BaseTool> analystTools = selectTools(plan.recommendedTools, tools);
         logger.info("Selected {} tools for analyst: {}",
@@ -136,10 +158,10 @@ public class SelfImprovingWorkflow {
             .backstory(plan.analystBackstory)
             .chatClient(chatClient)
             .tools(analystTools)
-            .verbose(true)
-            .maxRpm(15)
-            .temperature(0.2)
-            .modelName("gpt-4.1")
+            .verbose(analystCfg.isVerbose())
+            .maxRpm(analystCfg.getMaxRpm())
+            .temperature(analystCfg.getTemperature())
+            .modelName(analystCfg.resolveModel(config.getModel()))
             .build();
 
         Agent writer = Agent.builder()
@@ -150,10 +172,10 @@ public class SelfImprovingWorkflow {
             .backstory("You create clear, data-backed reports. Every claim references a specific number. " +
                       "You never summarize — you write the complete report as your response.")
             .chatClient(chatClient)
-            .verbose(true)
-            .maxRpm(10)
-            .temperature(0.3)
-            .modelName("gpt-4.1")
+            .verbose(writerCfg.isVerbose())
+            .maxRpm(writerCfg.getMaxRpm())
+            .temperature(writerCfg.getTemperature())
+            .modelName(writerCfg.resolveModel(config.getModel()))
             .build();
 
         Agent reviewer = Agent.builder()
@@ -170,19 +192,27 @@ public class SelfImprovingWorkflow {
                   "- If tool calls returned errors, that is a QUALITY_ISSUE (agent should try different URLs)\n" +
                   "- A capability gap means: 'there is no existing tool that can do X' — NOT 'the agent " +
                   "didn't use the existing tools well enough'\n" +
-                  "- Maximum 1 capability gap per review. Prefer QUALITY_ISSUES over CAPABILITY_GAPS.")
+                  "- Maximum " + config.getPlanning().getMaxCapabilityGapsPerReview() +
+                  " capability gap per review. Prefer QUALITY_ISSUES over CAPABILITY_GAPS.\n\n" +
+                  "NEXT_COMMANDS RULES:\n" +
+                  "- When exploitation has NOT been attempted, you MUST provide specific commands in NEXT_COMMANDS.\n" +
+                  "- Target discovered services with appropriate tools: hydra for credential testing, " +
+                  "nikto for web scanning, enum4linux/smbclient for SMB, nmap scripts for deeper enumeration.\n" +
+                  "- Include full command syntax with target IP and port.\n" +
+                  "- Maximum " + config.getPlanning().getMaxNextCommandsPerReview() + " commands per review.")
             .backstory("You are a strict QA director. You almost never flag capability gaps because " +
                       "the existing tools (http_request, web_scrape, calculator, json_transform) can " +
                       "handle most data gathering tasks when used with REAL URLs. Your main focus is " +
                       "quality: did the agents use tools with real URLs? Did they extract useful data? " +
                       "Did they cite sources? If the report is based on LLM knowledge instead of tool " +
                       "data, that is a quality problem — the agent should be told to actually call the " +
-                      "APIs listed in its task description.")
+                      "APIs listed in its task description. When you see open services that haven't been tested for vulnerabilities, " +
+                      "always provide NEXT_COMMANDS with specific exploitation commands.")
             .chatClient(chatClient)
-            .verbose(true)
-            .maxRpm(10)
-            .temperature(0.1)
-            .modelName("gpt-4.1")
+            .verbose(reviewerCfg.isVerbose())
+            .maxRpm(reviewerCfg.getMaxRpm())
+            .temperature(reviewerCfg.getTemperature())
+            .modelName(reviewerCfg.resolveModel(config.getModel()))
             .build();
 
         Task analysisTask = Task.builder()
@@ -190,7 +220,7 @@ public class SelfImprovingWorkflow {
             .expectedOutput(plan.analysisExpectedOutput)
             .agent(analyst)
             .outputFormat(OutputFormat.MARKDOWN)
-            .maxExecutionTime(300000)
+            .maxExecutionTime((int) config.getTasks().getAnalysis().getMaxExecutionTime())
             .build();
 
         Task reportTask = Task.builder()
@@ -199,8 +229,8 @@ public class SelfImprovingWorkflow {
             .agent(writer)
             .dependsOn(analysisTask)
             .outputFormat(OutputFormat.MARKDOWN)
-            .outputFile("output/self_improving_report.md")
-            .maxExecutionTime(180000)
+            .outputFile(config.getOutput().getReportFile())
+            .maxExecutionTime((int) config.getTasks().getReport().getMaxExecutionTime())
             .build();
 
         // =====================================================================
@@ -215,11 +245,11 @@ public class SelfImprovingWorkflow {
             .task(analysisTask)
             .task(reportTask)
             .process(ProcessType.SELF_IMPROVING)
-            .config("maxIterations", 15)
+            .config("maxIterations", config.getMaxIterations())
             .config("qualityCriteria", plan.qualityCriteria)
-            .verbose(true)
-            .maxRpm(20)
-            .language("en")
+            .verbose(config.isVerbose())
+            .maxRpm(config.getMaxRpm())
+            .language(config.getLanguage())
             .eventPublisher(eventPublisher)
             .build();
 
@@ -251,7 +281,7 @@ public class SelfImprovingWorkflow {
             logger.info("Skill Registry: {}", registryStats);
         }
 
-        logger.info("\n{}", result.getTokenUsageSummary("gpt-4o-mini"));
+        logger.info("\n{}", result.getTokenUsageSummary(config.getModel()));
         logger.info("\nFinal Report:\n{}", result.getFinalOutput());
         logger.info("=".repeat(80));
     }
@@ -262,7 +292,7 @@ public class SelfImprovingWorkflow {
 
     /**
      * Build an enriched tool catalog that includes routing rules, categories, tags,
-     * and a section of known-good API endpoints the LLM can use.
+     * and known-good API endpoints from configuration.
      */
     private String buildEnrichedToolCatalog(List<BaseTool> tools) {
         StringBuilder catalog = new StringBuilder();
@@ -290,21 +320,27 @@ public class SelfImprovingWorkflow {
             catalog.append("\n");
         }
 
-        // Add known-good API endpoints the LLM should use instead of hallucinating
-        catalog.append("## KNOWN-GOOD API ENDPOINTS (use these with http_request)\n");
-        catalog.append("CRITICAL: NEVER invent API domains. ONLY use real URLs from this list:\n\n");
-        catalog.append("  - Wikipedia summary: GET https://en.wikipedia.org/api/rest_v1/page/summary/{topic}\n");
-        catalog.append("  - Wikipedia search: GET https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={query}&format=json\n");
-        catalog.append("  - GitHub repos: GET https://api.github.com/search/repositories?q={query}&sort=stars\n");
-        catalog.append("  - GitHub topics: GET https://api.github.com/search/topics?q={query}\n");
-        catalog.append("  - Hacker News: GET https://hn.algolia.com/api/v1/search?query={query}&tags=story\n");
-        catalog.append("  - DuckDuckGo instant: GET https://api.duckduckgo.com/?q={query}&format=json&no_html=1\n");
-        catalog.append("  - JSONPlaceholder (test): GET https://jsonplaceholder.typicode.com/posts\n");
-        catalog.append("\n");
-        catalog.append("  For web_scrape, use REAL news/tech sites (NOT example.com):\n");
-        catalog.append("  - https://en.wikipedia.org/wiki/{topic}\n");
-        catalog.append("  - https://news.ycombinator.com\n");
-        catalog.append("\n");
+        // Add known-good API endpoints from configuration
+        List<WorkflowProperties.ApiEndpoint> endpoints = config.getKnownEndpoints();
+        if (endpoints != null && !endpoints.isEmpty()) {
+            catalog.append("## KNOWN-GOOD API ENDPOINTS (use these with http_request)\n");
+            catalog.append("CRITICAL: NEVER invent API domains. ONLY use real URLs from this list:\n\n");
+            for (WorkflowProperties.ApiEndpoint ep : endpoints) {
+                catalog.append("  - ").append(ep.getName()).append(": ")
+                    .append(ep.getDescription()).append("\n");
+                catalog.append("    ").append(ep.getUrl()).append("\n");
+            }
+            catalog.append("\n");
+        }
+
+        List<String> safeUrls = config.getScrapeSafeUrls();
+        if (safeUrls != null && !safeUrls.isEmpty()) {
+            catalog.append("  For web_scrape, use REAL news/tech sites (NOT example.com):\n");
+            for (String url : safeUrls) {
+                catalog.append("  - ").append(url).append("\n");
+            }
+            catalog.append("\n");
+        }
 
         return catalog.toString();
     }
@@ -316,6 +352,8 @@ public class SelfImprovingWorkflow {
     private WorkflowPlan generatePlan(ChatClient chatClient, String query, String toolCatalog) {
         logger.info("Planning workflow for query: {}", truncate(query, 80));
 
+        WorkflowProperties.AgentDef plannerCfg = config.getAgents().getPlanner();
+
         Agent planner = Agent.builder()
             .role("Workflow Planner")
             .goal("Analyze the user query and design the optimal workflow. " +
@@ -326,9 +364,9 @@ public class SelfImprovingWorkflow {
                       "optimal tool selections. You design clear, actionable task descriptions " +
                       "that tell agents exactly what to do.")
             .chatClient(chatClient)
-            .temperature(0.1)
-            .verbose(false)
-            .modelName("gpt-4.1")
+            .temperature(plannerCfg.getTemperature())
+            .verbose(plannerCfg.isVerbose())
+            .modelName(plannerCfg.resolveModel(config.getModel()))
             .build();
 
         String prompt = String.format(
@@ -353,7 +391,9 @@ public class SelfImprovingWorkflow {
             "- Exploitation: attempt to exploit found vulnerabilities (e.g., default credentials with hydra, " +
             "web vuln scanning with nikto, SMB enumeration with enum4linux/smbclient)\n" +
             "- Include specific commands for each phase in the task description.\n" +
-            "- If a command times out, include fallback strategies (narrower scope, fewer ports).\n\n" +
+            "- If a command times out, include fallback strategies (narrower scope, fewer ports).\n" +
+            "- ALL output files MUST be saved to /app/output/ directory (e.g., nmap -oN /app/output/nmap_host.txt, " +
+            "nikto -output /app/output/nikto_host.txt). This directory persists outside the container.\n\n" +
             "Respond in EXACTLY this format (no extra text):\n\n" +
             "ANALYST_ROLE: [role name for the primary analyst, e.g., 'Penetration Testing Specialist']\n" +
             "ANALYST_GOAL: [1-2 sentence goal describing what the analyst should accomplish for this specific query]\n" +
@@ -376,7 +416,7 @@ public class SelfImprovingWorkflow {
             .description(prompt)
             .expectedOutput("Structured workflow plan")
             .agent(planner)
-            .maxExecutionTime(30000)
+            .maxExecutionTime((int) config.getTasks().getPlanning().getMaxExecutionTime())
             .build();
 
         try {
@@ -418,32 +458,47 @@ public class SelfImprovingWorkflow {
         String topic = query.replaceAll("[^a-zA-Z0-9 ]", "").trim().replace(" ", "_");
         String urlTopic = query.replaceAll("[^a-zA-Z0-9 ]", "").trim().replace(" ", "+");
 
+        // Build API steps from configured known endpoints
+        StringBuilder steps = new StringBuilder();
+        steps.append("Analyze: \"").append(query).append("\"\n\n");
+        steps.append("STEP-BY-STEP DATA GATHERING (use these EXACT URLs — call ALL of them):\n\n");
+
+        List<WorkflowProperties.ApiEndpoint> endpoints = config.getKnownEndpoints();
+        if (endpoints != null && !endpoints.isEmpty()) {
+            int step = 1;
+            for (WorkflowProperties.ApiEndpoint ep : endpoints) {
+                String url = ep.getUrl()
+                    .replace("{topic}", topic)
+                    .replace("{query}", urlTopic);
+                steps.append("STEP ").append(step++).append(" - ").append(ep.getName()).append(":\n");
+                steps.append("  http_request GET ").append(url).append("\n\n");
+            }
+        }
+
+        List<String> safeUrls = config.getScrapeSafeUrls();
+        if (safeUrls != null && !safeUrls.isEmpty()) {
+            int step = endpoints != null ? endpoints.size() + 1 : 1;
+            for (String url : safeUrls) {
+                String resolved = url.replace("{topic}", topic);
+                steps.append("STEP ").append(step++).append(" - Scrape ").append(resolved).append(":\n");
+                steps.append("  web_scrape ").append(resolved).append("\n\n");
+            }
+        }
+
+        steps.append("AFTER GATHERING DATA:\n");
+        steps.append("- Use json_transform to extract the most relevant fields from each JSON response\n");
+        steps.append("- Build a comparison table from the data you gathered\n");
+        steps.append("- Clearly cite which source each fact came from\n");
+        steps.append("- If a URL returned an error, report it and move on — do NOT retry or invent new URLs\n");
+        steps.append("- Do NOT fabricate data. If you couldn't find specific info, say so.");
+
         WorkflowPlan plan = new WorkflowPlan();
         plan.analystRole = "Senior Research Analyst";
         plan.analystGoal = "Analyze: '" + query + "'. Gather real data using ONLY the known-good API endpoints.";
         plan.analystBackstory = "You are a resourceful analyst who uses real APIs. You NEVER invent domain names. " +
             "When one tool fails, you try a different REAL URL.";
         plan.recommendedTools = "http_request,web_scrape,calculator,json_transform";
-        plan.analysisTaskDescription = "Analyze: \"" + query + "\"\n\n" +
-            "STEP-BY-STEP DATA GATHERING (use these EXACT URLs — call ALL of them):\n\n" +
-            "STEP 1 - Wikipedia context:\n" +
-            "  http_request GET https://en.wikipedia.org/api/rest_v1/page/summary/" + topic + "\n\n" +
-            "STEP 2 - Wikipedia search for related articles:\n" +
-            "  http_request GET https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=" + urlTopic + "&format=json\n\n" +
-            "STEP 3 - GitHub repositories (look at stars, descriptions, recent activity):\n" +
-            "  http_request GET https://api.github.com/search/repositories?q=" + urlTopic + "&sort=stars&per_page=10\n\n" +
-            "STEP 4 - Hacker News discussions (look at story titles, points, comments):\n" +
-            "  http_request GET https://hn.algolia.com/api/v1/search?query=" + urlTopic + "&tags=story&hitsPerPage=10\n\n" +
-            "STEP 5 - DuckDuckGo instant answers:\n" +
-            "  http_request GET https://api.duckduckgo.com/?q=" + urlTopic + "&format=json&no_html=1\n\n" +
-            "STEP 6 - Scrape Wikipedia article for detailed content:\n" +
-            "  web_scrape https://en.wikipedia.org/wiki/" + topic + "\n\n" +
-            "AFTER GATHERING DATA:\n" +
-            "- Use json_transform to extract the most relevant fields from each JSON response\n" +
-            "- Build a comparison table from the data you gathered\n" +
-            "- Clearly cite which source each fact came from: [Wikipedia], [GitHub], [HN], [DDG]\n" +
-            "- If a URL returned an error, report it and move on — do NOT retry or invent new URLs\n" +
-            "- Do NOT fabricate data. If you couldn't find specific info, say so.";
+        plan.analysisTaskDescription = steps.toString();
         plan.analysisExpectedOutput = "Analysis with data from multiple real API sources";
         plan.reportTaskDescription = "Write a comprehensive markdown report based on the analyst's findings.\n" +
             "Include all data retrieved from real APIs. For any gaps, state which URLs were tried.";
@@ -455,8 +510,6 @@ public class SelfImprovingWorkflow {
 
     /**
      * Select tools from the catalog based on the planner's recommendation.
-     * Uses category-aware selection: if a recommended tool isn't found by name,
-     * try matching by category or tags.
      */
     private List<BaseTool> selectTools(String recommendedToolNames, List<BaseTool> available) {
         Set<String> recommended = Arrays.stream(recommendedToolNames.split("[,;\\s]+"))

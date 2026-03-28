@@ -3,6 +3,7 @@ package ai.intelliswarm.swarmai.process;
 import ai.intelliswarm.swarmai.agent.Agent;
 import ai.intelliswarm.swarmai.budget.BudgetSnapshot;
 import ai.intelliswarm.swarmai.budget.BudgetTracker;
+import ai.intelliswarm.swarmai.cache.ScanResultCache;
 import ai.intelliswarm.swarmai.event.SwarmEvent;
 import ai.intelliswarm.swarmai.memory.Memory;
 import ai.intelliswarm.swarmai.skill.*;
@@ -17,6 +18,8 @@ import org.springframework.context.ApplicationEventPublisher;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -57,11 +60,12 @@ public class SelfImprovingProcess implements Process {
     private final Memory memory;
     private List<Agent> currentAgents;
     private int skillsReused = 0;
+    private ScanResultCache scanCache;
 
     public SelfImprovingProcess(List<Agent> agents, Agent reviewerAgent,
                                  ApplicationEventPublisher eventPublisher,
                                  int maxIterations, String qualityCriteria) {
-        this(agents, reviewerAgent, eventPublisher, maxIterations, qualityCriteria, null);
+        this(agents, reviewerAgent, eventPublisher, maxIterations, qualityCriteria, (Memory) null);
     }
 
     public SelfImprovingProcess(List<Agent> agents, Agent reviewerAgent,
@@ -81,6 +85,28 @@ public class SelfImprovingProcess implements Process {
 
         // Load previously generated skills from disk
         loadPersistedSkills();
+    }
+
+    /**
+     * Constructor that accepts a shared SkillRegistry instead of creating a new one.
+     * Used by SwarmCoordinator to share skills across parallel sub-processes.
+     * Does NOT load persisted skills — the shared registry is already populated.
+     */
+    public SelfImprovingProcess(List<Agent> agents, Agent reviewerAgent,
+                                 ApplicationEventPublisher eventPublisher,
+                                 int maxIterations, String qualityCriteria,
+                                 SkillRegistry sharedRegistry) {
+        this.originalAgents = new ArrayList<>(agents);
+        this.currentAgents = new ArrayList<>(agents);
+        this.reviewerAgent = reviewerAgent;
+        this.eventPublisher = eventPublisher;
+        this.maxIterations = maxIterations;
+        this.qualityCriteria = qualityCriteria;
+        this.skillRegistry = sharedRegistry;
+        this.skillValidator = new SkillValidator();
+        this.gapAnalyzer = new SkillGapAnalyzer();
+        this.memory = null;
+        // Do NOT call loadPersistedSkills() — shared registry is already populated
     }
 
     /**
@@ -136,6 +162,14 @@ public class SelfImprovingProcess implements Process {
     public SwarmOutput execute(List<Task> tasks, Map<String, Object> inputs, String swarmId) {
         validateTasks(tasks);
 
+        // Load scan result cache
+        scanCache = new ScanResultCache();
+        scanCache.loadAll();
+        String cachedScanContext = scanCache.toContextString();
+        if (cachedScanContext != null) {
+            logger.info("Loaded {} cached scan results", scanCache.getAll().size());
+        }
+
         int effectiveMaxIterations = maxIterations > 0 ? Math.min(maxIterations, ABSOLUTE_MAX_ITERATIONS) : ABSOLUTE_MAX_ITERATIONS;
         logger.info("Self-Improving Process: Starting (max {} iterations, auto-stop on convergence)", effectiveMaxIterations);
 
@@ -154,6 +188,7 @@ public class SelfImprovingProcess implements Process {
         }
 
         List<TaskOutput> allOutputs = new ArrayList<>();
+        List<String> commandLedger = new ArrayList<>();
         int iteration = 0;
         boolean approved = false;
         String reviewFeedback = null;
@@ -199,27 +234,38 @@ public class SelfImprovingProcess implements Process {
                 // Evolve the analysis task — don't repeat previous work, push forward
                 if (reviewFeedback != null && !orderedTasks.isEmpty()) {
                     Task analysisTask = orderedTasks.get(0);
-                    String previousOutput = allOutputs.stream()
-                        .map(TaskOutput::getRawOutput)
-                        .filter(o -> o != null && !o.startsWith("Error:"))
-                        .collect(Collectors.joining("\n"));
-                    String previousSummary = previousOutput.length() > 2000
-                        ? previousOutput.substring(0, 2000) + "\n[... truncated ...]"
-                        : previousOutput;
+
+                    // Build structured summary from command ledger instead of raw output
+                    String ledgerText = commandLedger.isEmpty() ? "(no commands executed yet)" :
+                        commandLedger.stream()
+                            .map(cmd -> "- " + cmd)
+                            .collect(Collectors.joining("\n"));
 
                     String evolvedDescription = String.format(
                         "CONTINUE from where the previous iteration left off. Do NOT repeat completed work.\n\n" +
-                        "PREVIOUS ITERATION RESULTS (already done — do NOT redo):\n%s\n\n" +
+                        "COMMANDS ALREADY EXECUTED (DO NOT REPEAT THESE):\n%s\n\n" +
                         "REVIEWER FEEDBACK (what to do NOW):\n%s\n\n" +
                         "%s" +
                         "YOUR TASK: Address the reviewer's feedback by taking NEW actions. " +
                         "Use different commands, scan different targets, or try exploitation tools (hydra, nikto, etc.). " +
                         "Do NOT re-run commands that already succeeded.",
-                        previousSummary,
+                        ledgerText.length() > 4000 ? ledgerText.substring(0, 4000) + "\n[... truncated ...]" : ledgerText,
                         reviewFeedback,
                         toolErrorSummary != null ?
                             "TOOL ERRORS (adapt your approach):\n" + toolErrorSummary + "\n\n" : ""
                     );
+
+                    // Inject reviewer's specific next commands
+                    ReviewResult lastReview = ReviewResult.parse(reviewFeedback);
+                    if (lastReview != null && lastReview.hasNextCommands()) {
+                        evolvedDescription += "\n\nMANDATORY COMMANDS TO EXECUTE (run these FIRST before anything else):\n";
+                        int cmdNum = 1;
+                        for (String cmd : lastReview.nextCommands()) {
+                            evolvedDescription += cmdNum++ + ". " + cmd + "\n";
+                        }
+                        evolvedDescription += "\nYou MUST call shell_command with each of these commands. Do NOT skip them.\n";
+                    }
+
                     analysisTask.setDescription(evolvedDescription);
                 }
             }
@@ -227,6 +273,15 @@ public class SelfImprovingProcess implements Process {
             // 1. Execute all tasks with current agents
             List<TaskOutput> iterationOutputs = new ArrayList<>();
             List<TaskOutput> contextOutputs = new ArrayList<>();
+
+            // Inject cached scan results as context on the first iteration
+            if (iteration == 1 && cachedScanContext != null) {
+                TaskOutput cacheContext = TaskOutput.builder()
+                    .taskId("scan-cache")
+                    .rawOutput(cachedScanContext)
+                    .build();
+                contextOutputs.add(cacheContext);
+            }
 
             for (Task task : orderedTasks) {
                 // Find the current agent for this task (may have been rebuilt with new tools)
@@ -279,6 +334,15 @@ public class SelfImprovingProcess implements Process {
             }
 
             allOutputs = new ArrayList<>(iterationOutputs);
+
+            // Build command ledger for self-adjustment
+            List<String> newCommands = extractExecutedCommands(iterationOutputs);
+            commandLedger.addAll(newCommands);
+
+            // Cache scan results from this iteration
+            if (scanCache != null) {
+                cacheNewScanResults(iterationOutputs);
+            }
 
             // 2a0. Extract tool errors from iteration output for self-adjustment feedback
             toolErrorSummary = extractToolErrors(iterationOutputs);
@@ -467,15 +531,25 @@ public class SelfImprovingProcess implements Process {
                             skillRegistry.register(skill);
                             skillsGenerated++;
 
+                            // Log integration test results if available
+                            String integrationSummary = "";
+                            if (validation.hasIntegrationTestResults()) {
+                                integrationSummary = String.format(", integration tests: %d/%d passed",
+                                    validation.integrationTestsPassed(),
+                                    validation.integrationTestsPassed() + validation.integrationTestsFailed());
+                            }
+
                             publishEvent(SwarmEvent.Type.SKILL_VALIDATED,
-                                "Skill validated: " + skill.getName(), swarmId,
-                                Map.of("skillName", skill.getName(), "skillId", skill.getId()));
+                                "Skill validated: " + skill.getName() + integrationSummary, swarmId,
+                                Map.of("skillName", skill.getName(), "skillId", skill.getId(),
+                                    "integrationTestsPassed", validation.integrationTestsPassed(),
+                                    "integrationTestsFailed", validation.integrationTestsFailed()));
                             publishEvent(SwarmEvent.Type.SKILL_REGISTERED,
                                 "Skill registered: " + skill.getName(), swarmId,
                                 Map.of("skillName", skill.getName(), "skillId", skill.getId()));
 
-                            logger.info("New skill validated and registered: {} ({})",
-                                skill.getName(), skill.getId());
+                            logger.info("New skill validated and registered: {} ({}{})",
+                                skill.getName(), skill.getId(), integrationSummary);
 
                             // Rebuild agents with new skill
                             rebuildAgentsWithSkill(skill);
@@ -483,21 +557,28 @@ public class SelfImprovingProcess implements Process {
 
                             // Persist to memory for future runs
                             saveToMemory("skill-generated", String.format(
-                                "Generated skill '%s' for gap: %s",
-                                skill.getName(), truncate(gap, 150)),
+                                "Generated skill '%s' for gap: %s%s",
+                                skill.getName(), truncate(gap, 150), integrationSummary),
                                 Map.of("skillName", skill.getName(), "gap", gap,
                                     "iteration", iteration));
 
                         } else {
+                            // Include integration test failures in the error context for refinement
+                            String allErrors = validation.errorsAsString();
+                            if (validation.hasIntegrationTestResults() && validation.integrationTestsFailed() > 0) {
+                                allErrors += "; Integration test failures: " +
+                                    String.join("; ", validation.integrationTestResults().failureMessages());
+                            }
+
                             logger.warn("Skill '{}' failed validation: {}",
-                                skill.getName(), validation.errorsAsString());
+                                skill.getName(), allErrors);
 
                             publishEvent(SwarmEvent.Type.SKILL_VALIDATION_FAILED,
                                 "Skill validation failed: " + skill.getName(), swarmId,
-                                Map.of("skillName", skill.getName(), "errors", validation.errorsAsString()));
+                                Map.of("skillName", skill.getName(), "errors", allErrors));
 
-                            // Try to refine once
-                            GeneratedSkill refined = generator.refine(skill, validation.errorsAsString());
+                            // Try to refine once — include integration test failures in feedback
+                            GeneratedSkill refined = generator.refine(skill, allErrors);
                             if (refined != null) {
                                 refined.setAvailableTools(existingToolsMap);
                                 SkillValidator.ValidationResult retryValidation = skillValidator.validate(refined);
@@ -507,20 +588,26 @@ public class SelfImprovingProcess implements Process {
                                     skillRegistry.register(refined);
                                     skillsGenerated++;
 
+                                    String retryIntSummary = retryValidation.hasIntegrationTestResults()
+                                        ? String.format(", integration tests: %d/%d passed",
+                                            retryValidation.integrationTestsPassed(),
+                                            retryValidation.integrationTestsPassed() + retryValidation.integrationTestsFailed())
+                                        : "";
+
                                     publishEvent(SwarmEvent.Type.SKILL_VALIDATED,
-                                        "Refined skill validated: " + refined.getName(), swarmId,
+                                        "Refined skill validated: " + refined.getName() + retryIntSummary, swarmId,
                                         Map.of("skillName", refined.getName(), "refined", true));
                                     publishEvent(SwarmEvent.Type.SKILL_REGISTERED,
                                         "Refined skill registered: " + refined.getName(), swarmId,
                                         Map.of("skillName", refined.getName(), "skillId", refined.getId()));
 
-                                    logger.info("Refined skill validated: {}", refined.getName());
+                                    logger.info("Refined skill validated: {}{}", refined.getName(), retryIntSummary);
                                     rebuildAgentsWithSkill(refined);
                                     existingNames.add(refined.getFunctionName());
 
                                     saveToMemory("skill-refined", String.format(
                                         "Skill '%s' required refinement for gap: %s (original errors: %s)",
-                                        refined.getName(), truncate(gap, 100), truncate(validation.errorsAsString(), 100)),
+                                        refined.getName(), truncate(gap, 100), truncate(allErrors, 100)),
                                         Map.of("skillName", refined.getName(), "gap", gap));
                                 } else {
                                     logger.warn("Refined skill also failed. Skipping gap: {}", gap);
@@ -639,6 +726,15 @@ public class SelfImprovingProcess implements Process {
                 logger.info("Persisted {} skills to {}", skillRegistry.size(), DEFAULT_SKILLS_DIR);
             } catch (Exception e) {
                 logger.warn("Failed to persist skills: {}", e.getMessage());
+            }
+        }
+
+        // Persist scan cache to disk for reuse in future runs
+        if (scanCache != null) {
+            try {
+                scanCache.saveAll();
+            } catch (Exception e) {
+                logger.warn("Failed to save scan cache: {}", e.getMessage());
             }
         }
 
@@ -791,6 +887,10 @@ public class SelfImprovingProcess implements Process {
             "CAPABILITY_GAPS:\n" +
             "- NO_TOOL: [describe a missing tool capability that would improve the output]\n" +
             "- INSUFFICIENT_TOOL: [describe a tool that exists but doesn't work well enough]\n\n" +
+            "NEXT_COMMANDS:\n" +
+            "- [If exploitation or deeper scanning is needed, list SPECIFIC shell commands to run next iteration]\n" +
+            "- [Include full command with arguments, e.g., 'hydra -l admin -P /usr/share/nmap/nselib/data/passwords.lst 192.168.1.1 http-get /']\n" +
+            "- [If no further commands needed, omit this section]\n\n" +
             "If the output fully meets all objectives, use VERDICT: APPROVED and omit the other sections.\n" +
             "If there are quality issues but no missing tools, include QUALITY_ISSUES but omit CAPABILITY_GAPS.\n" +
             "Only include CAPABILITY_GAPS if a NEW TOOL would genuinely help — not just prompt improvements.",
@@ -931,6 +1031,32 @@ public class SelfImprovingProcess implements Process {
     }
 
     /**
+     * Extract nmap scan results from iteration outputs and cache them for future runs.
+     * Parses ShellCommandTool output for nmap commands and their scan reports.
+     */
+    private void cacheNewScanResults(List<TaskOutput> outputs) {
+        Pattern hostPattern = Pattern.compile("Nmap scan report for (\\d+\\.\\d+\\.\\d+\\.\\d+)");
+        Pattern cmdPattern = Pattern.compile("\\*\\*Command:\\*\\*\\s*`([^`]*nmap[^`]*)`");
+
+        for (TaskOutput output : outputs) {
+            String text = output.getRawOutput();
+            if (text == null) continue;
+
+            // Find nmap commands and their output
+            Matcher cmdMatcher = cmdPattern.matcher(text);
+            while (cmdMatcher.find()) {
+                String command = cmdMatcher.group(1);
+                // Find host IPs from the scan output
+                Matcher hostMatcher = hostPattern.matcher(text);
+                while (hostMatcher.find()) {
+                    String hostIp = hostMatcher.group(1);
+                    scanCache.save(hostIp, command, text);
+                }
+            }
+        }
+    }
+
+    /**
      * Extract tool execution errors from iteration outputs for self-adjustment feedback.
      * Scans output text for timeout, error, and failure patterns so the next iteration
      * can adapt its approach (e.g., scan individual hosts instead of full subnet).
@@ -974,6 +1100,55 @@ public class SelfImprovingProcess implements Process {
             summary.append("- ... and ").append(errors.size() - 10).append(" more errors\n");
         }
         return summary.toString();
+    }
+
+    /**
+     * Extract executed shell commands from iteration outputs to build a structured ledger.
+     * Parses the ShellCommandTool output format: **Command:** `...` / **Exit Code:** N
+     */
+    private List<String> extractExecutedCommands(List<TaskOutput> outputs) {
+        List<String> commands = new ArrayList<>();
+        java.util.regex.Pattern cmdPattern = java.util.regex.Pattern.compile(
+            "\\*\\*Command:\\*\\*\\s*`([^`]+)`");
+        java.util.regex.Pattern exitPattern = java.util.regex.Pattern.compile(
+            "\\*\\*Exit Code:\\*\\*\\s*(\\d+)");
+
+        for (TaskOutput output : outputs) {
+            String text = output.getRawOutput();
+            if (text == null) continue;
+
+            // Split by command blocks
+            String[] blocks = text.split("(?=\\*\\*Command:\\*\\*)");
+            for (String block : blocks) {
+                java.util.regex.Matcher cmdMatcher = cmdPattern.matcher(block);
+                if (cmdMatcher.find()) {
+                    String cmd = cmdMatcher.group(1);
+                    String status = "OK";
+
+                    java.util.regex.Matcher exitMatcher = exitPattern.matcher(block);
+                    if (exitMatcher.find() && !"0".equals(exitMatcher.group(1))) {
+                        status = "EXIT " + exitMatcher.group(1);
+                    }
+
+                    if (block.contains("timed out")) status = "TIMEOUT";
+                    if (block.contains("Error:")) status = "ERROR";
+
+                    // Brief result summary (first 80 chars of stdout)
+                    String brief = "";
+                    int stdoutIdx = block.indexOf("**stdout:**");
+                    if (stdoutIdx >= 0) {
+                        String after = block.substring(stdoutIdx + 11).trim();
+                        // Remove code fences
+                        after = after.replaceAll("```\\w*\\n?", "").trim();
+                        brief = after.length() > 80 ? after.substring(0, 80) + "..." : after;
+                        brief = brief.replace("\n", " ").trim();
+                    }
+
+                    commands.add(cmd + " [" + status + "]" + (brief.isEmpty() ? "" : " — " + brief));
+                }
+            }
+        }
+        return commands;
     }
 
     private double jaccardSimilaritySimple(Set<String> a, Set<String> b) {

@@ -218,6 +218,18 @@ public class Swarm {
                 yield new ai.intelliswarm.swarmai.process.SelfImprovingProcess(
                         agents, managerAgent, eventPublisher, maxIter, criteria);
             }
+            case SWARM -> {
+                int maxIter = config.containsKey("maxIterations") ? ((Number) config.get("maxIterations")).intValue() : 5;
+                int maxParallel = config.containsKey("maxParallelAgents") ? ((Number) config.get("maxParallelAgents")).intValue() : 5;
+                String criteria = config.containsKey("qualityCriteria") ? (String) config.get("qualityCriteria") : null;
+                ai.intelliswarm.swarmai.process.SwarmCoordinator coordinator =
+                        new ai.intelliswarm.swarmai.process.SwarmCoordinator(
+                                agents, managerAgent, eventPublisher, maxIter, maxParallel, criteria);
+                if (config.containsKey("targetPrefix")) {
+                    coordinator.setTargetPattern((String) config.get("targetPrefix"));
+                }
+                yield coordinator;
+            }
         };
     }
 
@@ -232,6 +244,10 @@ public class Swarm {
 
         if (processType == ProcessType.ITERATIVE && managerAgent == null) {
             throw new IllegalStateException("Manager agent (reviewer) is required for iterative process");
+        }
+
+        if (processType == ProcessType.SWARM && managerAgent == null) {
+            throw new IllegalStateException("Manager agent (reviewer) is required for swarm coordinator process");
         }
 
         if (tasks.isEmpty()) {

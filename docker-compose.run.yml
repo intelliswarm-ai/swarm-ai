@@ -162,3 +162,44 @@ services:
       - ./output:/app/output
     stdin_open: true
     tty: true
+
+  pentest-swarm:
+    build:
+      context: .
+      dockerfile: Dockerfile.run
+    env_file: .env
+    environment:
+      - WORKFLOW=pentest-swarm
+    network_mode: host
+    volumes:
+      - ./output:/app/output
+    stdin_open: true
+    tty: true
+
+  competitive-swarm:
+    build:
+      context: .
+      dockerfile: Dockerfile.run
+    env_file: .env
+    environment:
+      - WORKFLOW=competitive-swarm
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./output:/app/output
+    stdin_open: true
+    tty: true
+
+  investment-swarm:
+    build:
+      context: .
+      dockerfile: Dockerfile.run
+    env_file: .env
+    environment:
+      - WORKFLOW=investment-swarm
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./output:/app/output
+    stdin_open: true
+    tty: true

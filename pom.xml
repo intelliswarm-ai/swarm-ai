@@ -252,6 +252,12 @@
             <artifactId>postgresql</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- HtmlUnit headless browser for JavaScript-capable web scraping -->
+        <dependency>
+            <groupId>org.htmlunit</groupId>
+            <artifactId>htmlunit</artifactId>
+            <version>4.7.0</version>
+        </dependency>
     </dependencies>
 
     <build>

@@ -5,5 +5,13 @@ public enum ProcessType {
     HIERARCHICAL,
     PARALLEL,
     ITERATIVE,
-    SELF_IMPROVING
+    SELF_IMPROVING,
+    SWARM;           // Distributed fan-out: discovery -> parallel self-improving agents per target
+
+    /**
+     * Returns true if this process type executes tasks asynchronously.
+     */
+    public boolean isAsync() {
+        return this == PARALLEL || this == SWARM;
+    }
 }

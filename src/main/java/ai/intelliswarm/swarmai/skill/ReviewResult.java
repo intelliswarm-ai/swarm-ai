@@ -13,6 +13,7 @@ public record ReviewResult(
     boolean approved,
     List<String> qualityIssues,
     List<String> capabilityGaps,
+    List<String> nextCommands,
     String rawFeedback
 ) {
     /**
@@ -26,7 +27,7 @@ public record ReviewResult(
      */
     public static ReviewResult parse(String reviewText) {
         if (reviewText == null || reviewText.trim().isEmpty()) {
-            return new ReviewResult(false, List.of(), List.of(), "");
+            return new ReviewResult(false, List.of(), List.of(), List.of(), "");
         }
 
         String upper = reviewText.substring(0, Math.min(300, reviewText.length())).toUpperCase();
@@ -40,7 +41,10 @@ public record ReviewResult(
         // Extract capability gaps
         List<String> capabilityGaps = extractSection(reviewText, "CAPABILITY_GAPS");
 
-        return new ReviewResult(approved, qualityIssues, capabilityGaps, reviewText);
+        // Extract next commands for reviewer-driven command injection
+        List<String> nextCommands = extractSection(reviewText, "NEXT_COMMANDS");
+
+        return new ReviewResult(approved, qualityIssues, capabilityGaps, nextCommands, reviewText);
     }
 
     private static List<String> extractSection(String text, String sectionName) {
@@ -64,7 +68,8 @@ public record ReviewResult(
                 items.add(trimmed.substring(2).trim());
             } else if (trimmed.toUpperCase().startsWith("VERDICT:") ||
                        trimmed.toUpperCase().startsWith("QUALITY_ISSUES") ||
-                       trimmed.toUpperCase().startsWith("CAPABILITY_GAPS")) {
+                       trimmed.toUpperCase().startsWith("CAPABILITY_GAPS") ||
+                       trimmed.toUpperCase().startsWith("NEXT_COMMANDS")) {
                 if (!trimmed.toUpperCase().startsWith(sectionName)) {
                     break; // Hit a different section
                 }
@@ -80,5 +85,9 @@ public record ReviewResult(
 
     public boolean hasQualityIssues() {
         return qualityIssues != null && !qualityIssues.isEmpty();
+    }
+
+    public boolean hasNextCommands() {
+        return nextCommands != null && !nextCommands.isEmpty();
     }
 }

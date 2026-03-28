@@ -53,11 +53,11 @@ public class SkillValidator {
         // 1. Basic checks (all types)
         if (skill.getName() == null || skill.getName().isEmpty()) {
             errors.add("Skill name is empty");
-            return new ValidationResult(false, errors, null);
+            return new ValidationResult(false, errors, null, null);
         }
         if (skill.getDescription() == null || skill.getDescription().isEmpty()) {
             errors.add("Skill description is empty");
-            return new ValidationResult(false, errors, null);
+            return new ValidationResult(false, errors, null, null);
         }
 
         // 2. Type-specific validation
@@ -75,18 +75,36 @@ public class SkillValidator {
 
         if (!errors.isEmpty()) {
             logger.warn("Skill '{}' failed validation: {}", skill.getName(), errors);
-            return new ValidationResult(false, errors, null);
+            return new ValidationResult(false, errors, null, null);
         }
 
-        // 3. Quality assessment
+        // 3. Integration tests — exercise the full execute() pipeline with real tools
+        GeneratedSkill.IntegrationTestResults integrationResults = null;
+        if (skill.getIntegrationTests() != null && !skill.getIntegrationTests().isEmpty()) {
+            integrationResults = runIntegrationTests(skill);
+            if (integrationResults.failed() > 0) {
+                for (String failure : integrationResults.failureMessages()) {
+                    errors.add("Integration test failed: " + failure);
+                }
+                logger.warn("Skill '{}' failed {} of {} integration tests",
+                    skill.getName(), integrationResults.failed(), integrationResults.total());
+                // Integration test failures are blocking — skill cannot be validated
+                return new ValidationResult(false, errors, null, integrationResults);
+            }
+            logger.info("Skill '{}' passed all {} integration tests ({}ms)",
+                skill.getName(), integrationResults.total(), integrationResults.totalDurationMs());
+        }
+
+        // 4. Quality assessment
         SkillQualityScore qualityScore = SkillQualityScore.assess(skill);
         skill.setQualityScore(qualityScore);
 
-        logger.info("Skill '{}' v{} ({}) passed validation (quality: {}/100 grade {})",
+        logger.info("Skill '{}' v{} ({}) passed validation (quality: {}/100 grade {}, integration tests: {})",
             skill.getName(), skill.getVersion(), skillType,
-            qualityScore.totalScore(), qualityScore.grade());
+            qualityScore.totalScore(), qualityScore.grade(),
+            integrationResults != null ? integrationResults.passed() + "/" + integrationResults.total() + " passed" : "none");
 
-        return new ValidationResult(true, errors, qualityScore);
+        return new ValidationResult(true, errors, qualityScore, integrationResults);
     }
 
     private void validatePromptSkill(GeneratedSkill skill, List<String> errors) {
@@ -133,6 +151,13 @@ public class SkillValidator {
                 logger.warn("Skill '{}' test warnings (non-blocking): {}", skill.getName(), testErrors);
             }
         }
+
+        // Require at least 2 test cases for CODE skills
+        if (skill.getTestCases().size() < 2) {
+            logger.warn("Skill '{}' has only {} test case(s) — minimum 2 required for CODE skills",
+                skill.getName(), skill.getTestCases().size());
+            // Non-blocking warning for now, but affects quality score
+        }
     }
 
     private void validateCompositeSkill(GeneratedSkill skill, List<String> errors) {
@@ -170,7 +195,9 @@ public class SkillValidator {
         try {
             org.codehaus.groovy.control.CompilerConfiguration config = new org.codehaus.groovy.control.CompilerConfiguration();
             org.codehaus.groovy.control.customizers.ImportCustomizer imports = new org.codehaus.groovy.control.customizers.ImportCustomizer();
-            imports.addStarImports("java.util", "java.math", "groovy.json", "groovy.xml");
+            imports.addStarImports("java.util", "java.math", "groovy.json", "groovy.xml",
+                "java.util.regex", "java.time");
+            imports.addImports("java.net.URLEncoder", "java.net.URLDecoder");
             config.addCompilationCustomizers(imports);
 
             groovy.lang.GroovyShell shell = new groovy.lang.GroovyShell(config);
@@ -227,15 +254,65 @@ public class SkillValidator {
     }
 
     /**
-     * Result of skill validation, now including quality score.
+     * Run integration tests through the full skill.execute() pipeline.
+     * Uses a per-test timeout to prevent runaway tests.
      */
-    public record ValidationResult(boolean passed, List<String> errors, SkillQualityScore qualityScore) {
+    private GeneratedSkill.IntegrationTestResults runIntegrationTests(GeneratedSkill skill) {
+        logger.info("Running {} integration tests for skill '{}'",
+            skill.getIntegrationTests().size(), skill.getName());
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<GeneratedSkill.IntegrationTestResults> future = executor.submit(
+                () -> skill.runIntegrationTests());
+            // Total timeout: 30s per test or 120s max
+            int timeoutSeconds = Math.min(
+                skill.getIntegrationTests().size() * 30, 120);
+            return future.get(timeoutSeconds, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            logger.warn("Integration tests for '{}' timed out", skill.getName());
+            return new GeneratedSkill.IntegrationTestResults(
+                List.of(new GeneratedSkill.IntegrationTestResult(
+                    "timeout", false, "Integration tests timed out", 0, List.of(), List.of())),
+                0, 1, 1, 0);
+        } catch (Exception e) {
+            logger.warn("Integration tests for '{}' failed: {}", skill.getName(), e.getMessage());
+            return new GeneratedSkill.IntegrationTestResults(
+                List.of(new GeneratedSkill.IntegrationTestResult(
+                    "error", false, "Error: " + e.getMessage(), 0, List.of(), List.of())),
+                0, 1, 1, 0);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    /**
+     * Result of skill validation including quality score and integration test results.
+     */
+    public record ValidationResult(
+        boolean passed,
+        List<String> errors,
+        SkillQualityScore qualityScore,
+        GeneratedSkill.IntegrationTestResults integrationTestResults
+    ) {
         public String errorsAsString() {
             return String.join("; ", errors);
         }
 
         public boolean hasQualityScore() {
             return qualityScore != null;
+        }
+
+        public boolean hasIntegrationTestResults() {
+            return integrationTestResults != null;
+        }
+
+        public int integrationTestsPassed() {
+            return integrationTestResults != null ? integrationTestResults.passed() : 0;
+        }
+
+        public int integrationTestsFailed() {
+            return integrationTestResults != null ? integrationTestResults.failed() : 0;
         }
     }
 }

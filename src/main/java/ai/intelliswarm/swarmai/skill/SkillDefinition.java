@@ -112,6 +112,22 @@ public class SkillDefinition {
     private List<String> testCases;
 
     /**
+     * Integration tests that verify the skill works end-to-end through its execute() pipeline.
+     * Unlike testCases (which run Groovy in isolation with mocks), integration tests call
+     * the full skill.execute() with real tools and validate actual output.
+     *
+     * Each integration test is a self-contained, reproducible verification:
+     * - Defines input parameters
+     * - Runs the skill as a black box
+     * - Asserts on the actual output
+     * - Optionally verifies which tools were called
+     *
+     * These tests are persisted as individual .groovy files in the skill package's tests/ directory,
+     * making each skill a portable, self-verifiable unit that can live in a public repo.
+     */
+    private List<IntegrationTest> integrationTests;
+
+    /**
      * Routing table for COMPOSITE skills.
      * Maps intent patterns to sub-skill names.
      * Example: {"stock analysis" -> "stock-analyzer", "portfolio review" -> "portfolio-reviewer"}
@@ -175,6 +191,7 @@ public class SkillDefinition {
         this.examples = new ArrayList<>();
         this.selfCheckItems = new ArrayList<>();
         this.testCases = new ArrayList<>();
+        this.integrationTests = new ArrayList<>();
         this.routingTable = new LinkedHashMap<>();
         this.category = "generated";
         this.constraints = new ArrayList<>();
@@ -250,6 +267,31 @@ public class SkillDefinition {
                 sb.append("### ").append(ex.name()).append("\n");
                 sb.append("**Input:** ").append(ex.input()).append("\n");
                 sb.append("**Expected Output:** ").append(ex.expectedOutput()).append("\n\n");
+            }
+        }
+
+        // Integration Tests — self-contained, reproducible verification
+        if (integrationTests != null && !integrationTests.isEmpty()) {
+            sb.append("## Integration Tests\n\n");
+            for (IntegrationTest test : integrationTests) {
+                sb.append("### ").append(test.name()).append("\n");
+                if (test.description() != null && !test.description().isBlank()) {
+                    sb.append(test.description()).append("\n\n");
+                }
+                if (test.inputParams() != null && !test.inputParams().isEmpty()) {
+                    sb.append("**Input:**\n```yaml\n");
+                    test.inputParams().forEach((k, v) ->
+                        sb.append(k).append(": ").append(v).append("\n"));
+                    sb.append("```\n\n");
+                }
+                if (test.assertionCode() != null && !test.assertionCode().isBlank()) {
+                    sb.append("**Assertions:**\n```groovy\n");
+                    sb.append(test.assertionCode()).append("\n```\n\n");
+                }
+                if (test.expectedToolCalls() != null && !test.expectedToolCalls().isEmpty()) {
+                    sb.append("**Expected tool calls:** ")
+                        .append(String.join(", ", test.expectedToolCalls())).append("\n\n");
+                }
             }
         }
 
@@ -370,9 +412,26 @@ public class SkillDefinition {
     }
 
     private static void parseBody(SkillDefinition def, String body) {
-        // Extract code block if present
-        int codeStart = body.indexOf("```groovy");
-        if (codeStart == -1) codeStart = body.indexOf("```java");
+        // Extract code block if present (from ## Code section only, not from ## Integration Tests)
+        int codeSection = body.indexOf("## Code");
+        int integrationSection = body.indexOf("## Integration Tests");
+        int codeStart = -1;
+        if (codeSection >= 0) {
+            // Look for code block within the ## Code section only
+            int searchEnd = integrationSection >= 0 && integrationSection > codeSection
+                ? integrationSection : body.length();
+            String codeArea = body.substring(codeSection, searchEnd);
+            int relStart = codeArea.indexOf("```groovy");
+            if (relStart == -1) relStart = codeArea.indexOf("```java");
+            if (relStart >= 0) {
+                codeStart = codeSection + relStart;
+            }
+        }
+        if (codeStart == -1) {
+            // Fallback: first code block in body (backward compat)
+            codeStart = body.indexOf("```groovy");
+            if (codeStart == -1) codeStart = body.indexOf("```java");
+        }
         if (codeStart >= 0) {
             int contentStart = body.indexOf('\n', codeStart);
             int codeEnd = body.indexOf("```", contentStart + 1);
@@ -382,12 +441,126 @@ public class SkillDefinition {
         }
 
         // Everything before the code block (or the whole body) is instruction
-        String instructionPart = codeStart >= 0 ? body.substring(0, codeStart).trim() : body.trim();
+        int instrEnd = codeStart >= 0 ? codeStart : (integrationSection >= 0 ? integrationSection : body.length());
+        String instructionPart = body.substring(0, instrEnd).trim();
         if (!instructionPart.isBlank()) {
             // Strip the "## Code" header if present
             instructionPart = instructionPart.replaceAll("##\\s*Code\\s*$", "").trim();
             if (!instructionPart.isBlank()) {
                 def.instructionBody = instructionPart;
+            }
+        }
+
+        // Parse ## Integration Tests section
+        if (integrationSection >= 0) {
+            parseIntegrationTests(def, body.substring(integrationSection));
+        }
+    }
+
+    /**
+     * Parse the ## Integration Tests section from SKILL.md body.
+     *
+     * Expected format per test:
+     * ### test_name
+     * Description text
+     *
+     * **Input:**
+     * ```yaml
+     * key: value
+     * ```
+     *
+     * **Assertions:**
+     * ```groovy
+     * assert output != null
+     * ```
+     *
+     * **Expected tool calls:** tool1, tool2
+     */
+    private static void parseIntegrationTests(SkillDefinition def, String section) {
+        // Find the end of the integration tests section (next ## heading or end)
+        int sectionEnd = section.indexOf("\n## ", 3);
+        if (sectionEnd < 0) sectionEnd = section.length();
+        String testSection = section.substring(0, sectionEnd);
+
+        // Split by ### to get individual tests
+        String[] testBlocks = testSection.split("### ");
+        for (String block : testBlocks) {
+            if (block.isBlank() || block.startsWith("Integration Tests")) continue;
+
+            // First line is the test name
+            int nl = block.indexOf('\n');
+            if (nl < 0) continue;
+            String testName = block.substring(0, nl).trim();
+            String testBody = block.substring(nl + 1);
+
+            // Extract description (text before first **)
+            String description = "";
+            int firstBold = testBody.indexOf("**");
+            if (firstBold > 0) {
+                description = testBody.substring(0, firstBold).trim();
+            }
+
+            // Extract input params from **Input:** yaml block
+            Map<String, String> inputParams = new LinkedHashMap<>();
+            int inputStart = testBody.indexOf("**Input:**");
+            if (inputStart >= 0) {
+                String afterInput = testBody.substring(inputStart);
+                int yamlStart = afterInput.indexOf("```yaml");
+                if (yamlStart == -1) yamlStart = afterInput.indexOf("```");
+                if (yamlStart >= 0) {
+                    int yamlContentStart = afterInput.indexOf('\n', yamlStart);
+                    int yamlEnd = afterInput.indexOf("```", yamlContentStart + 1);
+                    if (yamlContentStart >= 0 && yamlEnd > yamlContentStart) {
+                        String yaml = afterInput.substring(yamlContentStart + 1, yamlEnd).trim();
+                        for (String line : yaml.split("\n")) {
+                            int colon = line.indexOf(':');
+                            if (colon > 0) {
+                                String key = line.substring(0, colon).trim();
+                                String value = line.substring(colon + 1).trim();
+                                // Strip quotes if present
+                                if ((value.startsWith("\"") && value.endsWith("\"")) ||
+                                    (value.startsWith("'") && value.endsWith("'"))) {
+                                    value = value.substring(1, value.length() - 1);
+                                }
+                                inputParams.put(key, value);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Extract assertion code from **Assertions:** groovy block
+            String assertionCode = "";
+            int assertStart = testBody.indexOf("**Assertions:**");
+            if (assertStart >= 0) {
+                String afterAssert = testBody.substring(assertStart);
+                int groovyStart = afterAssert.indexOf("```groovy");
+                if (groovyStart == -1) groovyStart = afterAssert.indexOf("```");
+                if (groovyStart >= 0) {
+                    int groovyContentStart = afterAssert.indexOf('\n', groovyStart);
+                    int groovyEnd = afterAssert.indexOf("```", groovyContentStart + 1);
+                    if (groovyContentStart >= 0 && groovyEnd > groovyContentStart) {
+                        assertionCode = afterAssert.substring(groovyContentStart + 1, groovyEnd).trim();
+                    }
+                }
+            }
+
+            // Extract expected tool calls
+            List<String> expectedToolCalls = new ArrayList<>();
+            int toolCallsStart = testBody.indexOf("**Expected tool calls:**");
+            if (toolCallsStart >= 0) {
+                int lineEnd = testBody.indexOf('\n', toolCallsStart);
+                if (lineEnd < 0) lineEnd = testBody.length();
+                String toolLine = testBody.substring(toolCallsStart + "**Expected tool calls:**".length(), lineEnd).trim();
+                for (String tool : toolLine.split(",")) {
+                    String trimmed = tool.trim();
+                    if (!trimmed.isEmpty()) expectedToolCalls.add(trimmed);
+                }
+            }
+
+            if (!testName.isBlank() && !assertionCode.isBlank()) {
+                def.integrationTests.add(new IntegrationTest(
+                    testName, description, inputParams, assertionCode, expectedToolCalls));
             }
         }
     }
@@ -410,6 +583,36 @@ public class SkillDefinition {
     }
 
     public record SkillExample(String name, String input, String expectedOutput) {}
+
+    /**
+     * A self-contained integration test that verifies a skill works end-to-end.
+     *
+     * Unlike unit-level testCases that run Groovy code in isolation with mock tools,
+     * integration tests exercise the full skill.execute() pipeline with real tool bindings.
+     * This makes each skill a portable, self-verifiable package — anyone can clone the skill
+     * and run its integration tests to confirm it actually does what it claims.
+     *
+     * @param name              Test identifier, e.g. "test_basic_stock_lookup"
+     * @param description       Human-readable description of what this test verifies
+     * @param inputParams       Parameters to pass to skill.execute() — the test's input
+     * @param assertionCode     Groovy code that receives 'output' (String) and asserts on it.
+     *                          Example: assert output.contains("AAPL"); assert output.length() > 50
+     * @param expectedToolCalls Tool names that the skill is expected to call during execution.
+     *                          Verified via tool-call tracking proxies. Empty = no tool call verification.
+     */
+    public record IntegrationTest(
+        String name,
+        String description,
+        Map<String, String> inputParams,
+        String assertionCode,
+        List<String> expectedToolCalls
+    ) {
+        public IntegrationTest {
+            if (name == null || name.isBlank()) throw new IllegalArgumentException("Integration test name is required");
+            if (inputParams == null) inputParams = Map.of();
+            if (expectedToolCalls == null) expectedToolCalls = List.of();
+        }
+    }
 
     /**
      * Agent persona definition for multi-agent COMPOSITE skills.
@@ -468,6 +671,15 @@ public class SkillDefinition {
         public Builder example(String name, String input, String output) { def.examples.add(new SkillExample(name, input, output)); return this; }
         public Builder selfCheck(String... items) { def.selfCheckItems.addAll(List.of(items)); return this; }
         public Builder testCase(String test) { def.testCases.add(test); return this; }
+        public Builder integrationTest(IntegrationTest test) { def.integrationTests.add(test); return this; }
+        public Builder integrationTest(String name, String description, Map<String, String> params, String assertions) {
+            def.integrationTests.add(new IntegrationTest(name, description, params, assertions, List.of()));
+            return this;
+        }
+        public Builder integrationTest(String name, String description, Map<String, String> params, String assertions, List<String> expectedTools) {
+            def.integrationTests.add(new IntegrationTest(name, description, params, assertions, expectedTools));
+            return this;
+        }
         public Builder route(String intent, String subSkillName) { def.routingTable.put(intent, subSkillName); return this; }
         public Builder constraint(String... constraints) { def.constraints.addAll(List.of(constraints)); return this; }
         public Builder allowExecute(String... cmds) { def.capabilities.computeIfAbsent("allowExecute", k -> new ArrayList<>()).addAll(List.of(cmds)); return this; }
@@ -519,6 +731,8 @@ public class SkillDefinition {
     public void setSelfCheckItems(List<String> items) { this.selfCheckItems = items; }
     public List<String> getTestCases() { return testCases; }
     public void setTestCases(List<String> testCases) { this.testCases = testCases; }
+    public List<IntegrationTest> getIntegrationTests() { return integrationTests; }
+    public void setIntegrationTests(List<IntegrationTest> integrationTests) { this.integrationTests = integrationTests; }
     public Map<String, String> getRoutingTable() { return routingTable; }
     public void setRoutingTable(Map<String, String> routingTable) { this.routingTable = routingTable; }
     public List<String> getConstraints() { return constraints; }
