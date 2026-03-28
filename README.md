@@ -7,9 +7,9 @@
 [![Spring Boot 3.4](https://img.shields.io/badge/Spring%20Boot-3.4.4-brightgreen.svg)](https://spring.io/projects/spring-boot)
 [![Spring AI 1.0](https://img.shields.io/badge/Spring%20AI-1.0.4%20GA-brightgreen.svg)](https://spring.io/projects/spring-ai)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-642%20passing-brightgreen.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-643%20passing-brightgreen.svg)](#)
 
-The Java multi-agent framework with self-improving skills, quality-gated tool generation, and enterprise governance.
+The Java multi-agent framework with self-improving skills, runtime CODE tool generation, reviewer-driven task evolution, and enterprise governance.
 
 Built on Spring AI 1.0.4 GA and Spring Boot 3.4, designed for the Java enterprise ecosystem.
 
@@ -26,37 +26,72 @@ Built on Spring AI 1.0.4 GA and Spring Boot 3.4, designed for the Java enterpris
 | Dynamic context management | Model-aware | No | No | History compression |
 | Spring Boot native | Yes | Adapter | Native | Adapter |
 | Iterative refinement loops | Yes (reviewer-driven) | No | No | No |
-| Self-improving workflows | Yes (4 skill types, quality-gated) | No | No | No |
+| Self-improving workflows | Yes (CODE skill generation, quality-gated) | No | No | No |
+| Runtime tool generation | Yes (Groovy CODE skills with formal verification) | No | No | No |
+| Reviewer-driven task evolution | Yes (tasks mutate across iterations) | No | No | No |
 | Tool routing metadata | Yes (triggerWhen/avoidWhen/categories) | No | No | No |
 | Tool health checks | Yes (pre-flight validation) | No | No | No |
 | Enterprise governance | Yes (multi-tenancy, budgets, approval gates) | No | No | No |
 | Process types | 5 (Seq/Hier/Parallel/Iterative/Self-Improving) | 5 | Manual | 3 |
 | Language | Java 21 | Java | Java | Kotlin/Java |
 
+### How SwarmAI Differs from LangGraph Reflection
+
+LangGraph's reflection pattern runs Agent -> Critic -> Agent in a fixed loop. The critic says "try again" and the agent retries with the same tools. SwarmAI goes further:
+
+| Aspect | LangGraph Reflection | SwarmAI Self-Improving |
+|--------|---------------------|----------------------|
+| Tools across iterations | Static (same tools every iteration) | Expanding (new CODE skills generated mid-run) |
+| Task description | Fixed (same task retried) | Evolving (mutated by reviewer feedback + command ledger) |
+| Critic output | Text feedback ("try again") | Structured: QUALITY_ISSUES + CAPABILITY_GAPS + NEXT_COMMANDS |
+| Stopping condition | Fixed iteration count | Goal-driven (reviewer APPROVED or convergence detected) |
+| Generated capabilities | None | Real Groovy CODE tools with formal verification |
+| Skill persistence | N/A | Skills saved to disk, reused across runs |
+
 ### What Makes SwarmAI Different
 
-**1. Self-Improving Skill Architecture** — The core differentiator. When a reviewer identifies a missing capability, the framework generates new skills at runtime — not just Groovy code snippets, but rich skill packages. Four skill types adapt to the problem:
+**1. Self-Improving Skill Architecture** — The core differentiator. When a reviewer identifies a missing capability, the framework generates new CODE skills at runtime — real Groovy tools that compose existing tools, parse output, and perform data processing. Skills are formally verified before deployment.
 
 | Skill Type | What It Does | Best For |
 |-----------|-------------|---------|
-| **PROMPT** | LLM instructions injected into agent's system prompt | Domain expertise, analysis frameworks, reasoning patterns |
-| **CODE** | Sandboxed Groovy script with tool composition | Data transformation, computation pipelines |
+| **CODE** (preferred) | Sandboxed Groovy script with tool composition and library access | Data transformation, output parsing, tool pipelines |
 | **HYBRID** | Code gathers data, instructions guide LLM reasoning | Complex analysis needing both data processing and reasoning |
 | **COMPOSITE** | Router dispatching to sub-skills based on intent | Multi-capability domains with distinct sub-tasks |
 
-Skills are persisted as directory-based packages (SKILL.md + _meta.json), versioned with SemVer, and reused across runs.
+Generated CODE skills have access to `groovy.json.JsonSlurper`, `java.util.regex`, `java.net.URLEncoder`, and `java.time.*` for real data processing. Skills are persisted as directory-based packages (SKILL.md + _meta.json), versioned with SemVer, and reused across runs.
 
-**2. Quality-Gated Skill Generation** — Unlike frameworks that eagerly generate tools, SwarmAI evaluates whether generation is warranted before spending LLM tokens:
+**Example generated skills from a real penetration testing run:**
+- `tool_chain_executor` — Composes multiple shell commands into a pipeline with output parsing
+- `hydra_brute_force_wrapper` — Automates credential testing with wordlist generation
+- `auto_enumerate_scan_exploit` — Full scan-enumerate-exploit pipeline per host
 
+**2. Quality-Gated Skill Generation with Formal Verification** — Skills must pass a multi-stage validation pipeline before deployment:
+
+- **Meta-Skill Rejection** — Blocks "methodology" or "workflow guide" skills that teach the LLM what it already knows
+- **CODE-First Policy** — PROMPT-only skills are blocked (score < 0.70 threshold). Real capability gaps need real CODE tools
 - **Gap Analyzer** — Scores gaps on clarity, coverage, novelty, complexity, and reuse potential (0-1.0)
 - **Tool-Error Detection** — Rejects gaps that describe I/O errors or connection failures (tool usage problems, not missing capabilities)
-- **Impossible-Capability Blocklist** — Blocks requests for sentiment analysis APIs, social media feeds, or ML infrastructure we don't have
+- **Impossible-Capability Blocklist** — Blocks requests for sentiment analysis APIs, social media feeds, or ML infrastructure
 - **Cross-Iteration Dedup** — Prevents the same gap from being processed twice across iterations
-- **Post-Review Reclassification** — Catches tool errors misclassified as capability gaps by the reviewer
+- **Formal Verification** — CODE skills require at least 2 test cases with assertion-based verification. Skills with no tests are capped at grade F
+- **Quality Scoring** — 5-dimension assessment (documentation, test coverage, error handling, complexity, output format). Minimum grade C (70/100) for promotion
 
-Result: 5x fewer wasted skills, 22% faster execution, 80% skill effectiveness (up from 40%).
+**3. Reviewer-Driven Task Evolution** — Unlike LangGraph reflection where agents retry the same task, SwarmAI **mutates the task itself** across iterations:
 
-**3. Tool Routing Metadata** — Every tool declares when to use it and when not to, enabling accurate LLM tool selection:
+- After each review, the analysis task description is replaced with an evolved version
+- Previous work is tracked in a **Command Ledger** — structured list of executed commands with status and results
+- The reviewer generates **NEXT_COMMANDS** — specific shell commands the agent must execute next iteration
+- The agent sees "COMMANDS ALREADY EXECUTED (DO NOT REPEAT)" + "MANDATORY COMMANDS TO EXECUTE"
+- Result: each iteration pushes forward (discovery → enumeration → exploitation) instead of repeating
+
+```
+Iteration 1: nmap -sP 192.168.1.0/24 → discover 10 hosts
+Iteration 2: nmap --script http-enum,http-vuln-* → NSE vulnerability scripts
+Iteration 4: hydra -L users.txt -P passwords.txt smb → credential brute-force
+Iteration 6: nikto -host per-host → web vulnerability scanning
+```
+
+**4. Tool Routing Metadata** — Every tool declares when to use it and when not to, enabling accurate LLM tool selection:
 
 ```java
 @Override
@@ -72,27 +107,27 @@ public String getAvoidWhen() {
 
 Tools also declare categories, tags, requirements (env vars, binaries), output schemas, and smoke tests. The agent's system prompt includes structured `USE WHEN` / `AVOID WHEN` routing hints per tool.
 
-**4. Anti-Hallucination Guardrails** — Every agent automatically gets rules baked into its system prompt: date awareness, `[CONFIRMED]`/`[ESTIMATE]` markers, "DATA NOT AVAILABLE" enforcement, and unknown topic detection. URL validation rejects hallucinated API domains (`api.example.com`, `api.cloudmarketshare.com`) with helpful suggestions for real endpoints.
+**5. Anti-Hallucination Guardrails** — Every agent automatically gets rules baked into its system prompt: date awareness, `[CONFIRMED]`/`[ESTIMATE]` markers, "DATA NOT AVAILABLE" enforcement, and unknown topic detection. URL validation rejects hallucinated API domains (`api.example.com`, `api.cloudmarketshare.com`) with helpful suggestions for real endpoints.
 
-**5. Token Economics** — Built-in per-task token tracking with cost estimation across models (OpenAI, Anthropic, Ollama). See exactly what each agent costs. Budget policies with WARN or HARD_STOP actions prevent runaway spending.
+**6. Token Economics** — Built-in per-task token tracking with cost estimation across models (OpenAI, Anthropic, Ollama). See exactly what each agent costs. Budget policies with WARN or HARD_STOP actions prevent runaway spending.
 
-**6. Enterprise Governance** — Production-ready multi-tenancy, budget tracking, and approval gates:
+**7. Enterprise Governance** — Production-ready multi-tenancy, budget tracking, and approval gates:
 - **Multi-Tenancy** — Isolated resource quotas per team (max workflows, skills, token budgets)
 - **Budget Tracking** — Real-time token/cost monitoring with configurable limits and auto-stop
 - **Approval Gates** — Human-in-the-loop review points with timeout-based auto-approval for demos
 
-**7. Tool Health Checks** — Before assigning tools to agents, the framework verifies they're operational:
+**8. Tool Health Checks** — Before assigning tools to agents, the framework verifies they're operational:
 ```
 Tool health check: 7/8 tools operational
   web_search UNHEALTHY: [Missing environment variable: ALPHA_VANTAGE_API_KEY]
 ```
 Unhealthy tools are excluded pre-flight, preventing wasted LLM calls on tools that will fail.
 
-**8. 21+ Built-in Tools** — Production-ready tools for file I/O, web scraping, HTTP requests, shell commands, CSV/JSON/XML processing, PDF reading, SEC filings, code execution, and more. All with routing metadata, SSRF protection, and proper sandboxing.
+**9. 21+ Built-in Tools** — Production-ready tools for file I/O, web scraping, HTTP requests, shell commands, CSV/JSON/XML processing, PDF reading, SEC filings, code execution, and more. All with routing metadata, SSRF protection, and proper sandboxing.
 
-**9. MCP Protocol** — Connect to any MCP-compatible tool server via stdio transport. Agents automatically discover and use external tools.
+**10. MCP Protocol** — Connect to any MCP-compatible tool server via stdio transport. Agents automatically discover and use external tools.
 
-**10. SwarmAI Studio** — Built-in web dashboard at `/studio` for real-time workflow visualization, event timeline, token usage charts, and cost analysis.
+**11. SwarmAI Studio** — Built-in web dashboard at `/studio` for real-time workflow visualization, event timeline, token usage charts, and cost analysis.
 
 ## Quick Start
 
@@ -126,10 +161,15 @@ docker compose -f docker-compose.run.yml run --rm mcp-research "impact of AI age
 # Iterative Memo (execute -> review -> refine loop, 3 iterations max)
 docker compose -f docker-compose.run.yml run --rm iterative-memo NVDA 3
 
-# Self-Improving — dynamic workflow adaptation
-# Give it ANY query — it plans agents, selects tools, generates skills at runtime
+# Self-Improving — dynamic workflow adaptation with CODE skill generation
+# Give it ANY query — it plans agents, generates CODE tools at runtime, evolves tasks
 docker compose -f docker-compose.run.yml run --rm --service-ports self-improving \
   "Compare the top 5 AI coding assistants for enterprise Java development"
+
+# Penetration Testing — self-improving security assessment
+# Discovery → enumeration → exploitation with hydra/nikto/nmap scripts
+docker compose -f docker-compose.run.yml run --rm --service-ports self-improving \
+  "Scan my home network 192.168.1.0/24 and test all devices for vulnerabilities"
 
 # Enterprise Governed — self-improving + multi-tenancy + budgets + approval gates
 docker compose -f docker-compose.run.yml run --rm --service-ports enterprise-governed \
@@ -143,7 +183,7 @@ docker compose -f docker-compose.run.yml run --rm --service-ports enterprise-gov
 
 ```bash
 ./mvnw clean test
-# 642 tests, all passing
+# 643 tests, all passing
 ```
 
 ## Architecture
@@ -168,14 +208,15 @@ Swarm (orchestrator)
 │   └── SELF_IMPROVING — dynamic planning + quality-gated skill generation
 ├── Skill System
 │   ├── SkillDefinition — Rich SKILL.md-format packages (frontmatter + body + code + resources)
-│   ├── SkillType — PROMPT | CODE | HYBRID | COMPOSITE
-│   ├── SkillGapAnalyzer — Quality gate: clarity, coverage, novelty, error detection, impossible-capability blocklist
-│   ├── SkillGenerator — LLM generates skills with routing rules, categories, tags
-│   ├── SkillValidator — Type-aware validation (PROMPT: body check, CODE: security + syntax + tests)
-│   ├── SkillQualityScore — 5-dimension scoring (documentation, tests, error handling, complexity, output)
+│   ├── SkillType — CODE (preferred) | HYBRID | COMPOSITE (PROMPT blocked for capability gaps)
+│   ├── SkillGapAnalyzer — Quality gate: meta-skill rejection, CODE-first policy, clarity, coverage, novelty
+│   ├── SkillGenerator — LLM generates CODE skills with library access (JsonSlurper, regex, URLEncoder)
+│   ├── SkillValidator — Formal verification: security scan + syntax + sandboxed tests (min 2 test cases)
+│   ├── SkillQualityScore — 5-dimension scoring; CODE skills with no tests capped at grade F
 │   ├── SkillVersion — SemVer tracking with rollback support
 │   ├── SkillRegistry — Storage, dedup, category search, tag filtering, persistence as packages
-│   └── GeneratedSkill — 4 execution modes with tool composition, references, resources, sub-skills
+│   ├── GeneratedSkill — 4 execution modes with tool composition, references, resources, sub-skills
+│   └── ReviewResult — Parses VERDICT, QUALITY_ISSUES, CAPABILITY_GAPS, and NEXT_COMMANDS
 ├── Enterprise
 │   ├── Multi-Tenancy — per-tenant resource quotas and isolation
 │   ├── Budget Tracking — per-workflow token/cost monitoring with WARN/HARD_STOP
@@ -228,37 +269,39 @@ System.out.println(result.getTokenUsageSummary("gpt-4o-mini"));
 
 ```java
 // The workflow dynamically adapts to ANY query — no hardcoded domain logic.
-// When the reviewer identifies missing capabilities, new skills are generated,
-// quality-gated, validated in a sandbox, and hot-loaded into agents.
+// Tasks evolve across iterations. CODE skills are generated and formally verified.
+// The reviewer prescribes specific commands for the next iteration.
 
 Swarm swarm = Swarm.builder()
     .agent(analyst)       // role/goal determined by LLM planner
     .agent(writer)
     .managerAgent(reviewer)
-    .task(analysisTask)   // description generated by planner
+    .task(analysisTask)   // description evolves each iteration
     .task(reportTask)
     .process(ProcessType.SELF_IMPROVING)
-    .config("maxIterations", 3)
+    .config("maxIterations", 15)  // safety cap — goal-driven stopping
     .config("qualityCriteria", plannerGeneratedCriteria)
     .build();
 
 SwarmOutput result = swarm.kickoff(inputs);
-// result.getMetadata() -> {skillsGenerated: 1, gapsSkippedAsDuplicate: 1,
-//   registryStats: {totalSkills: 1, byCategory: {web: 1}, averageEffectiveness: 0.8}}
+// result.getMetadata() -> {skillsGenerated: 3, skillsReused: 0,
+//   registryStats: {totalSkills: 3, byCategory: {data-io: 2, generated: 1},
+//   averageQuality: 73.0, averageEffectiveness: 1.0}}
 ```
 
 **How the self-improving loop works:**
-1. **Plan** — LLM planner analyzes the query and available tools (with routing metadata), generates agent roles, task descriptions, and quality criteria
+1. **Plan** — LLM planner (gpt-4.1) analyzes the query and available tools, generates agent roles, phased task descriptions, and quality criteria
 2. **Health Check** — Tools verified as operational before agent assignment
-3. **Execute** — Agents run tasks using selected tools
+3. **Execute** — Agents run tasks using selected tools (shell_command, http_request, etc.)
 4. **Tool Evidence Check** — Verifies agents actually used tools (not just LLM knowledge)
-5. **Review** — Reviewer evaluates output, identifies QUALITY_ISSUES and CAPABILITY_GAPS
+5. **Review + NEXT_COMMANDS** — Reviewer evaluates output, identifies QUALITY_ISSUES and CAPABILITY_GAPS, and prescribes specific commands for the next iteration
 6. **Reclassify** — Tool errors reclassified as quality issues (not capability gaps)
-7. **Gap Analyze** — Each gap scored for clarity, coverage, novelty, error patterns, impossible capabilities
+7. **Gap Analyze** — Each gap scored; meta-skills blocked; CODE type enforced
 8. **Dedup** — Cross-iteration dedup prevents same gap from being processed twice
-9. **Generate** — For approved gaps, a PROMPT/CODE/HYBRID/COMPOSITE skill is generated
-10. **Validate** — Type-aware validation (security scan, syntax check, sandboxed testing, quality scoring)
-11. **Rebuild** — Agents rebuilt with new skills, loop continues until approved or convergence
+9. **Generate CODE Skill** — For approved gaps, a CODE/HYBRID skill is generated with library access (JsonSlurper, regex, URLEncoder)
+10. **Formal Verification** — Security scan + syntax check + sandboxed test execution + quality scoring (minimum grade C)
+11. **Task Evolution** — Analysis task is rewritten: command ledger shows completed work, reviewer's NEXT_COMMANDS become mandatory, agent pushes forward instead of repeating
+12. **Convergence** — Loop stops when reviewer approves OR after 3 stale iterations (no output growth + repeated gaps)
 
 ### Enterprise Governance
 
@@ -297,7 +340,7 @@ Agent researcher = Agent.builder()
 | `HIERARCHICAL` | Coordinated teams | Manager agent plans, delegates to workers, synthesizes results. |
 | `PARALLEL` | Independent research | Tasks without dependencies run concurrently. Dependency layers execute in sequence. |
 | `ITERATIVE` | Quality-gated output | Tasks execute, reviewer evaluates against rubric, loop repeats with feedback until approved or max iterations. |
-| `SELF_IMPROVING` | Dynamic adaptation | LLM plans the workflow, agents execute, reviewer detects capability gaps, gaps are quality-gated, skills are generated/validated/hot-loaded, agents rebuilt with expanded toolkit. Skills persist across runs. |
+| `SELF_IMPROVING` | Dynamic adaptation | LLM plans the workflow, tasks evolve across iterations, reviewer prescribes NEXT_COMMANDS, CODE skills are generated/verified/hot-loaded, command ledger prevents redundancy, goal-driven stopping. |
 
 ## Examples
 
@@ -308,7 +351,8 @@ Agent researcher = Agent.builder()
 | **Research** | HIERARCHICAL | Manager + 4 specialists, task dependencies |
 | **MCP Research** | SEQUENTIAL | Live web fetching via MCP protocol |
 | **Iterative Memo** | ITERATIVE | Reviewer-driven refinement loop, 7-point quality rubric |
-| **Self-Improving** | SELF_IMPROVING | Dynamic planning, quality-gated skill generation, enriched tool catalog, any query |
+| **Self-Improving** | SELF_IMPROVING | Dynamic planning, CODE skill generation, task evolution, reviewer-driven commands, any query |
+| **Penetration Testing** | SELF_IMPROVING | Network discovery → enumeration → exploitation with hydra/nikto/nmap, CODE skill generation |
 | **Enterprise Governed** | SELF_IMPROVING | Self-improving + multi-tenancy + budgets + approval gates |
 | **Codebase Analysis** | PARALLEL | Multi-agent code review with file/directory tools |
 | **Web Research** | HIERARCHICAL | Manager + researchers + fact-checker |
@@ -323,7 +367,7 @@ All tools include routing metadata (triggerWhen/avoidWhen), categories, tags, an
 | `web_search` | web | Multi-source web search (Google, Bing, NewsAPI) with financial data enrichment |
 | `web_scrape` | web | URL content extraction with SSRF protection and hallucinated-URL detection |
 | `http_request` | web | HTTP methods with headers, auth, and hallucinated-domain blocking |
-| `shell_command` | computation | Whitelisted shell commands with timeout |
+| `shell_command` | computation | Whitelisted shell commands with timeout (nmap, hydra, nikto, enum4linux, smbclient, curl, and 50+ more) |
 | `calculator` | computation | Mathematical expression evaluation |
 | `code_execution` | computation | Sandboxed code execution (JavaScript, shell) |
 | `file_read` | data-io | Read files with format detection (JSON, CSV, YAML, XML) |
@@ -377,7 +421,7 @@ swarmai:
 | MCP Java SDK | 0.10.0 |
 | Groovy | 4.x (skill sandbox) |
 | Build | Maven |
-| Tests | JUnit 5 + Mockito (642 tests) |
+| Tests | JUnit 5 + Mockito (643 tests) |
 | Container | Docker + Docker Compose |
 
 ## Building
