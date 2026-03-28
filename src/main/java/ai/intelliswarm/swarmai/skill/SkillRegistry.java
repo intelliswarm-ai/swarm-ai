@@ -424,7 +424,10 @@ public class SkillRegistry {
                 Path refsDir = skillDir.resolve("references");
                 Files.createDirectories(refsDir);
                 for (Map.Entry<String, String> ref : skill.getReferences().entrySet()) {
-                    Files.writeString(refsDir.resolve(ref.getKey() + ".md"), ref.getValue());
+                    // Sanitize reference name to be a valid filename
+                    String safeName = ref.getKey().replaceAll("[^a-zA-Z0-9_\\-.]", "_");
+                    if (safeName.length() > 100) safeName = safeName.substring(0, 100);
+                    Files.writeString(refsDir.resolve(safeName + ".md"), ref.getValue());
                 }
             }
 

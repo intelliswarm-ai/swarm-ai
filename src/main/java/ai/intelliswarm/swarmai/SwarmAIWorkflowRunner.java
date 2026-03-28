@@ -16,6 +16,9 @@ import ai.intelliswarm.swarmai.examples.webresearch.WebResearchWorkflow;
 import ai.intelliswarm.swarmai.examples.datapipeline.DataPipelineWorkflow;
 import ai.intelliswarm.swarmai.examples.selfimproving.SelfImprovingWorkflow;
 import ai.intelliswarm.swarmai.examples.enterprise.EnterpriseSelfImprovingWorkflow;
+import ai.intelliswarm.swarmai.examples.competitive.CompetitiveResearchSwarm;
+import ai.intelliswarm.swarmai.examples.investment.InvestmentAnalysisSwarm;
+import ai.intelliswarm.swarmai.examples.pentest.DistributedPentestWorkflow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -40,6 +43,9 @@ public class SwarmAIWorkflowRunner implements CommandLineRunner {
     private final DataPipelineWorkflow dataPipelineWorkflow;
     private final SelfImprovingWorkflow selfImprovingWorkflow;
     private final EnterpriseSelfImprovingWorkflow enterpriseSelfImprovingWorkflow;
+    private final DistributedPentestWorkflow distributedPentestWorkflow;
+    private final CompetitiveResearchSwarm competitiveResearchSwarm;
+    private final InvestmentAnalysisSwarm investmentAnalysisSwarm;
 
     public SwarmAIWorkflowRunner(
             CompetitiveAnalysisWorkflow competitiveAnalysisWorkflow,
@@ -51,7 +57,10 @@ public class SwarmAIWorkflowRunner implements CommandLineRunner {
             WebResearchWorkflow webResearchWorkflow,
             DataPipelineWorkflow dataPipelineWorkflow,
             SelfImprovingWorkflow selfImprovingWorkflow,
-            EnterpriseSelfImprovingWorkflow enterpriseSelfImprovingWorkflow) {
+            EnterpriseSelfImprovingWorkflow enterpriseSelfImprovingWorkflow,
+            DistributedPentestWorkflow distributedPentestWorkflow,
+            CompetitiveResearchSwarm competitiveResearchSwarm,
+            InvestmentAnalysisSwarm investmentAnalysisSwarm) {
         this.competitiveAnalysisWorkflow = competitiveAnalysisWorkflow;
         this.stockAnalysisWorkflow = stockAnalysisWorkflow;
         this.dueDiligenceWorkflow = dueDiligenceWorkflow;
@@ -62,6 +71,9 @@ public class SwarmAIWorkflowRunner implements CommandLineRunner {
         this.dataPipelineWorkflow = dataPipelineWorkflow;
         this.selfImprovingWorkflow = selfImprovingWorkflow;
         this.enterpriseSelfImprovingWorkflow = enterpriseSelfImprovingWorkflow;
+        this.distributedPentestWorkflow = distributedPentestWorkflow;
+        this.competitiveResearchSwarm = competitiveResearchSwarm;
+        this.investmentAnalysisSwarm = investmentAnalysisSwarm;
     }
 
     @Override
@@ -113,6 +125,15 @@ public class SwarmAIWorkflowRunner implements CommandLineRunner {
             case "enterprise-governed":
                 enterpriseSelfImprovingWorkflow.run(workflowArgs);
                 break;
+            case "pentest-swarm":
+                distributedPentestWorkflow.run(workflowArgs);
+                break;
+            case "competitive-swarm":
+                competitiveResearchSwarm.run(workflowArgs);
+                break;
+            case "investment-swarm":
+                investmentAnalysisSwarm.run(workflowArgs);
+                break;
             default:
                 System.err.println("Unknown workflow type: " + workflowType);
                 showUsage();
@@ -150,6 +171,8 @@ public class SwarmAIWorkflowRunner implements CommandLineRunner {
         System.out.println("  data-pipeline [FILE]        - AI-powered data profiling, analysis, and insights report");
         System.out.println("  self-improving <QUERY>       - Self-improving workflow: generates new tools at runtime");
         System.out.println("  enterprise-governed <QUERY>  - Enterprise: self-improving + tenancy + budget + governance");
+        System.out.println("  pentest-swarm <QUERY>        - Distributed pentest: parallel agents, skill gen, reviewer commands");
+        System.out.println("  competitive-swarm <QUERY>    - Competitive research: parallel company analysis with shared skills");
         System.out.println();
         System.out.println("Examples:");
         System.out.println("  java -jar swarmai-framework.jar stock-analysis TSLA");
@@ -162,6 +185,8 @@ public class SwarmAIWorkflowRunner implements CommandLineRunner {
         System.out.println("  java -jar swarmai-framework.jar data-pipeline data/sample.csv");
         System.out.println("  java -jar swarmai-framework.jar self-improving \"Analyze AAPL with YoY growth\"");
         System.out.println("  java -jar swarmai-framework.jar enterprise-governed \"Compare top 5 AI coding assistants\"");
+        System.out.println("  java -jar swarmai-framework.jar pentest-swarm \"Scan 192.168.1.0/24 and test all devices\"");
+        System.out.println("  java -jar swarmai-framework.jar competitive-swarm \"Analyze top 5 cloud providers\"");
         System.out.println();
     }
 }

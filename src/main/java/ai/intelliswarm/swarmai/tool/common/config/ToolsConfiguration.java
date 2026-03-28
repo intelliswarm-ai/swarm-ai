@@ -11,6 +11,7 @@ import ai.intelliswarm.swarmai.tool.common.FileReadTool;
 import ai.intelliswarm.swarmai.tool.common.FileWriteTool;
 import ai.intelliswarm.swarmai.tool.common.DirectoryReadTool;
 import ai.intelliswarm.swarmai.tool.common.WebScrapeTool;
+import ai.intelliswarm.swarmai.tool.common.HeadlessBrowserTool;
 import ai.intelliswarm.swarmai.tool.common.HttpRequestTool;
 import ai.intelliswarm.swarmai.tool.common.JSONTransformTool;
 import ai.intelliswarm.swarmai.tool.common.XMLParseTool;
@@ -108,6 +109,12 @@ public class ToolsConfiguration {
     public WebScrapeTool webScrapeTool() {
         logger.info("Registering WebScrapeTool as Spring bean");
         return new WebScrapeTool();
+    }
+
+    @Bean
+    public HeadlessBrowserTool headlessBrowserTool() {
+        logger.info("Registering HeadlessBrowserTool as Spring bean");
+        return new HeadlessBrowserTool();
     }
 
     @Bean
@@ -376,6 +383,22 @@ public class ToolsConfiguration {
             if (request.selector() != null) params.put("selector", request.selector());
             if (request.includeLinks() != null) params.put("include_links", request.includeLinks());
             if (request.includeTables() != null) params.put("include_tables", request.includeTables());
+            return tool.execute(params).toString();
+        };
+    }
+
+    public record BrowseRequest(String url, String selector, Integer waitMs) {}
+
+    @Bean
+    @Description("Browse a web page with JavaScript rendering using a headless browser. Returns clean text, tables as markdown, and page content. Use for Yahoo Finance, Google Finance, company websites, and dynamic pages.")
+    public Function<BrowseRequest, String> browse() {
+        logger.info("Registering browse function for Spring AI");
+        HeadlessBrowserTool tool = headlessBrowserTool();
+        return request -> {
+            Map<String, Object> params = new HashMap<>();
+            params.put("url", request.url());
+            if (request.selector() != null) params.put("selector", request.selector());
+            if (request.waitMs() != null) params.put("waitMs", request.waitMs());
             return tool.execute(params).toString();
         };
     }

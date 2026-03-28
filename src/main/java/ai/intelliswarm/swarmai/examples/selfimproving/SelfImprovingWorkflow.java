@@ -360,7 +360,9 @@ public class SelfImprovingWorkflow {
             "- Exploitation: attempt to exploit found vulnerabilities (e.g., default credentials with hydra, " +
             "web vuln scanning with nikto, SMB enumeration with enum4linux/smbclient)\n" +
             "- Include specific commands for each phase in the task description.\n" +
-            "- If a command times out, include fallback strategies (narrower scope, fewer ports).\n\n" +
+            "- If a command times out, include fallback strategies (narrower scope, fewer ports).\n" +
+            "- ALL output files MUST be saved to /app/output/ directory (e.g., nmap -oN /app/output/nmap_host.txt, " +
+            "nikto -output /app/output/nikto_host.txt). This directory persists outside the container.\n\n" +
             "Respond in EXACTLY this format (no extra text):\n\n" +
             "ANALYST_ROLE: [role name for the primary analyst, e.g., 'Penetration Testing Specialist']\n" +
             "ANALYST_GOAL: [1-2 sentence goal describing what the analyst should accomplish for this specific query]\n" +

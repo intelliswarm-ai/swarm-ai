@@ -144,7 +144,7 @@ class SelfImprovingProcessTest extends BaseSwarmTest {
             reviewerAgent = TestFixtures.createTestAgent("Reviewer", reviewerClient);
 
             SelfImprovingProcess process = new SelfImprovingProcess(
-                List.of(workerAgent), reviewerAgent, mockEventPublisher, 3, null, null);
+                List.of(workerAgent), reviewerAgent, mockEventPublisher, 3, null, (ai.intelliswarm.swarmai.memory.Memory) null);
 
             Task task = createTask(workerAgent);
             SwarmOutput output = process.execute(List.of(task), Map.of(), "test-swarm");

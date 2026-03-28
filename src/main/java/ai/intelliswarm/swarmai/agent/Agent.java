@@ -323,6 +323,9 @@ public class Agent {
                 "you MUST adapt your approach immediately. Try a narrower scope, different parameters, " +
                 "or an alternative tool. For example: if scanning an entire subnet times out, scan " +
                 "individual hosts; if a full port scan times out, use --top-ports 100.\n");
+        system.append("7. OUTPUT FILES: When saving scan results or output files, ALWAYS write them to " +
+                "/app/output/ directory (e.g., /app/output/nmap_results.txt). This directory persists " +
+                "outside the container. Never write to the current directory or /tmp.\n");
 
         return system.toString();
     }

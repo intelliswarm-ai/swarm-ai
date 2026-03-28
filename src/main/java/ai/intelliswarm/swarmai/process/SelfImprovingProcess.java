@@ -3,6 +3,7 @@ package ai.intelliswarm.swarmai.process;
 import ai.intelliswarm.swarmai.agent.Agent;
 import ai.intelliswarm.swarmai.budget.BudgetSnapshot;
 import ai.intelliswarm.swarmai.budget.BudgetTracker;
+import ai.intelliswarm.swarmai.cache.ScanResultCache;
 import ai.intelliswarm.swarmai.event.SwarmEvent;
 import ai.intelliswarm.swarmai.memory.Memory;
 import ai.intelliswarm.swarmai.skill.*;
@@ -17,6 +18,8 @@ import org.springframework.context.ApplicationEventPublisher;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -57,11 +60,12 @@ public class SelfImprovingProcess implements Process {
     private final Memory memory;
     private List<Agent> currentAgents;
     private int skillsReused = 0;
+    private ScanResultCache scanCache;
 
     public SelfImprovingProcess(List<Agent> agents, Agent reviewerAgent,
                                  ApplicationEventPublisher eventPublisher,
                                  int maxIterations, String qualityCriteria) {
-        this(agents, reviewerAgent, eventPublisher, maxIterations, qualityCriteria, null);
+        this(agents, reviewerAgent, eventPublisher, maxIterations, qualityCriteria, (Memory) null);
     }
 
     public SelfImprovingProcess(List<Agent> agents, Agent reviewerAgent,
@@ -81,6 +85,28 @@ public class SelfImprovingProcess implements Process {
 
         // Load previously generated skills from disk
         loadPersistedSkills();
+    }
+
+    /**
+     * Constructor that accepts a shared SkillRegistry instead of creating a new one.
+     * Used by SwarmCoordinator to share skills across parallel sub-processes.
+     * Does NOT load persisted skills — the shared registry is already populated.
+     */
+    public SelfImprovingProcess(List<Agent> agents, Agent reviewerAgent,
+                                 ApplicationEventPublisher eventPublisher,
+                                 int maxIterations, String qualityCriteria,
+                                 SkillRegistry sharedRegistry) {
+        this.originalAgents = new ArrayList<>(agents);
+        this.currentAgents = new ArrayList<>(agents);
+        this.reviewerAgent = reviewerAgent;
+        this.eventPublisher = eventPublisher;
+        this.maxIterations = maxIterations;
+        this.qualityCriteria = qualityCriteria;
+        this.skillRegistry = sharedRegistry;
+        this.skillValidator = new SkillValidator();
+        this.gapAnalyzer = new SkillGapAnalyzer();
+        this.memory = null;
+        // Do NOT call loadPersistedSkills() — shared registry is already populated
     }
 
     /**
@@ -135,6 +161,14 @@ public class SelfImprovingProcess implements Process {
     @Override
     public SwarmOutput execute(List<Task> tasks, Map<String, Object> inputs, String swarmId) {
         validateTasks(tasks);
+
+        // Load scan result cache
+        scanCache = new ScanResultCache();
+        scanCache.loadAll();
+        String cachedScanContext = scanCache.toContextString();
+        if (cachedScanContext != null) {
+            logger.info("Loaded {} cached scan results", scanCache.getAll().size());
+        }
 
         int effectiveMaxIterations = maxIterations > 0 ? Math.min(maxIterations, ABSOLUTE_MAX_ITERATIONS) : ABSOLUTE_MAX_ITERATIONS;
         logger.info("Self-Improving Process: Starting (max {} iterations, auto-stop on convergence)", effectiveMaxIterations);
@@ -240,6 +274,15 @@ public class SelfImprovingProcess implements Process {
             List<TaskOutput> iterationOutputs = new ArrayList<>();
             List<TaskOutput> contextOutputs = new ArrayList<>();
 
+            // Inject cached scan results as context on the first iteration
+            if (iteration == 1 && cachedScanContext != null) {
+                TaskOutput cacheContext = TaskOutput.builder()
+                    .taskId("scan-cache")
+                    .rawOutput(cachedScanContext)
+                    .build();
+                contextOutputs.add(cacheContext);
+            }
+
             for (Task task : orderedTasks) {
                 // Find the current agent for this task (may have been rebuilt with new tools)
                 Agent taskAgent = findCurrentAgent(task.getAgent());
@@ -295,6 +338,11 @@ public class SelfImprovingProcess implements Process {
             // Build command ledger for self-adjustment
             List<String> newCommands = extractExecutedCommands(iterationOutputs);
             commandLedger.addAll(newCommands);
+
+            // Cache scan results from this iteration
+            if (scanCache != null) {
+                cacheNewScanResults(iterationOutputs);
+            }
 
             // 2a0. Extract tool errors from iteration output for self-adjustment feedback
             toolErrorSummary = extractToolErrors(iterationOutputs);
@@ -658,6 +706,15 @@ public class SelfImprovingProcess implements Process {
             }
         }
 
+        // Persist scan cache to disk for reuse in future runs
+        if (scanCache != null) {
+            try {
+                scanCache.saveAll();
+            } catch (Exception e) {
+                logger.warn("Failed to save scan cache: {}", e.getMessage());
+            }
+        }
+
         logger.info("Self-Improving Process complete: {} iterations, {} skills generated, {} reused, {} promoted, approved={}",
             iteration, skillsGenerated, skillsReused, promoted, approved);
 
@@ -948,6 +1005,32 @@ public class SelfImprovingProcess implements Process {
         }
 
         return null; // evidence looks OK
+    }
+
+    /**
+     * Extract nmap scan results from iteration outputs and cache them for future runs.
+     * Parses ShellCommandTool output for nmap commands and their scan reports.
+     */
+    private void cacheNewScanResults(List<TaskOutput> outputs) {
+        Pattern hostPattern = Pattern.compile("Nmap scan report for (\\d+\\.\\d+\\.\\d+\\.\\d+)");
+        Pattern cmdPattern = Pattern.compile("\\*\\*Command:\\*\\*\\s*`([^`]*nmap[^`]*)`");
+
+        for (TaskOutput output : outputs) {
+            String text = output.getRawOutput();
+            if (text == null) continue;
+
+            // Find nmap commands and their output
+            Matcher cmdMatcher = cmdPattern.matcher(text);
+            while (cmdMatcher.find()) {
+                String command = cmdMatcher.group(1);
+                // Find host IPs from the scan output
+                Matcher hostMatcher = hostPattern.matcher(text);
+                while (hostMatcher.find()) {
+                    String hostIp = hostMatcher.group(1);
+                    scanCache.save(hostIp, command, text);
+                }
+            }
+        }
     }
 
     /**
