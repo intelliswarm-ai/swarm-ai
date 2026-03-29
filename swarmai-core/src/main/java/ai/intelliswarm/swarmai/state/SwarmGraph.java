@@ -57,6 +57,10 @@ public final class SwarmGraph implements SwarmDefinition {
     private final List<ApprovalGate> approvalGates = new ArrayList<>();
     private TenantQuotaEnforcer tenantQuotaEnforcer;
     private StateSchema stateSchema = StateSchema.PERMISSIVE;
+    private CheckpointSaver checkpointSaver;
+    private final List<String> interruptBeforeTaskIds = new ArrayList<>();
+    private final List<String> interruptAfterTaskIds = new ArrayList<>();
+    private final Map<HookPoint, List<SwarmHook<AgentState>>> hooks = new java.util.EnumMap<>(HookPoint.class);
 
     private SwarmGraph() {}
 
@@ -195,6 +199,39 @@ public final class SwarmGraph implements SwarmDefinition {
         return this;
     }
 
+    public SwarmGraph checkpointSaver(CheckpointSaver saver) {
+        this.checkpointSaver = saver;
+        return this;
+    }
+
+    /**
+     * Pauses workflow execution before the specified task and saves a checkpoint.
+     * Use with {@link CompiledSwarm#resume(String)} to implement human-in-the-loop patterns.
+     */
+    public SwarmGraph interruptBefore(String taskId) {
+        this.interruptBeforeTaskIds.add(taskId);
+        return this;
+    }
+
+    /**
+     * Saves a checkpoint after the specified task completes.
+     */
+    public SwarmGraph interruptAfter(String taskId) {
+        this.interruptAfterTaskIds.add(taskId);
+        return this;
+    }
+
+    /**
+     * Registers a hook at the specified point in the workflow lifecycle.
+     * Multiple hooks can be registered at the same point — they execute in registration order.
+     */
+    public SwarmGraph addHook(HookPoint point, SwarmHook<AgentState> hook) {
+        Objects.requireNonNull(point, "HookPoint cannot be null");
+        Objects.requireNonNull(hook, "Hook cannot be null");
+        hooks.computeIfAbsent(point, k -> new ArrayList<>()).add(hook);
+        return this;
+    }
+
     // ========================================
     // Compilation
     // ========================================
@@ -231,7 +268,11 @@ public final class SwarmGraph implements SwarmDefinition {
                 governance,
                 List.copyOf(approvalGates),
                 tenantQuotaEnforcer,
-                stateSchema
+                stateSchema,
+                checkpointSaver,
+                List.copyOf(interruptBeforeTaskIds),
+                List.copyOf(interruptAfterTaskIds),
+                Map.copyOf(hooks)
         ));
     }
 
