@@ -1,0 +1,65 @@
+# Profile for running example workflows standalone (no database, no vector stores)
+# Auto-configuration exclusions are handled by the entrypoint script to avoid conflicts.
+spring:
+  main:
+    allow-bean-definition-overriding: true
+
+  ai:
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+      chat:
+        options:
+          model: ${OPENAI_MODEL:gpt-4o-mini}
+          temperature: 0.7
+    anthropic:
+      api-key: ${ANTHROPIC_API_KEY:}
+      chat:
+        options:
+          model: ${ANTHROPIC_MODEL:claude-3-sonnet-20240229}
+          temperature: 0.7
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      chat:
+        options:
+          model: ${OLLAMA_MODEL:llama3.2}
+          temperature: 0.7
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+swarmai:
+  default:
+    max-rpm: 30
+    max-execution-time: 300000
+    verbose: true
+  memory:
+    enabled: true
+    provider: in-memory
+  knowledge:
+    enabled: true
+    provider: in-memory
+  observability:
+    enabled: true
+    structured-logging-enabled: true
+    tool-tracing-enabled: true
+    decision-tracing-enabled: true
+    replay-enabled: true
+    metrics-enabled: true
+    replay:
+      store-type: in-memory
+      max-events-in-memory: 10000
+  studio:
+    enabled: true
+
+logging:
+  level:
+    ai.intelliswarm.swarmai: INFO
+    org.springframework.ai: WARN
+    org.springframework: WARN
+    root: WARN

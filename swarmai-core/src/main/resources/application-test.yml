@@ -1,0 +1,20 @@
+spring:
+  ai:
+    openai:
+      api-key: test-key
+      chat:
+        options:
+          model: gpt-4o-mini
+          temperature: 0.7
+
+swarmai:
+  default:
+    max-rpm: 30
+    max-execution-time: 30000  # 30 seconds for tests
+    verbose: false
+    language: en
+
+logging:
+  level:
+    ai.intelliswarm.swarmai: INFO
+    root: WARN
