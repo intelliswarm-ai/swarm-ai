@@ -13,11 +13,11 @@ SwarmAI's killer feature: **workflows that self-improve by discovering capabilit
 ## How It Works
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                   SELF-IMPROVING WORKFLOW                     │
-│                                                               │
+┌──────────────────────────────────────────────────────────────┐
+│                   SELF-IMPROVING WORKFLOW                    │
+│                                                              │
 │  ┌──────────┐    ┌──────────────┐    ┌────────────────┐      │
-│  │ Execute  │───▶│ Evaluate     │───▶│ Gap Detected?  │      │
+│  │ Execute  │───▶│ Evaluate     │───▶│ Gap Detected? │      │
 │  │ Tasks    │    │ Results      │    │                │      │
 │  └──────────┘    └──────────────┘    └───────┬────────┘      │
 │       ▲                                      │               │
@@ -37,7 +37,7 @@ SwarmAI's killer feature: **workflows that self-improve by discovering capabilit
 │       │                          │ Register ││               │
 │       └──────────────────────────│ Skill    ││               │
 │                                  └──────────┘│               │
-└─────────────────────────────────────────────────────────────┘
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ### The Loop
