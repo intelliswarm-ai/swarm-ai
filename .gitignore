@@ -74,8 +74,9 @@ application-*.properties
 !application-*.yml
 
 
-# Internal docs (keep commercial/roadmap files out of git, but allow docs/ folder)
+# Internal docs
 docs/internal/
+competitive-research/
 
 # Local configuration and secrets
 *.env
