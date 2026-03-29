@@ -147,7 +147,7 @@ class CompositeProcessTest {
             Process stage = mock(Process.class);
             when(stage.getType()).thenReturn(ProcessType.SEQUENTIAL);
             CompositeProcess composite = CompositeProcess.of(stage);
-            assertEquals(ProcessType.SEQUENTIAL, composite.getType());
+            assertEquals(ProcessType.COMPOSITE, composite.getType());
         }
 
         @Test

@@ -210,7 +210,7 @@ Swarm.builder()
 | `PARALLEL` | Independent tasks run concurrently |
 | `ITERATIVE` | Execute → review → refine loop until approved |
 | `SELF_IMPROVING` | Dynamic planning + CODE skill generation + task evolution |
-| `CompositeProcess` | Chain any processes: Sequential → Hierarchical → Iterative |
+| `COMPOSITE` | Chain any processes: Sequential → Hierarchical → Iterative |
 
 ## Built-in Tools (24)
 

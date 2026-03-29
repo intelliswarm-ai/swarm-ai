@@ -92,7 +92,7 @@ public class CompositeProcess implements Process {
 
     @Override
     public ProcessType getType() {
-        return ProcessType.SEQUENTIAL; // composite is sequential at the top level
+        return ProcessType.COMPOSITE;
     }
 
     @Override

@@ -6,7 +6,8 @@ public enum ProcessType {
     PARALLEL,
     ITERATIVE,
     SELF_IMPROVING,
-    SWARM;           // Distributed fan-out: discovery -> parallel self-improving agents per target
+    SWARM,           // Distributed fan-out: discovery -> parallel self-improving agents per target
+    COMPOSITE;       // Chain multiple processes: Sequential → Hierarchical → Iterative
 
     /**
      * Returns true if this process type executes tasks asynchronously.
