@@ -71,6 +71,10 @@ public final class CompiledSwarm implements SwarmDefinition {
     private final List<ApprovalGate> approvalGates;
     private final TenantQuotaEnforcer tenantQuotaEnforcer;
     private final StateSchema stateSchema;
+    private final CheckpointSaver checkpointSaver;
+    private final List<String> interruptBeforeTaskIds;
+    private final List<String> interruptAfterTaskIds;
+    private final Map<HookPoint, List<SwarmHook<AgentState>>> hooks;
     private final LocalDateTime compiledAt;
 
     CompiledSwarm(
@@ -92,7 +96,11 @@ public final class CompiledSwarm implements SwarmDefinition {
             WorkflowGovernanceEngine governance,
             List<ApprovalGate> approvalGates,
             TenantQuotaEnforcer tenantQuotaEnforcer,
-            StateSchema stateSchema) {
+            StateSchema stateSchema,
+            CheckpointSaver checkpointSaver,
+            List<String> interruptBeforeTaskIds,
+            List<String> interruptAfterTaskIds,
+            Map<HookPoint, List<SwarmHook<AgentState>>> hooks) {
         this.id = id;
         this.agents = agents;
         this.tasks = tasks;
@@ -112,6 +120,10 @@ public final class CompiledSwarm implements SwarmDefinition {
         this.approvalGates = approvalGates;
         this.tenantQuotaEnforcer = tenantQuotaEnforcer;
         this.stateSchema = stateSchema;
+        this.checkpointSaver = checkpointSaver;
+        this.interruptBeforeTaskIds = interruptBeforeTaskIds != null ? interruptBeforeTaskIds : List.of();
+        this.interruptAfterTaskIds = interruptAfterTaskIds != null ? interruptAfterTaskIds : List.of();
+        this.hooks = hooks != null ? hooks : Map.of();
         this.compiledAt = LocalDateTime.now();
     }
 
@@ -144,8 +156,13 @@ public final class CompiledSwarm implements SwarmDefinition {
 
         publishEvent(SwarmEvent.Type.SWARM_STARTED, "Swarm kickoff initiated");
 
+        // Execute BEFORE_WORKFLOW hooks
+        AgentState currentState = state != null ? state : AgentState.empty();
+        currentState = executeHooks(HookPoint.BEFORE_WORKFLOW,
+                HookContext.forWorkflow(HookPoint.BEFORE_WORKFLOW, currentState, this.id));
+
         // Convert AgentState to Map for backward compatibility with Process implementations
-        Map<String, Object> inputs = state != null ? new HashMap<>(state.data()) : new HashMap<>();
+        Map<String, Object> inputs = new HashMap<>(currentState.data());
 
         try {
             // Reset tasks for re-execution
@@ -163,7 +180,22 @@ public final class CompiledSwarm implements SwarmDefinition {
                 process = new GovernanceInterceptor(process, governance, approvalGates);
             }
 
+            // Save initial checkpoint if saver is configured
+            if (checkpointSaver != null) {
+                checkpointSaver.save(Checkpoint.create(
+                        this.id, null, tasks.isEmpty() ? null : tasks.get(0).getId(),
+                        state != null ? state : AgentState.empty()));
+            }
+
             SwarmOutput output = process.execute(tasks, inputs, this.id);
+
+            // Save final checkpoint after completion
+            if (checkpointSaver != null) {
+                checkpointSaver.save(Checkpoint.create(
+                        this.id, "completed", null,
+                        state != null ? state : AgentState.empty(),
+                        Map.of("status", "COMPLETED")));
+            }
 
             if (budgetTracker != null) {
                 BudgetSnapshot snapshot = budgetTracker.getSnapshot(this.id);
@@ -174,14 +206,22 @@ public final class CompiledSwarm implements SwarmDefinition {
                 }
             }
 
+            // Execute AFTER_WORKFLOW hooks
+            executeHooks(HookPoint.AFTER_WORKFLOW,
+                    HookContext.forWorkflow(HookPoint.AFTER_WORKFLOW, currentState, this.id));
+
             publishEvent(SwarmEvent.Type.SWARM_COMPLETED, "Swarm execution completed successfully");
             return output;
 
         } catch (BudgetExceededException e) {
+            executeHooks(HookPoint.ON_ERROR,
+                    HookContext.forError(currentState, this.id, e));
             publishEvent(SwarmEvent.Type.BUDGET_EXCEEDED,
                     "Swarm execution stopped: budget exceeded - " + e.getMessage());
             throw e;
         } catch (Exception e) {
+            executeHooks(HookPoint.ON_ERROR,
+                    HookContext.forError(currentState, this.id, e));
             publishEvent(SwarmEvent.Type.SWARM_FAILED, "Swarm execution failed: " + e.getMessage());
             throw new RuntimeException("Swarm execution failed", e);
         } finally {
@@ -247,6 +287,52 @@ public final class CompiledSwarm implements SwarmDefinition {
     }
 
     // ========================================
+    // Resume from checkpoint
+    // ========================================
+
+    /**
+     * Resumes workflow execution from the last saved checkpoint.
+     * Requires a {@link CheckpointSaver} to have been configured via {@link SwarmGraph#checkpointSaver}.
+     *
+     * @param workflowId the workflow to resume
+     * @return the execution output from the resumed point
+     * @throws IllegalStateException if no checkpoint saver is configured or no checkpoint exists
+     */
+    public SwarmOutput resume(String workflowId) {
+        if (checkpointSaver == null) {
+            throw new IllegalStateException("Cannot resume: no CheckpointSaver configured");
+        }
+        Checkpoint checkpoint = checkpointSaver.loadLatest(workflowId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "No checkpoint found for workflow: " + workflowId));
+
+        logger.info("Resuming workflow {} from checkpoint {} (completed: {}, next: {})",
+                workflowId, checkpoint.id(), checkpoint.completedTaskId(), checkpoint.nextTaskId());
+
+        return kickoff(checkpoint.state());
+    }
+
+    /**
+     * Returns the latest checkpoint for a workflow, if any.
+     */
+    public Optional<Checkpoint> getLatestCheckpoint(String workflowId) {
+        if (checkpointSaver == null) {
+            return Optional.empty();
+        }
+        return checkpointSaver.loadLatest(workflowId);
+    }
+
+    /**
+     * Returns all checkpoints for a workflow.
+     */
+    public List<Checkpoint> getCheckpoints(String workflowId) {
+        if (checkpointSaver == null) {
+            return List.of();
+        }
+        return checkpointSaver.loadAll(workflowId);
+    }
+
+    // ========================================
     // Process creation (same logic as Swarm.createProcess)
     // ========================================
 
@@ -280,6 +366,25 @@ public final class CompiledSwarm implements SwarmDefinition {
                 yield coordinator;
             }
         };
+    }
+
+    @SuppressWarnings("unchecked")
+    private AgentState executeHooks(HookPoint point, HookContext<AgentState> context) {
+        List<SwarmHook<AgentState>> hookList = hooks.get(point);
+        if (hookList == null || hookList.isEmpty()) {
+            return context.state();
+        }
+        AgentState current = context.state();
+        for (SwarmHook<AgentState> hook : hookList) {
+            try {
+                current = hook.apply(new HookContext<>(
+                        context.hookPoint(), current, context.workflowId(),
+                        context.taskId(), context.toolName(), context.metadata(), context.error()));
+            } catch (Exception e) {
+                logger.warn("Hook at {} failed: {}", point, e.getMessage());
+            }
+        }
+        return current;
     }
 
     private void publishEvent(SwarmEvent.Type type, String message) {
@@ -324,6 +429,9 @@ public final class CompiledSwarm implements SwarmDefinition {
     public BudgetTracker getBudgetTracker() { return budgetTracker; }
     public WorkflowGovernanceEngine getGovernance() { return governance; }
     public StateSchema getStateSchema() { return stateSchema; }
+    public CheckpointSaver getCheckpointSaver() { return checkpointSaver; }
+    public List<String> getInterruptBeforeTaskIds() { return interruptBeforeTaskIds; }
+    public List<String> getInterruptAfterTaskIds() { return interruptAfterTaskIds; }
     public LocalDateTime getCompiledAt() { return compiledAt; }
 
     @Override
