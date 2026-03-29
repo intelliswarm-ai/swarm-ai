@@ -365,6 +365,9 @@ public final class CompiledSwarm implements SwarmDefinition {
                 }
                 yield coordinator;
             }
+            case COMPOSITE -> throw new IllegalStateException(
+                    "COMPOSITE process type cannot be created via SwarmGraph. " +
+                    "Use CompositeProcess.of() directly.");
         };
     }
 

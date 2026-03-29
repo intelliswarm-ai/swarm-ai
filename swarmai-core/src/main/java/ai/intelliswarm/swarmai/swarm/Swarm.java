@@ -246,6 +246,9 @@ public class Swarm {
                 }
                 yield coordinator;
             }
+            case COMPOSITE -> throw new IllegalStateException(
+                    "COMPOSITE process type cannot be created via Swarm.builder(). " +
+                    "Use CompositeProcess.of() directly.");
         };
     }
 
