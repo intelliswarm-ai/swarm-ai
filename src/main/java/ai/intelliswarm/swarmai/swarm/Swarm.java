@@ -24,6 +24,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 
+import ai.intelliswarm.swarmai.state.AgentState;
+import ai.intelliswarm.swarmai.state.SwarmGraph;
+import ai.intelliswarm.swarmai.state.CompiledSwarm;
+
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -176,8 +180,20 @@ public class Swarm {
         }
     }
 
+    /**
+     * Executes the swarm with type-safe AgentState.
+     * Delegates to the Map-based kickoff for backward compatibility.
+     */
+    public SwarmOutput kickoff(AgentState state) {
+        return kickoff(state != null ? state.data() : Map.of());
+    }
+
     public CompletableFuture<SwarmOutput> kickoffAsync(Map<String, Object> inputs) {
         return CompletableFuture.supplyAsync(() -> kickoff(inputs));
+    }
+
+    public CompletableFuture<SwarmOutput> kickoffAsync(AgentState state) {
+        return CompletableFuture.supplyAsync(() -> kickoff(state));
     }
 
     public List<SwarmOutput> kickoffForEach(List<Map<String, Object>> inputsList) {
@@ -257,6 +273,37 @@ public class Swarm {
         if (agents.isEmpty()) {
             throw new IllegalStateException("At least one agent is required");
         }
+    }
+
+    /**
+     * Converts this Swarm to a SwarmGraph for the new sealed lifecycle API.
+     * Bridge method for incremental migration to the type-safe graph model.
+     */
+    public SwarmGraph toGraph() {
+        SwarmGraph graph = SwarmGraph.create()
+                .id(id)
+                .process(processType)
+                .verbose(verbose)
+                .language(language);
+
+        agents.forEach(graph::addAgent);
+        tasks.forEach(graph::addTask);
+
+        if (managerAgent != null) graph.managerAgent(managerAgent);
+        if (memory != null) graph.memory(memory);
+        if (knowledge != null) graph.knowledge(knowledge);
+        if (maxRpm != null) graph.maxRpm(maxRpm);
+        if (tenantId != null) graph.tenantId(tenantId);
+        if (eventPublisher != null) graph.eventPublisher(eventPublisher);
+        if (budgetTracker != null) graph.budgetTracker(budgetTracker);
+        if (budgetPolicy != null) graph.budgetPolicy(budgetPolicy);
+        if (governance != null) graph.governance(governance);
+        if (!approvalGates.isEmpty()) graph.approvalGates(approvalGates);
+        if (tenantQuotaEnforcer != null) graph.tenantQuotaEnforcer(tenantQuotaEnforcer);
+
+        config.forEach(graph::config);
+
+        return graph;
     }
 
     public void resetMemory() {
