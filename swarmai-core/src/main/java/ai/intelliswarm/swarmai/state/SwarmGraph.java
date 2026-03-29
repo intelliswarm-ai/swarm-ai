@@ -38,7 +38,16 @@ import java.util.*;
  */
 public final class SwarmGraph implements SwarmDefinition {
 
+    /** Sentinel node ID marking the start of the graph. */
+    public static final String START = "__START__";
+
+    /** Sentinel node ID marking the end of the graph. */
+    public static final String END = "__END__";
+
     private String id;
+    private final Map<String, NodeAction<AgentState>> nodeActions = new LinkedHashMap<>();
+    private final List<String[]> edges = new ArrayList<>();
+    private final Map<String, EdgeAction<AgentState>> conditionalEdges = new LinkedHashMap<>();
     private final List<Agent> agents = new ArrayList<>();
     private final List<Task> tasks = new ArrayList<>();
     private ProcessType processType = ProcessType.SEQUENTIAL;
@@ -230,6 +239,97 @@ public final class SwarmGraph implements SwarmDefinition {
         Objects.requireNonNull(hook, "Hook cannot be null");
         hooks.computeIfAbsent(point, k -> new ArrayList<>()).add(hook);
         return this;
+    }
+
+    // ========================================
+    // Functional Graph API (addNode/addEdge)
+    // ========================================
+
+    /**
+     * Adds a named node with a lambda action to the graph.
+     * This is an alternative to the Agent/Task builder pattern for simple workflows.
+     *
+     * <pre>{@code
+     * graph.addNode("research", state -> {
+     *     String topic = state.valueOrDefault("topic", "AI");
+     *     return Map.of("findings", doResearch(topic));
+     * });
+     * }</pre>
+     *
+     * @param nodeId unique identifier for this node
+     * @param action the logic to execute when this node runs
+     */
+    public SwarmGraph addNode(String nodeId, NodeAction<AgentState> action) {
+        Objects.requireNonNull(nodeId, "Node ID cannot be null");
+        Objects.requireNonNull(action, "NodeAction cannot be null");
+        if (nodeId.startsWith("__")) {
+            throw new IllegalArgumentException("Node IDs starting with '__' are reserved: " + nodeId);
+        }
+        nodeActions.put(nodeId, action);
+        return this;
+    }
+
+    /**
+     * Adds a directed edge between two nodes.
+     * Use {@link #START} and {@link #END} for graph entry/exit.
+     *
+     * <pre>{@code
+     * graph.addEdge(SwarmGraph.START, "research")
+     *      .addEdge("research", "analyze")
+     *      .addEdge("analyze", SwarmGraph.END);
+     * }</pre>
+     */
+    public SwarmGraph addEdge(String fromNodeId, String toNodeId) {
+        Objects.requireNonNull(fromNodeId, "From node ID cannot be null");
+        Objects.requireNonNull(toNodeId, "To node ID cannot be null");
+        edges.add(new String[]{fromNodeId, toNodeId});
+        return this;
+    }
+
+    /**
+     * Adds a conditional edge from a node. The {@link EdgeAction} evaluates the
+     * current state and returns the ID of the next node to execute.
+     *
+     * <pre>{@code
+     * graph.addConditionalEdge("analyze", state -> {
+     *     boolean done = state.valueOrDefault("quality_ok", false);
+     *     return done ? SwarmGraph.END : "research";
+     * });
+     * }</pre>
+     */
+    public SwarmGraph addConditionalEdge(String fromNodeId, EdgeAction<AgentState> action) {
+        Objects.requireNonNull(fromNodeId, "From node ID cannot be null");
+        Objects.requireNonNull(action, "EdgeAction cannot be null");
+        conditionalEdges.put(fromNodeId, action);
+        return this;
+    }
+
+    /**
+     * Returns true if this graph has functional nodes defined via {@link #addNode}.
+     */
+    public boolean hasFunctionalNodes() {
+        return !nodeActions.isEmpty();
+    }
+
+    /**
+     * Returns the registered node actions (functional API).
+     */
+    public Map<String, NodeAction<AgentState>> getNodeActions() {
+        return Collections.unmodifiableMap(nodeActions);
+    }
+
+    /**
+     * Returns the registered edges (functional API).
+     */
+    public List<String[]> getEdges() {
+        return Collections.unmodifiableList(edges);
+    }
+
+    /**
+     * Returns the registered conditional edges (functional API).
+     */
+    public Map<String, EdgeAction<AgentState>> getConditionalEdges() {
+        return Collections.unmodifiableMap(conditionalEdges);
     }
 
     // ========================================
