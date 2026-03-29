@@ -84,8 +84,8 @@ docs/
 # Docker volumes
 docker-volumes/
 
-# Output directories
-output/
+# Output directories (root-level only, not task/output/)
+/output/
 logs/
 reports/
 models/
