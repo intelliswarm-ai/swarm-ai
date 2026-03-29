@@ -37,7 +37,15 @@ public class AgentState {
         this.schema = schema != null ? schema : StateSchema.PERMISSIVE;
         Map<String, Object> initialized = new LinkedHashMap<>();
         if (data != null) {
-            initialized.putAll(data);
+            for (Map.Entry<String, Object> entry : data.entrySet()) {
+                String key = entry.getKey();
+                if (!this.schema.isValidKey(key)) {
+                    throw new IllegalArgumentException(
+                            "Key '" + key + "' is not declared in the state schema. " +
+                            "Declared keys: " + this.schema.getChannels().keySet());
+                }
+                initialized.put(key, entry.getValue());
+            }
         }
         // Apply default values from schema channels where data doesn't already have a value
         for (Map.Entry<String, Channel<?>> entry : this.schema.getChannels().entrySet()) {

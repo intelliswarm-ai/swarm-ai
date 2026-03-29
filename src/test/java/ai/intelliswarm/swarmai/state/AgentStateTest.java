@@ -64,6 +64,18 @@ class AgentStateTest {
             AgentState state = AgentState.of(Map.of("key", "value"));
             assertThrows(UnsupportedOperationException.class, () -> state.data().put("new", "value"));
         }
+
+        @Test
+        @DisplayName("rejects undeclared keys at construction in strict mode")
+        void rejectsUndeclaredKeysAtConstructionInStrictMode() {
+            StateSchema schema = StateSchema.builder()
+                    .channel("allowed", Channels.lastWriteWins())
+                    .allowUndeclaredKeys(false)
+                    .build();
+
+            assertThrows(IllegalArgumentException.class,
+                    () -> AgentState.of(schema, Map.of("forbidden", "value")));
+        }
     }
 
     @Nested
