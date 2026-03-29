@@ -38,14 +38,14 @@ jobs:
       if: success() || failure()
       with:
         name: Unit Tests - Java ${{ matrix.java }}
-        path: target/surefire-reports/*.xml
+        path: '**/target/surefire-reports/*.xml'
         reporter: java-junit
 
     - name: Upload coverage to Codecov
       if: matrix.java == '21'
       uses: codecov/codecov-action@v4
       with:
-        file: ./target/site/jacoco/jacoco.xml
+        file: '**/target/site/jacoco/jacoco.xml'
         flags: unittests
         name: codecov-umbrella
         token: ${{ secrets.CODECOV_TOKEN }}
@@ -84,10 +84,10 @@ jobs:
 
     - name: Generate integration test report
       uses: dorny/test-reporter@v1
-      if: (success() || failure()) && hashFiles('target/failsafe-reports/*.xml') != ''
+      if: (success() || failure()) && hashFiles('**/target/failsafe-reports/*.xml') != ''
       with:
         name: Integration Tests
-        path: target/failsafe-reports/*.xml
+        path: '**/target/failsafe-reports/*.xml'
         reporter: java-junit
 
     - name: Upload integration test outputs
@@ -95,7 +95,7 @@ jobs:
       if: always()
       with:
         name: integration-test-outputs
-        path: target/integration-test-outputs/
+        path: '**/target/integration-test-outputs/'
         retention-days: 7
 
   build:
@@ -121,7 +121,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: jar-artifact
-        path: target/*.jar
+        path: '**/target/*.jar'
         retention-days: 30
 
   dependency-check:
@@ -148,5 +148,5 @@ jobs:
       if: always()
       with:
         name: dependency-check-report
-        path: target/dependency-check-report.html
+        path: '**/target/dependency-check-report.html'
         retention-days: 30
