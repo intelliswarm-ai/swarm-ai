@@ -1,6 +1,7 @@
 package ai.intelliswarm.swarmai.process;
 
 import ai.intelliswarm.swarmai.budget.BudgetTracker;
+import ai.intelliswarm.swarmai.state.AgentState;
 import ai.intelliswarm.swarmai.task.Task;
 import ai.intelliswarm.swarmai.task.output.TaskOutput;
 import ai.intelliswarm.swarmai.swarm.SwarmOutput;
@@ -11,6 +12,14 @@ import java.util.Map;
 public interface Process {
 
     SwarmOutput execute(List<Task> tasks, Map<String, Object> inputs, String swarmId);
+
+    /**
+     * Executes tasks with type-safe AgentState.
+     * Default implementation delegates to the Map-based execute for backward compatibility.
+     */
+    default SwarmOutput execute(List<Task> tasks, AgentState state, String swarmId) {
+        return execute(tasks, state != null ? state.data() : Map.of(), swarmId);
+    }
 
     ProcessType getType();
 

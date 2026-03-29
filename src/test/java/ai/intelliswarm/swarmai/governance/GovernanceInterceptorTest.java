@@ -34,7 +34,7 @@ class GovernanceInterceptorTest {
                 .successful(true)
                 .build();
 
-        when(mockDelegate.execute(any(), any(), anyString())).thenReturn(mockOutput);
+        when(mockDelegate.execute(any(), any(Map.class), anyString())).thenReturn(mockOutput);
         when(mockDelegate.getType()).thenReturn(ProcessType.SEQUENTIAL);
         when(mockDelegate.isAsync()).thenReturn(false);
     }
@@ -148,7 +148,7 @@ class GovernanceInterceptorTest {
                     interceptor.execute(tasks, Map.of(), "swarm-1"));
 
             // Delegate should NOT be called since the gate threw
-            verify(mockDelegate, never()).execute(any(), any(), anyString());
+            verify(mockDelegate, never()).execute(any(), any(Map.class), anyString());
         }
     }
 

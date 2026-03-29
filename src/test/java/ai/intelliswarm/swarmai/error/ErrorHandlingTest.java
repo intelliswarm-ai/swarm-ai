@@ -333,7 +333,7 @@ class ErrorHandlingTest extends BaseSwarmTest {
                     .build();
 
             // Should not throw NPE
-            assertDoesNotThrow(() -> swarm.kickoff(null));
+            assertDoesNotThrow(() -> swarm.kickoff((Map<String, Object>) null));
         }
 
         @Test

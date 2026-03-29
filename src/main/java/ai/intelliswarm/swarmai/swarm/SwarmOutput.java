@@ -268,6 +268,26 @@ public class SwarmOutput {
         }
     }
 
+    // ============================================
+    // Typed Usage Metric Accessors (Phase 1)
+    // ============================================
+
+    /**
+     * Returns a typed value from usage metrics.
+     */
+    @SuppressWarnings("unchecked")
+    public <T> Optional<T> usageMetric(String key) {
+        return Optional.ofNullable((T) usageMetrics.get(key));
+    }
+
+    /**
+     * Returns a typed value from metadata.
+     */
+    @SuppressWarnings("unchecked")
+    public <T> Optional<T> metadataValue(String key) {
+        return Optional.ofNullable((T) metadata.get(key));
+    }
+
     // Getters
     public String getSwarmId() { return swarmId; }
     public String getRawOutput() { return rawOutput; }
