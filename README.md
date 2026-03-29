@@ -28,42 +28,55 @@ Java multi-agent framework with type-safe state management, self-improving skill
 ```
 
 ```java
-// Classic API
-Swarm swarm = Swarm.builder()
-    .agent(analyst).agent(writer)
-    .task(researchTask).task(reportTask)
-    .process(ProcessType.SEQUENTIAL)
+// Define agents with roles, goals, and tools
+Agent researcher = Agent.builder()
+    .role("Research Analyst")
+    .goal("Find accurate, up-to-date information")
+    .backstory("Experienced researcher who verifies facts from multiple sources.")
+    .chatClient(chatClient)
+    .tool(webSearchTool)
     .build();
-SwarmOutput result = swarm.kickoff(Map.of("topic", "AI agents"));
 
-// New: Type-safe compiled API with validation
-CompiledSwarm swarm = SwarmGraph.create()
-    .addAgent(analyst).addTask(researchTask)
-    .checkpointSaver(new InMemoryCheckpointSaver())
-    .addHook(HookPoint.AFTER_TASK, ctx -> {
-        log.info("Completed: {}", ctx.taskId());
-        return ctx.state();
-    })
-    .compileOrThrow();  // catches ALL config errors before execution
-SwarmOutput result = swarm.kickoff(AgentState.of(Map.of("topic", "AI")));
+Agent writer = Agent.builder()
+    .role("Content Writer")
+    .goal("Write clear, engaging reports")
+    .backstory("Turns research into well-structured articles.")
+    .chatClient(chatClient)
+    .build();
 
-// New: Lambda-based functional graph API
-SwarmGraph.create()
-    .addNode("research", state -> Map.of("findings", doResearch(state)))
-    .addNode("write", state -> Map.of("report", writeReport(state)))
-    .addEdge(SwarmGraph.START, "research")
-    .addConditionalEdge("research", state ->
-        state.valueOrDefault("done", false) ? "write" : "research")
-    .addEdge("write", SwarmGraph.END)
-    .compile();
+// Define tasks with dependencies
+Task research = Task.builder()
+    .id("research")
+    .description("Research the topic: {topic}")
+    .expectedOutput("Key findings with sources")
+    .agent(researcher)
+    .build();
+
+Task report = Task.builder()
+    .id("report")
+    .description("Write a report based on the research findings")
+    .expectedOutput("Well-structured report in markdown")
+    .agent(writer)
+    .dependsOn("research")
+    .outputFormat(OutputFormat.MARKDOWN)
+    .build();
+
+// Run the swarm
+SwarmOutput result = Swarm.builder()
+    .agents(List.of(researcher, writer))
+    .tasks(List.of(research, report))
+    .process(ProcessType.SEQUENTIAL)
+    .build()
+    .kickoff(Map.of("topic", "AI agents"));
 ```
+
+For the full guide with examples, see **[docs/GETTING_STARTED.md](GETTING_STARTED.md)**.
 
 ### Run Examples
 
 Examples live in a separate repository: **[swarm-ai-examples](https://github.com/intelliswarm-ai/swarm-ai-examples)**
 
 ```bash
-# Framework feature demos (no LLM keys needed)
 cd swarm-ai-examples
 mvn compile exec:java -Dexec.mainClass="ai.intelliswarm.swarmai.examples.features.TypeSafeStateExample"
 mvn compile exec:java -Dexec.mainClass="ai.intelliswarm.swarmai.examples.features.FunctionalGraphExample"
@@ -84,63 +97,170 @@ swarm-ai/                    (parent POM)
 ├── swarmai-core/            Core framework: agents, tasks, processes, state, skills,
 │                            memory, knowledge, budget, governance, observability
 ├── swarmai-tools/           24 built-in tools (web, file, shell, PDF, CSV, etc.)
-├── swarmai-studio/          Optional web dashboard
+├── swarmai-studio/          Web dashboard for workflow monitoring
 ├── swarmai-bom/             Bill of Materials for version alignment
 └── docker/                  Dockerfiles and docker-compose configs
 ```
 
 Consumers pick what they need — `swarmai-tools` and `swarmai-studio` are optional.
 
-## Core Features
+---
 
-### Type-Safe State (Channel/Reducer)
+## Agents
 
-Replaces raw `Map<String, Object>` with typed access and channel-based merge semantics for concurrent updates.
+An agent is a persona with a role, goal, backstory, and capabilities. Each agent wraps a Spring AI `ChatClient` and can use tools, memory, and knowledge.
 
 ```java
-StateSchema schema = StateSchema.builder()
-    .channel("messages", Channels.appender())     // accumulates across agents
-    .channel("tokenCount", Channels.counter())    // sums values
-    .channel("status", Channels.lastWriteWins())  // explicit last-write-wins
+Agent agent = Agent.builder()
+    .role("Financial Analyst")
+    .goal("Analyze financial data and identify trends")
+    .backstory("CFA with 15 years of equity research experience.")
+    .chatClient(chatClient)
+    .tools(List.of(webSearchTool, csvTool, calculatorTool))
+    .memory(memory)                // Cross-task recall
+    .knowledge(knowledge)          // Reference material
+    .modelName("gpt-4o")          // Override model per agent
+    .temperature(0.2)              // Lower = more deterministic
+    .maxExecutionTime(60_000)      // 60s timeout
+    .verbose(true)
     .build();
-
-AgentState state = AgentState.of(schema, Map.of("topic", "AI"));
-Optional<String> topic = state.value("topic");              // type-safe, never NPE
-long tokens = state.valueOrDefault("tokenCount", 0L);       // default fallback
-AgentState updated = state.withValue("status", "COMPLETE");  // immutable update
 ```
 
-### Sealed Lifecycle (Build → Compile → Execute)
+Agents automatically manage context window limits per model, retry transient LLM errors with exponential backoff, and include anti-hallucination guardrails in their system prompts.
 
-`SwarmGraph` (mutable builder) → `compile()` → `CompiledSwarm` (frozen executor). Invalid configurations fail at compile time with ALL errors collected, not at runtime one-at-a-time.
+## Tasks
+
+Tasks define the work to be done. They support dependencies, conditional execution, variable interpolation, and output formatting.
+
+```java
+Task task = Task.builder()
+    .id("analyze")
+    .description("Analyze {company} stock performance in {year}")
+    .expectedOutput("SWOT analysis in JSON format")
+    .agent(analyst)
+    .dependsOn("research")                              // Waits for research task
+    .condition(ctx -> ctx.contains("data available"))    // Skip if no data
+    .outputFormat(OutputFormat.JSON)
+    .outputFile("output/analysis.json")                  // Auto-save to file
+    .build();
+```
+
+## Process Types
+
+| Process | Description |
+|---------|-------------|
+| `SEQUENTIAL` | Tasks run in dependency order; each receives prior outputs as context |
+| `PARALLEL` | Independent tasks run concurrently in layers; tasks with dependencies wait |
+| `HIERARCHICAL` | Manager agent creates a plan, delegates to workers, synthesizes results |
+| `ITERATIVE` | Execute → review → refine loop until reviewer approves or max iterations reached |
+| `SELF_IMPROVING` | Iterative + dynamic skill generation when the reviewer identifies capability gaps |
+| `SWARM` | Distributed fan-out: discovery phase → parallel self-improving agents per target |
+| `COMPOSITE` | Chain any processes into a pipeline (e.g., Parallel → Hierarchical → Iterative) |
+
+```java
+// Sequential
+Swarm.builder().process(ProcessType.SEQUENTIAL)...
+
+// Hierarchical — requires a manager agent
+Swarm.builder()
+    .process(ProcessType.HIERARCHICAL)
+    .managerAgent(manager)
+    ...
+
+// Iterative — reviewer approves or sends feedback
+Swarm.builder()
+    .process(ProcessType.ITERATIVE)
+    .managerAgent(reviewer)
+    .config("maxIterations", 5)
+    .config("qualityCriteria", "Must include data-backed claims")
+    ...
+
+// Composite — chain processes into a pipeline
+Process pipeline = CompositeProcess.of(
+    new ParallelProcess(agents, publisher),
+    new HierarchicalProcess(agents, manager, publisher),
+    new IterativeProcess(agents, reviewer, publisher, 3, null)
+);
+pipeline.execute(tasks, inputs, "workflow-id");
+```
+
+## Graph API (Build → Compile → Execute)
+
+The `SwarmGraph` API provides compile-time validation and advanced features like functional nodes, conditional routing, checkpoints, and lifecycle hooks.
+
+### Compiled Swarm
+
+```java
+CompiledSwarm swarm = SwarmGraph.create()
+    .addAgent(analyst).addTask(researchTask)
+    .process(ProcessType.SEQUENTIAL)
+    .memory(memory)
+    .compileOrThrow();  // Catches ALL config errors before execution
+
+SwarmOutput result = swarm.kickoff(AgentState.of(Map.of("topic", "AI")));
+```
+
+### Functional Graph with Conditional Routing
+
+```java
+SwarmGraph.create()
+    .addNode("classify", state -> {
+        String input = state.valueOrDefault("input", "");
+        return Map.of("category", classify(input));
+    })
+    .addNode("handle-urgent", state -> Map.of("result", handleUrgent(state)))
+    .addNode("handle-normal", state -> Map.of("result", handleNormal(state)))
+    .addEdge(SwarmGraph.START, "classify")
+    .addConditionalEdge("classify", state ->
+        "urgent".equals(state.value("category").orElse(""))
+            ? "handle-urgent" : "handle-normal")
+    .addEdge("handle-urgent", SwarmGraph.END)
+    .addEdge("handle-normal", SwarmGraph.END)
+    .compileOrThrow()
+    .kickoff(AgentState.of(Map.of("input", "Server is down!")));
+```
+
+### Compilation Error Handling
 
 ```java
 CompilationResult result = SwarmGraph.create()
     .process(ProcessType.HIERARCHICAL)
-    // forgot manager agent, agents, and tasks
     .compile();
-
 // result.errors() → [MissingManagerAgent, NoAgents, NoTasks]
-// All 3 errors reported at once — no LLM tokens burned
+// All errors reported at once — no LLM tokens burned
 ```
 
-### Checkpoint Persistence
+### Type-Safe State (Channel/Reducer)
+
+```java
+StateSchema schema = StateSchema.builder()
+    .channel("messages", Channels.appender())     // Accumulates across agents
+    .channel("tokenCount", Channels.counter())    // Sums values
+    .channel("status", Channels.lastWriteWins())  // Explicit last-write-wins
+    .build();
+
+AgentState state = AgentState.of(schema, Map.of("topic", "AI"));
+Optional<String> topic = state.value("topic");
+AgentState updated = state.withValue("status", "COMPLETE");
+```
+
+### Checkpoints and Interrupts
 
 Save and resume workflow state. Survive failures, restarts, and human-in-the-loop pauses.
 
 ```java
 CompiledSwarm swarm = SwarmGraph.create()
     .checkpointSaver(new InMemoryCheckpointSaver())
-    .interruptBefore("human-review")  // pause for approval
+    .interruptBefore("human-review")
     .compileOrThrow();
 
-// Resume from last checkpoint after restart
-swarm.resume("workflow-id");
+swarm.kickoff(inputs);   // Pauses before "human-review" task
+swarm.resume("workflow-id");  // Resume after approval
 ```
 
-### Hook System
+### Lifecycle Hooks
 
-Unified cross-cutting concerns via `@FunctionalInterface` hooks at 8 lifecycle points.
+Cross-cutting concerns at 8 lifecycle points: `BEFORE_SWARM`, `AFTER_SWARM`, `BEFORE_TASK`, `AFTER_TASK`, `BEFORE_AGENT`, `AFTER_AGENT`, `ON_ERROR`, `ON_STATE_CHANGE`.
 
 ```java
 SwarmGraph.create()
@@ -160,22 +280,79 @@ SwarmGraph.create()
 Generate Mermaid flowcharts from compiled workflows — renderable in GitHub, GitLab, Notion.
 
 ```java
-String diagram = new MermaidDiagramGenerator().generate(compiledSwarm);
-// Paste into any ```mermaid code block
+String mermaid = new MermaidDiagramGenerator().generate(compiledSwarm);
 ```
 
-### Process Composition
+## Built-in Tools (24)
 
-Chain multiple processes into a pipeline.
+All tools include routing metadata (`triggerWhen`/`avoidWhen`), SSRF protection, health checks, and output length limits. Isolated in the `swarmai-tools` module.
+
+| Category      | Tools                                                           |
+|---------------|-----------------------------------------------------------------|
+| Web           | `web_search` `web_scrape` `http_request` `headless_browser` `simulated_web_search` |
+| File I/O      | `file_read` `file_write` `directory_read` `pdf_read`           |
+| Data          | `csv_analysis` `json_transform` `xml_parse` `database_query` `data_analysis` |
+| Computation   | `calculator` `code_execution` `shell_command`                  |
+| Communication | `email` `slack_webhook`                                        |
+| Specialized   | `sec_filings` `report_generator` `semantic_search`             |
+| Adapters      | `mcp_adapter` (Model Context Protocol)                         |
+
+Custom tools implement `BaseTool`:
 
 ```java
-Process pipeline = CompositeProcess.of(
-    new SequentialProcess(agents, publisher),
-    new HierarchicalProcess(agents, manager, publisher)
-);
+@Component
+public class StockPriceTool extends BaseTool {
+    public String getFunctionName() { return "stock_price"; }
+    public String getDescription() { return "Get current stock price for a ticker"; }
+    public Object execute(Map<String, Object> params) {
+        String ticker = (String) params.get("ticker");
+        return fetchPrice(ticker);
+    }
+}
 ```
 
-### Self-Improving Workflows
+## Memory
+
+Agents recall information from previous task executions. Results are saved automatically and relevant memories are retrieved for future tasks.
+
+```java
+// In-memory (default)
+Memory memory = new InMemoryMemory();
+
+// JDBC — persists to any relational database
+Memory memory = new JdbcMemory(jdbcTemplate);
+
+// Redis — for distributed deployments
+Memory memory = new RedisMemory(redisTemplate);
+
+// Tenant-isolated — wraps any Memory implementation
+Memory memory = new TenantAwareMemory(new InMemoryMemory());
+```
+
+Assign to individual agents or share across the entire swarm:
+
+```java
+Swarm.builder()
+    .memory(new InMemoryMemory())  // Shared across all agents
+    ...
+```
+
+## Knowledge
+
+Provides agents with reference material they can query during task execution. Unlike memory (execution history), knowledge contains static source documents.
+
+```java
+Knowledge knowledge = new InMemoryKnowledge();
+knowledge.addSource("policy", "All reports must include an executive summary.", Map.of());
+
+// Vector-based semantic search for large knowledge bases
+Knowledge knowledge = new VectorKnowledge(embeddingClient);
+
+// Tenant-isolated
+Knowledge knowledge = new TenantAwareKnowledge(new InMemoryKnowledge());
+```
+
+## Self-Improving Workflows
 
 Workflows that generate new CODE tools at runtime, evolve tasks across iterations, and stop when the reviewer approves.
 
@@ -189,34 +366,131 @@ Swarm swarm = Swarm.builder()
 // Skills are generated, verified, and hot-loaded mid-run
 ```
 
-### Enterprise Governance
+The self-improving loop:
+1. Execute tasks with current tools
+2. Reviewer evaluates output
+3. If a **capability gap** is found → generate a new skill → validate → register → retry
+4. If a **quality issue** is found → inject feedback → retry
+5. If **approved** → done
 
-Multi-tenancy, budget tracking with WARN/HARD_STOP, and human-in-the-loop approval gates.
+Generated skills are persisted to `output/skills/` and reused across future runs. See [docs/SELF_IMPROVING_WORKFLOWS.md](docs/SELF_IMPROVING_WORKFLOWS.md) for details.
+
+## Budget Tracking
+
+Track and limit LLM token usage and estimated costs per workflow.
+
+```java
+BudgetTracker tracker = new InMemoryBudgetTracker();
+BudgetPolicy policy = new BudgetPolicy(
+    500_000,                              // Max 500K tokens
+    5.0,                                  // Max $5.00 USD
+    "gpt-4o",                             // Model for pricing
+    BudgetPolicy.BudgetAction.HARD_STOP,  // HARD_STOP or WARN
+    80.0                                  // Warn at 80% usage
+);
+
+Swarm.builder()
+    .budgetTracker(tracker)
+    .budgetPolicy(policy)
+    ...
+```
+
+With `HARD_STOP`, the swarm throws `BudgetExceededException` when limits are reached. With `WARN`, it logs a warning and continues.
+
+## Governance and Approval Gates
+
+Human-in-the-loop approval checkpoints for sensitive workflows.
+
+```java
+ApprovalGate gate = new ApprovalGate(
+    "publish-review", "Publish Review",
+    "Requires editor approval before publishing",
+    GateTrigger.BEFORE_TASK,
+    Duration.ofMinutes(30),
+    new ApprovalPolicy("editor", false)
+);
+
+Swarm.builder()
+    .governance(governanceEngine)
+    .approvalGate(gate)
+    ...
+```
+
+## Multi-Tenancy
+
+Isolate workflows, memory, knowledge, and quotas per tenant.
 
 ```java
 Swarm.builder()
     .tenantId("enterprise-team")
-    .budgetTracker(tracker).budgetPolicy(policy)
-    .governance(engine).approvalGate(gate)
-    .build();
+    .tenantQuotaEnforcer(quotaEnforcer)
+    .memory(new TenantAwareMemory(baseMemory))
+    .knowledge(new TenantAwareKnowledge(baseKnowledge))
+    ...
 ```
 
-## Process Types
+## Observability
 
-| Process | Use Case |
-|---------|----------|
-| `SEQUENTIAL` | Tasks run in dependency order, each gets prior outputs |
-| `HIERARCHICAL` | Manager delegates to workers, synthesizes results |
-| `PARALLEL` | Independent tasks run concurrently |
-| `ITERATIVE` | Execute → review → refine loop until approved |
-| `SELF_IMPROVING` | Dynamic planning + CODE skill generation + task evolution |
-| `COMPOSITE` | Chain any processes: Sequential → Hierarchical → Iterative |
+Built-in observability with correlation IDs, structured logging, decision tracing, and event replay.
 
-## Built-in Tools (24)
+- **ObservabilityContext** — ThreadLocal context with correlation/trace/span IDs propagated across agents and tasks
+- **StructuredLogger** — JSON-formatted logs enriched with workflow context
+- **DecisionTracer** — Records decision points, options, and rationale for explainability
+- **Event Store** — Persists workflow events for replay and debugging
+- **Spring Events** — All lifecycle events (`SWARM_STARTED`, `TASK_COMPLETED`, `BUDGET_EXCEEDED`, etc.) published via `ApplicationEventPublisher`
 
-All tools include routing metadata, SSRF protection, and health checks. Isolated in `swarmai-tools` module.
+```yaml
+swarmai:
+  observability:
+    replay-enabled: true  # Enable event recording for replay
+```
 
-`web_search` `web_scrape` `http_request` `shell_command` `calculator` `code_execution` `file_read` `file_write` `directory_read` `csv_analysis` `json_transform` `xml_parse` `pdf_read` `database_query` `sec_filings` `data_analysis` `semantic_search` `report_generator` `email` `slack_webhook` `headless_browser` `simulated_web_search` `mcp_adapter`
+## Batch and Async Execution
+
+```java
+// Run across multiple inputs
+List<SwarmOutput> results = swarm.kickoffForEach(List.of(
+    Map.of("company", "Apple"),
+    Map.of("company", "Google"),
+    Map.of("company", "Microsoft")
+));
+
+// Async single run
+CompletableFuture<SwarmOutput> future = swarm.kickoffAsync(inputs);
+
+// Async batch
+CompletableFuture<List<SwarmOutput>> futures = swarm.kickoffForEachAsync(inputsList);
+```
+
+## Output Handling
+
+```java
+SwarmOutput output = swarm.kickoff(inputs);
+
+String result = output.getRawOutput();
+boolean ok = output.isSuccessful();
+long tokens = output.getTotalTokens();
+double cost = output.estimateCostUsd("gpt-4o");
+String summary = output.getTokenUsageSummary("gpt-4o");
+
+// Per-task access
+TaskOutput taskOut = output.getTaskOutput("research");
+Map<String, Object> data = taskOut.parseAsMap();
+
+// Typed parsing
+MyReport report = output.parseAs(MyReport.class);
+```
+
+## Studio Dashboard
+
+The optional `swarmai-studio` module provides a web UI for monitoring workflows in real-time — task timelines, agent activity, state graphs, and event streams.
+
+```xml
+<dependency>
+    <groupId>ai.intelliswarm</groupId>
+    <artifactId>swarmai-studio</artifactId>
+</dependency>
+```
 
 ## Tech Stack
 
@@ -230,9 +504,16 @@ All tools include routing metadata, SSRF protection, and health checks. Isolated
 | Build | Maven (multi-module) |
 | Tests | JUnit 5 + Mockito (744 tests) |
 
+## Documentation
+
+- **[Getting Started Guide](GETTING_STARTED.md)** — Full tutorial with examples
+- **[API Keys Setup](docs/API_KEYS_SETUP_GUIDE.md)** — Configure LLM provider API keys
+- **[Docker Guide](docs/DOCKER_EXAMPLE_GUIDE.md)** — Run SwarmAI in Docker
+- **[Self-Improving Workflows](docs/SELF_IMPROVING_WORKFLOWS.md)** — Skill generation deep dive
+
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code style, and PR guidelines.
+See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for development setup, code style, and PR guidelines.
 
 ## License
 
