@@ -90,5 +90,8 @@ logs/
 reports/
 models/
 
+# Test artifacts (scraped HTML from WebScrapeTool tests)
+index.html*
+
 #Claude
 /.claude/
