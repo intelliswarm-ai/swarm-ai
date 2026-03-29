@@ -1,0 +1,44 @@
+name: Bug Report
+description: Report a bug in SwarmAI
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened? What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Minimal code or steps to reproduce the issue
+      render: java
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: SwarmAI Version
+      placeholder: "1.0.0-SNAPSHOT"
+    validations:
+      required: true
+  - type: input
+    id: java-version
+    attributes:
+      label: Java Version
+      placeholder: "21"
+    validations:
+      required: true
+  - type: dropdown
+    id: module
+    attributes:
+      label: Module
+      options:
+        - swarmai-core
+        - swarmai-tools
+        - swarmai-studio
+        - Other
+    validations:
+      required: true
