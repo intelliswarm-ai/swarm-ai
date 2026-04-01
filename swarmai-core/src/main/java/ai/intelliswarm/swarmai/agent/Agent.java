@@ -74,6 +74,7 @@ public class Agent {
     private final Integer maxTurns;
     private final PermissionLevel permissionMode;
     private final List<ToolHook> toolHooks;
+    private final CompactionConfig compactionConfig;
 
     private final LocalDateTime createdAt;
     private final Map<String, Object> metadata;
@@ -101,6 +102,9 @@ public class Agent {
         this.maxTurns = builder.maxTurns;
         this.permissionMode = builder.permissionMode;
         this.toolHooks = new ArrayList<>(builder.toolHooks);
+        this.compactionConfig = builder.compactionConfig != null
+                ? builder.compactionConfig
+                : CompactionConfig.forModel(this.contextConfig);
         this.createdAt = LocalDateTime.now();
         this.metadata = new HashMap<>(builder.metadata);
     }
@@ -167,6 +171,21 @@ public class Agent {
                 if (!AgentConversation.shouldContinue(response)) {
                     break;
                 }
+
+                // Auto-compaction: summarize older turns when token budget is exceeded
+                if (compactionConfig.enabled()
+                        && ConversationCompactor.shouldCompact(conversation, compactionConfig)) {
+                    CompactionResult compactionResult =
+                            ConversationCompactor.compact(conversation, compactionConfig);
+                    if (compactionResult.wasCompacted()) {
+                        conversation.applyCompaction(compactionResult);
+                        if (verbose) {
+                            logger.info("Agent [{}] auto-compacted: removed {} turns, {} active turns remain",
+                                    role, compactionResult.removedTurnCount(),
+                                    conversation.getActiveTurnCount());
+                        }
+                    }
+                }
             }
 
             String finalResponse = conversation.getFinalResponse();
@@ -180,7 +199,7 @@ public class Agent {
                         conversation.getCumulativeTotalTokens());
             }
 
-            return TaskOutput.builder()
+            TaskOutput.Builder outputBuilder = TaskOutput.builder()
                     .agentId(id)
                     .taskId(task.getId())
                     .rawOutput(finalResponse)
@@ -190,8 +209,13 @@ public class Agent {
                     .promptTokens(conversation.getCumulativePromptTokens())
                     .completionTokens(conversation.getCumulativeCompletionTokens())
                     .totalTokens(conversation.getCumulativeTotalTokens())
-                    .metadata("turns", conversation.getTurnCount())
-                    .build();
+                    .metadata("turns", conversation.getTurnCount());
+
+            if (conversation.hasBeenCompacted()) {
+                outputBuilder.metadata("compactedTurns", conversation.getCompactedTurnCount());
+            }
+
+            return outputBuilder.build();
 
         } catch (Exception e) {
             long executionTimeMs = System.currentTimeMillis() - startTime;
@@ -723,6 +747,7 @@ public class Agent {
         private Integer maxTurns;
         private PermissionLevel permissionMode;
         private List<ToolHook> toolHooks = new ArrayList<>();
+        private CompactionConfig compactionConfig;
 
         public Builder id(String id) {
             this.id = id;
@@ -855,6 +880,16 @@ public class Agent {
             return this;
         }
 
+        /**
+         * Sets the auto-compaction configuration for the reactive agent loop.
+         * Controls when older turns are summarized to reclaim context window space.
+         * Default: enabled, triggers at 80% of model context window, preserves 4 recent turns.
+         */
+        public Builder compactionConfig(CompactionConfig compactionConfig) {
+            this.compactionConfig = compactionConfig;
+            return this;
+        }
+
         public Agent build() {
             Objects.requireNonNull(role, "Role cannot be null");
             Objects.requireNonNull(goal, "Goal cannot be null");
@@ -890,6 +925,7 @@ public class Agent {
     public Integer getMaxTurns() { return maxTurns; }
     public PermissionLevel getPermissionMode() { return permissionMode; }
     public List<ToolHook> getToolHooks() { return new ArrayList<>(toolHooks); }
+    public CompactionConfig getCompactionConfig() { return compactionConfig; }
 
     /**
      * Create a copy of this agent with additional tools added to its toolkit.
@@ -912,6 +948,7 @@ public class Agent {
             .maxTurns(this.maxTurns)
             .permissionMode(this.permissionMode)
             .toolHooks(this.toolHooks)
+            .compactionConfig(this.compactionConfig)
             .build();
         copy.memory = this.memory;
         copy.knowledge = this.knowledge;
