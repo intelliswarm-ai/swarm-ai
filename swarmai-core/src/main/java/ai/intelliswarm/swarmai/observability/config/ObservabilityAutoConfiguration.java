@@ -10,6 +10,7 @@ import ai.intelliswarm.swarmai.observability.replay.InMemoryEventStore;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -81,9 +82,11 @@ public class ObservabilityAutoConfiguration {
 
     /**
      * Creates the ObservabilityHelper bean for manual instrumentation.
+     * Only created when SwarmMetricsRegistry is available (requires Micrometer).
      */
     @Bean
     @ConditionalOnMissingBean
+    @ConditionalOnBean(SwarmMetricsRegistry.class)
     public ObservabilityHelper observabilityHelper(
             SwarmMetricsRegistry metricsRegistry,
             StructuredLogger structuredLogger,
@@ -94,9 +97,11 @@ public class ObservabilityAutoConfiguration {
 
     /**
      * Creates the ObservabilityAspect bean for automatic tool instrumentation.
+     * Only created when SwarmMetricsRegistry is available (requires Micrometer).
      */
     @Bean
     @ConditionalOnMissingBean
+    @ConditionalOnBean(SwarmMetricsRegistry.class)
     @ConditionalOnProperty(prefix = "swarmai.observability", name = "tool-tracing-enabled", havingValue = "true", matchIfMissing = true)
     public ObservabilityAspect observabilityAspect(
             SwarmMetricsRegistry metricsRegistry,

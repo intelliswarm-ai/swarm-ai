@@ -176,7 +176,7 @@ public class ParallelProcess implements Process {
             String finalOutput = allOutputs.isEmpty() ? "No outputs" :
                     allOutputs.get(allOutputs.size() - 1).getRawOutput();
 
-            return SwarmOutput.builder()
+            SwarmOutput.Builder outputBuilder = SwarmOutput.builder()
                     .swarmId(swarmId)
                     .taskOutputs(allOutputs)
                     .finalOutput(finalOutput)
@@ -187,8 +187,9 @@ public class ParallelProcess implements Process {
                     .usageMetric("totalTasks", allOutputs.size())
                     .usageMetric("layers", buildLayers(tasks).size())
                     .usageMetric("parallelTasks",
-                            buildLayers(tasks).stream().mapToInt(List::size).max().orElse(0))
-                    .build();
+                            buildLayers(tasks).stream().mapToInt(List::size).max().orElse(0));
+            aggregateReactiveMetrics(outputBuilder, allOutputs);
+            return outputBuilder.build();
 
         } catch (Exception e) {
             publishEvent(SwarmEvent.Type.PROCESS_FAILED,

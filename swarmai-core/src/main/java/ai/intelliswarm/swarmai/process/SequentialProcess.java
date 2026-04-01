@@ -99,7 +99,7 @@ public class SequentialProcess implements Process {
             LocalDateTime endTime = LocalDateTime.now();
             String finalOutput = generateFinalOutput(allOutputs);
 
-            return SwarmOutput.builder()
+            SwarmOutput.Builder outputBuilder = SwarmOutput.builder()
                 .swarmId(swarmId)
                 .taskOutputs(allOutputs)
                 .finalOutput(finalOutput)
@@ -108,8 +108,9 @@ public class SequentialProcess implements Process {
                 .endTime(endTime)
                 .successful(allOutputs.stream().allMatch(TaskOutput::isSuccessful))
                 .usageMetric("totalTasks", allOutputs.size())
-                .usageMetric("successfulTasks", allOutputs.stream().mapToInt(o -> o.isSuccessful() ? 1 : 0).sum())
-                .build();
+                .usageMetric("successfulTasks", allOutputs.stream().mapToInt(o -> o.isSuccessful() ? 1 : 0).sum());
+            aggregateReactiveMetrics(outputBuilder, allOutputs);
+            return outputBuilder.build();
 
         } catch (Exception e) {
             publishEvent(SwarmEvent.Type.PROCESS_FAILED, "Sequential process failed: " + e.getMessage(), swarmId);

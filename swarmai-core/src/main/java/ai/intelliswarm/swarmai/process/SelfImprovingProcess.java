@@ -195,14 +195,14 @@ public class SelfImprovingProcess implements Process {
         String toolErrorSummary = null;
         int skillsGenerated = 0;
 
-        // Convergence tracking
-        int previousOutputLength = 0;
+        // Convergence tracking (single-element arrays used as mutable carriers for extracted methods)
+        int[] previousOutputLengthRef = {0};
         Set<String> previousGaps = new HashSet<>();
-        int staleIterations = 0;
+        int[] staleIterationsRef = {0};
 
         // Cross-iteration gap memory — prevents the same gap from being processed repeatedly
         List<String> processedGapDescriptions = new ArrayList<>();
-        int gapsSkippedAsDuplicate = 0;
+        int[] gapsSkippedAsDuplicateRef = {0};
 
         while (iteration < effectiveMaxIterations && !approved) {
             iteration++;
@@ -230,153 +230,44 @@ public class SelfImprovingProcess implements Process {
                 for (Task task : orderedTasks) {
                     task.reset();
                 }
-
-                // Evolve the analysis task — don't repeat previous work, push forward
-                if (reviewFeedback != null && !orderedTasks.isEmpty()) {
-                    Task analysisTask = orderedTasks.get(0);
-
-                    // Build structured summary from command ledger instead of raw output
-                    String ledgerText = commandLedger.isEmpty() ? "(no commands executed yet)" :
-                        commandLedger.stream()
-                            .map(cmd -> "- " + cmd)
-                            .collect(Collectors.joining("\n"));
-
-                    String evolvedDescription = String.format(
-                        "CONTINUE from where the previous iteration left off. Do NOT repeat completed work.\n\n" +
-                        "COMMANDS ALREADY EXECUTED (DO NOT REPEAT THESE):\n%s\n\n" +
-                        "REVIEWER FEEDBACK (what to do NOW):\n%s\n\n" +
-                        "%s" +
-                        "YOUR TASK: Address the reviewer's feedback by taking NEW actions. " +
-                        "Use different commands, scan different targets, or try exploitation tools (hydra, nikto, etc.). " +
-                        "Do NOT re-run commands that already succeeded.",
-                        ledgerText.length() > 4000 ? ledgerText.substring(0, 4000) + "\n[... truncated ...]" : ledgerText,
-                        reviewFeedback,
-                        toolErrorSummary != null ?
-                            "TOOL ERRORS (adapt your approach):\n" + toolErrorSummary + "\n\n" : ""
-                    );
-
-                    // Inject reviewer's specific next commands
-                    ReviewResult lastReview = ReviewResult.parse(reviewFeedback);
-                    if (lastReview != null && lastReview.hasNextCommands()) {
-                        evolvedDescription += "\n\nMANDATORY COMMANDS TO EXECUTE (run these FIRST before anything else):\n";
-                        int cmdNum = 1;
-                        for (String cmd : lastReview.nextCommands()) {
-                            evolvedDescription += cmdNum++ + ". " + cmd + "\n";
-                        }
-                        evolvedDescription += "\nYou MUST call shell_command with each of these commands. Do NOT skip them.\n";
-                    }
-
-                    analysisTask.setDescription(evolvedDescription);
-                }
+                evolveTaskDescription(orderedTasks, reviewFeedback, toolErrorSummary, commandLedger);
             }
 
             // 1. Execute all tasks with current agents
-            List<TaskOutput> iterationOutputs = new ArrayList<>();
             List<TaskOutput> contextOutputs = new ArrayList<>();
-
-            // Inject cached scan results as context on the first iteration
             if (iteration == 1 && cachedScanContext != null) {
-                TaskOutput cacheContext = TaskOutput.builder()
-                    .taskId("scan-cache")
-                    .rawOutput(cachedScanContext)
-                    .build();
-                contextOutputs.add(cacheContext);
+                contextOutputs.add(TaskOutput.builder().taskId("scan-cache").rawOutput(cachedScanContext).build());
             }
-
-            for (Task task : orderedTasks) {
-                // Find the current agent for this task (may have been rebuilt with new tools)
-                Agent taskAgent = findCurrentAgent(task.getAgent());
-                // Execute with context from prior tasks
-                try {
-                    publishEvent(SwarmEvent.Type.TASK_STARTED,
-                        "Starting task: " + task.getId() + " (iteration " + iteration + ")", swarmId, Map.of());
-
-                    TaskOutput output = taskAgent.executeTask(task, contextOutputs);
-                    iterationOutputs.add(output);
-                    contextOutputs.add(output);
-
-                    // Save to file if task has outputFile configured
-                    if (task.getOutputFile() != null) {
-                        try {
-                            java.nio.file.Path path = java.nio.file.Path.of(task.getOutputFile());
-                            if (path.getParent() != null) {
-                                java.nio.file.Files.createDirectories(path.getParent());
-                            }
-                            java.nio.file.Files.writeString(path, output.getRawOutput() != null ? output.getRawOutput() : "",
-                                java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
-                            logger.info("Task output saved to: {}", task.getOutputFile());
-                        } catch (Exception fileErr) {
-                            logger.warn("Failed to save output to {}: {}", task.getOutputFile(), fileErr.getMessage());
-                        }
-                    }
-
-                    logger.info("Task completed (iteration {}): {} ({} chars, {} ms)",
-                        iteration, truncate(task.getDescription(), 50),
-                        output.getRawOutput().length(), output.getExecutionTimeMs());
-
-                    // Record budget usage
-                    BudgetTracker bt = inputs != null && inputs.get("__budgetTracker") instanceof BudgetTracker b ? b : null;
-                    String bsId = inputs != null && inputs.get("__budgetSwarmId") instanceof String s ? s : swarmId;
-                    recordBudgetUsage(bt, bsId, output, taskAgent.getModelName());
-
-                    publishEvent(SwarmEvent.Type.TASK_COMPLETED,
-                        "Completed task: " + task.getId() + " (iteration " + iteration + ")", swarmId, Map.of());
-
-                } catch (Exception e) {
-                    logger.error("Task failed (iteration {}): {}", iteration, e.getMessage());
-                    TaskOutput errorOutput = TaskOutput.builder()
-                        .taskId(task.getId())
-                        .rawOutput("Error: " + e.getMessage())
-                        .build();
-                    iterationOutputs.add(errorOutput);
-                    contextOutputs.add(errorOutput);
-                }
-            }
-
+            List<TaskOutput> iterationOutputs = executeIterationTasks(orderedTasks, inputs, contextOutputs, swarmId, iteration);
             allOutputs = new ArrayList<>(iterationOutputs);
 
-            // Build command ledger for self-adjustment
-            List<String> newCommands = extractExecutedCommands(iterationOutputs);
-            commandLedger.addAll(newCommands);
-
-            // Cache scan results from this iteration
+            // Build command ledger and cache scan results
+            commandLedger.addAll(extractExecutedCommands(iterationOutputs));
             if (scanCache != null) {
                 cacheNewScanResults(iterationOutputs);
             }
 
-            // 2a0. Extract tool errors from iteration output for self-adjustment feedback
+            // 2a. Extract tool errors for self-adjustment feedback
             toolErrorSummary = extractToolErrors(iterationOutputs);
             if (toolErrorSummary != null) {
                 logger.info("Iteration {}: Tool errors detected — will feed back for self-adjustment", iteration);
             }
 
-            // 2a. Tool-evidence quality check — detect if agents used tools or relied on LLM knowledge
+            // 2b. Tool-evidence quality check and reviewer evaluation
             String outputToReview = iterationOutputs.stream()
                 .map(TaskOutput::getRawOutput)
                 .collect(Collectors.joining("\n\n---\n\n"));
-
             String toolEvidenceWarning = checkToolEvidence(outputToReview);
             if (toolEvidenceWarning != null) {
                 logger.warn("Iteration {}: Tool evidence check: {}", iteration, toolEvidenceWarning);
-                // Prepend the warning to the review input so the reviewer sees it
                 outputToReview = "TOOL USAGE WARNING: " + toolEvidenceWarning +
                     "\nThe reviewer should flag this as a QUALITY ISSUE, not a CAPABILITY GAP.\n\n" +
                     outputToReview;
             }
 
-            // 2b. Reviewer evaluates
-
-            Task reviewTask = createReviewTask(outputToReview, iteration, tasks);
-            TaskOutput reviewOutput = reviewerAgent.executeTask(reviewTask, Collections.emptyList());
-            String reviewText = reviewOutput.getRawOutput();
-
-            // Record reviewer budget usage
-            BudgetTracker bt2 = inputs != null && inputs.get("__budgetTracker") instanceof BudgetTracker b ? b : null;
-            String bsId2 = inputs != null && inputs.get("__budgetSwarmId") instanceof String s ? s : swarmId;
-            recordBudgetUsage(bt2, bsId2, reviewOutput, reviewerAgent.getModelName());
-
-            // 3. Parse structured review
-            ReviewResult review = ReviewResult.parse(reviewText);
+            // 3. Reviewer evaluates and parse structured review
+            ReviewResult review = reviewIterationOutput(outputToReview, iteration, tasks, inputs, swarmId);
+            String reviewText = review.rawFeedback();
 
             if (review.approved()) {
                 approved = true;
@@ -385,36 +276,12 @@ public class SelfImprovingProcess implements Process {
                     "Iteration " + iteration + " approved", swarmId, Map.of());
 
             } else if (review.hasCapabilityGaps()) {
-                // 4. CAPABILITY GAPS — pre-filter: reclassify tool-error gaps as quality issues
-                List<String> genuineGaps = new ArrayList<>();
-                List<String> reclassifiedAsQuality = new ArrayList<>();
+                // 4. Process capability gaps — generate/reuse skills, rebuild agents
+                int newSkills = processCapabilityGaps(review, processedGapDescriptions,
+                    gapsSkippedAsDuplicateRef, inputs, swarmId, iteration);
 
-                for (String gap : review.capabilityGaps()) {
-                    String gapLower = gap.toLowerCase();
-                    boolean isToolError = gapLower.contains("i/o error") || gapLower.contains("io error") ||
-                        gapLower.contains("connection refused") || gapLower.contains("connection timed out") ||
-                        gapLower.contains("unknownhostexception") || gapLower.contains("status=404") ||
-                        gapLower.contains("status=403") || gapLower.contains("http error") ||
-                        (gapLower.contains("failed") && (gapLower.contains("api") || gapLower.contains("request")) &&
-                         (gapLower.contains("error") || gapLower.contains("i/o")));
-
-                    if (isToolError) {
-                        reclassifiedAsQuality.add(gap);
-                    } else {
-                        genuineGaps.add(gap);
-                    }
-                }
-
-                if (!reclassifiedAsQuality.isEmpty()) {
-                    logger.info("Iteration {}: Reclassified {}/{} gaps as quality issues (tool errors, not missing capabilities)",
-                        iteration, reclassifiedAsQuality.size(), review.capabilityGaps().size());
-                    for (String reclassified : reclassifiedAsQuality) {
-                        logger.info("  RECLASSIFIED (tool error): {}", truncate(reclassified, 100));
-                    }
-                }
-
-                if (genuineGaps.isEmpty()) {
-                    // All gaps were tool errors — treat as quality issues only
+                if (newSkills == -1) {
+                    // All gaps were reclassified as tool errors — treat as quality issues
                     reviewFeedback = reviewText +
                         "\n\nNOTE: The reviewer flagged tool errors as capability gaps, but these are quality issues. " +
                         "The agents should use REAL URLs (not placeholder domains) and try different data sources.";
@@ -423,255 +290,28 @@ public class SelfImprovingProcess implements Process {
                     publishEvent(SwarmEvent.Type.ITERATION_REVIEW_FAILED,
                         "Iteration " + iteration + " needs refinement (quality issues, gaps reclassified)", swarmId, Map.of());
                     continue; // skip to next iteration with quality feedback
+                } else {
+                    skillsGenerated += newSkills;
+                    reviewFeedback = reviewText;
+                    publishEvent(SwarmEvent.Type.ITERATION_REVIEW_FAILED,
+                        "Iteration " + iteration + " needs refinement (capability gaps)", swarmId,
+                        Map.of("gaps", review.capabilityGaps().size(),
+                               "skillsGenerated", skillsGenerated,
+                               "skillsReused", skillsReused));
                 }
-
-                logger.info("Iteration {}: {} genuine capability gaps (out of {} total)",
-                    iteration, genuineGaps.size(), review.capabilityGaps().size());
-
-                // Collect tools once for all gaps in this iteration
-                List<String> existingNames = currentAgents.stream()
-                    .flatMap(a -> a.getTools().stream())
-                    .map(BaseTool::getFunctionName)
-                    .distinct()
-                    .collect(Collectors.toList());
-
-                Map<String, BaseTool> existingToolsMap = currentAgents.stream()
-                    .flatMap(a -> a.getTools().stream())
-                    .collect(Collectors.toMap(BaseTool::getFunctionName, t -> t, (a, b) -> a));
-
-                // Create generator once and discover formats once (cached, skips generated skills)
-                SkillGenerator generator = new SkillGenerator(reviewerAgent.getChatClient());
-                generator.discoverToolFormats(existingToolsMap);
-
-                for (String gap : genuineGaps) {
-                    // --- Semantic Deduplication: check for existing similar skills ---
-                    GeneratedSkill reusedSkill = findReusableSkill(gap, swarmId);
-                    if (reusedSkill != null) {
-                        // Skill already exists — reuse it if not already in agent toolkit
-                        if (!existingNames.contains(reusedSkill.getFunctionName())) {
-                            reusedSkill.setAvailableTools(existingToolsMap);
-                            rebuildAgentsWithSkill(reusedSkill);
-                            existingNames.add(reusedSkill.getFunctionName());
-                        }
-                        skillsReused++;
-                        saveToMemory("skill-reuse", String.format(
-                            "Reused skill '%s' for gap: %s (effectiveness: %.0f%%)",
-                            reusedSkill.getName(), truncate(gap, 100), reusedSkill.getEffectiveness() * 100),
-                            Map.of("skillName", reusedSkill.getName(), "gap", gap));
-                        continue;
-                    }
-
-                    // --- Gap Quality Analysis: should we generate a skill at all? ---
-                    List<BaseTool> allExistingTools = existingToolsMap.values().stream()
-                        .collect(java.util.stream.Collectors.toList());
-                    SkillGapAnalyzer.GapAnalysis gapAnalysis = gapAnalyzer.analyze(
-                        gap, allExistingTools, skillRegistry);
-
-                    if (!gapAnalysis.shouldGenerate()) {
-                        logger.info("Gap analysis REJECTED skill generation for: {} (recommendation={}, score={:.2f}, reasons={})",
-                            truncate(gap, 60), gapAnalysis.recommendation(), gapAnalysis.score(), gapAnalysis.reasons());
-
-                        publishEvent(SwarmEvent.Type.SKILL_GENERATION_SKIPPED,
-                            "Skill generation skipped: " + truncate(gap, 80), swarmId,
-                            Map.of("gap", gap, "recommendation", gapAnalysis.recommendation().name(),
-                                   "reasons", gapAnalysis.reasons()));
-
-                        saveToMemory("skill-skipped", String.format(
-                            "Skipped skill generation for gap: %s (reason: %s, score: %.2f)",
-                            truncate(gap, 100), gapAnalysis.recommendation(), gapAnalysis.score()),
-                            Map.of("gap", gap, "recommendation", gapAnalysis.recommendation().name()));
-                        continue;
-                    }
-
-                    logger.info("Gap analysis APPROVED skill generation: {} (type={}, score={:.2f})",
-                        truncate(gap, 60), gapAnalysis.recommendedType(), gapAnalysis.score());
-
-                    // --- Cross-iteration dedup: skip if a very similar gap was already processed ---
-                    boolean isDuplicateGap = false;
-                    Set<String> gapTokens = tokenizeForDedup(gap);
-                    for (String processed : processedGapDescriptions) {
-                        Set<String> processedTokens = tokenizeForDedup(processed);
-                        double overlap = jaccardSimilaritySimple(gapTokens, processedTokens);
-                        if (overlap > 0.35) {
-                            isDuplicateGap = true;
-                            gapsSkippedAsDuplicate++;
-                            logger.info("Gap SKIPPED (duplicate of previously processed gap, overlap={:.0f}%): {}",
-                                overlap * 100, truncate(gap, 80));
-                            break;
-                        }
-                    }
-                    if (isDuplicateGap) continue;
-
-                    // Track this gap as processed (whether generation succeeds or fails)
-                    processedGapDescriptions.add(gap);
-
-                    // --- Query memory for hints about similar past gaps ---
-                    String memoryHint = queryMemoryForGap(gap);
-
-                    logger.info("Generating {} skill for gap: {}", gapAnalysis.recommendedType(), gap);
-
-                    GeneratedSkill skill = generator.generate(
-                        memoryHint != null ? gap + "\n\nHINT FROM PAST RUNS:\n" + memoryHint : gap,
-                        existingNames);
-
-                    if (skill != null) {
-                        publishEvent(SwarmEvent.Type.SKILL_GENERATED,
-                            "Generated skill: " + skill.getName(), swarmId,
-                            Map.of("skillName", skill.getName(), "gap", gap));
-
-                        // Inject existing tools so validation can succeed
-                        skill.setAvailableTools(existingToolsMap);
-
-                        // Validate
-                        SkillValidator.ValidationResult validation = skillValidator.validate(skill);
-
-                        if (validation.passed()) {
-                            skill.setStatus(SkillStatus.VALIDATED);
-                            skill.setAvailableTools(existingToolsMap);
-                            skillRegistry.register(skill);
-                            skillsGenerated++;
-
-                            // Log integration test results if available
-                            String integrationSummary = "";
-                            if (validation.hasIntegrationTestResults()) {
-                                integrationSummary = String.format(", integration tests: %d/%d passed",
-                                    validation.integrationTestsPassed(),
-                                    validation.integrationTestsPassed() + validation.integrationTestsFailed());
-                            }
-
-                            publishEvent(SwarmEvent.Type.SKILL_VALIDATED,
-                                "Skill validated: " + skill.getName() + integrationSummary, swarmId,
-                                Map.of("skillName", skill.getName(), "skillId", skill.getId(),
-                                    "integrationTestsPassed", validation.integrationTestsPassed(),
-                                    "integrationTestsFailed", validation.integrationTestsFailed()));
-                            publishEvent(SwarmEvent.Type.SKILL_REGISTERED,
-                                "Skill registered: " + skill.getName(), swarmId,
-                                Map.of("skillName", skill.getName(), "skillId", skill.getId()));
-
-                            logger.info("New skill validated and registered: {} ({}{})",
-                                skill.getName(), skill.getId(), integrationSummary);
-
-                            // Rebuild agents with new skill
-                            rebuildAgentsWithSkill(skill);
-                            existingNames.add(skill.getFunctionName());
-
-                            // Persist to memory for future runs
-                            saveToMemory("skill-generated", String.format(
-                                "Generated skill '%s' for gap: %s%s",
-                                skill.getName(), truncate(gap, 150), integrationSummary),
-                                Map.of("skillName", skill.getName(), "gap", gap,
-                                    "iteration", iteration));
-
-                        } else {
-                            // Include integration test failures in the error context for refinement
-                            String allErrors = validation.errorsAsString();
-                            if (validation.hasIntegrationTestResults() && validation.integrationTestsFailed() > 0) {
-                                allErrors += "; Integration test failures: " +
-                                    String.join("; ", validation.integrationTestResults().failureMessages());
-                            }
-
-                            logger.warn("Skill '{}' failed validation: {}",
-                                skill.getName(), allErrors);
-
-                            publishEvent(SwarmEvent.Type.SKILL_VALIDATION_FAILED,
-                                "Skill validation failed: " + skill.getName(), swarmId,
-                                Map.of("skillName", skill.getName(), "errors", allErrors));
-
-                            // Try to refine once — include integration test failures in feedback
-                            GeneratedSkill refined = generator.refine(skill, allErrors);
-                            if (refined != null) {
-                                refined.setAvailableTools(existingToolsMap);
-                                SkillValidator.ValidationResult retryValidation = skillValidator.validate(refined);
-                                if (retryValidation.passed()) {
-                                    refined.setStatus(SkillStatus.VALIDATED);
-                                    refined.setAvailableTools(existingToolsMap);
-                                    skillRegistry.register(refined);
-                                    skillsGenerated++;
-
-                                    String retryIntSummary = retryValidation.hasIntegrationTestResults()
-                                        ? String.format(", integration tests: %d/%d passed",
-                                            retryValidation.integrationTestsPassed(),
-                                            retryValidation.integrationTestsPassed() + retryValidation.integrationTestsFailed())
-                                        : "";
-
-                                    publishEvent(SwarmEvent.Type.SKILL_VALIDATED,
-                                        "Refined skill validated: " + refined.getName() + retryIntSummary, swarmId,
-                                        Map.of("skillName", refined.getName(), "refined", true));
-                                    publishEvent(SwarmEvent.Type.SKILL_REGISTERED,
-                                        "Refined skill registered: " + refined.getName(), swarmId,
-                                        Map.of("skillName", refined.getName(), "skillId", refined.getId()));
-
-                                    logger.info("Refined skill validated: {}{}", refined.getName(), retryIntSummary);
-                                    rebuildAgentsWithSkill(refined);
-                                    existingNames.add(refined.getFunctionName());
-
-                                    saveToMemory("skill-refined", String.format(
-                                        "Skill '%s' required refinement for gap: %s (original errors: %s)",
-                                        refined.getName(), truncate(gap, 100), truncate(allErrors, 100)),
-                                        Map.of("skillName", refined.getName(), "gap", gap));
-                                } else {
-                                    logger.warn("Refined skill also failed. Skipping gap: {}", gap);
-                                    saveToMemory("skill-failed", String.format(
-                                        "Failed to generate skill for gap: %s (errors: %s)",
-                                        truncate(gap, 150), truncate(retryValidation.errorsAsString(), 100)),
-                                        Map.of("gap", gap, "iteration", iteration));
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Also pass quality feedback
-                reviewFeedback = reviewText;
-
-                publishEvent(SwarmEvent.Type.ITERATION_REVIEW_FAILED,
-                    "Iteration " + iteration + " needs refinement (capability gaps)", swarmId,
-                    Map.of("gaps", review.capabilityGaps().size(),
-                           "skillsGenerated", skillsGenerated,
-                           "skillsReused", skillsReused));
 
             } else {
                 // 5. QUALITY ISSUES only — standard feedback
                 reviewFeedback = reviewText;
                 logger.info("Iteration {}: NEEDS_REFINEMENT (quality issues only)", iteration);
-
                 publishEvent(SwarmEvent.Type.ITERATION_REVIEW_FAILED,
                     "Iteration " + iteration + " needs refinement", swarmId, Map.of());
             }
 
-            // ---- Convergence detection ----
-            if (!approved) {
-                // Check output growth: if output length didn't grow by >10%, we're stalling
-                int currentOutputLength = allOutputs.stream()
-                    .mapToInt(o -> o.getRawOutput() != null ? o.getRawOutput().length() : 0).sum();
-                boolean outputGrew = previousOutputLength == 0 ||
-                    currentOutputLength > previousOutputLength * 1.1;
-
-                // Check gap repetition: if same gaps keep appearing, we're stuck
-                Set<String> currentGaps = new HashSet<>();
-                if (review != null && review.hasCapabilityGaps()) {
-                    currentGaps.addAll(review.capabilityGaps());
-                }
-                boolean sameGaps = !currentGaps.isEmpty() && currentGaps.equals(previousGaps);
-
-                // Check if agent adapted (tool errors changed) — if so, don't count as stale
-                boolean agentAdapted = toolErrorSummary != null &&
-                    (previousOutputLength > 0 && !sameGaps);
-
-                if ((!outputGrew && sameGaps) && !agentAdapted) {
-                    staleIterations++;
-                } else {
-                    staleIterations = 0;
-                }
-
-                previousOutputLength = currentOutputLength;
-                previousGaps = currentGaps;
-
-                if (staleIterations >= 3) {
-                    logger.info("Self-Improving Process: Auto-stopping — no meaningful progress for {} iterations " +
-                        "(output growth stalled: {}, repeated gaps: {})", staleIterations, !outputGrew, sameGaps);
-                    break;
-                }
+            // 6. Convergence detection
+            if (!approved && detectConvergence(allOutputs, review, toolErrorSummary,
+                    previousOutputLengthRef, previousGaps, staleIterationsRef)) {
+                break;
             }
 
             // Memory flush: persist iteration outcome for future runs
@@ -687,20 +327,458 @@ public class SelfImprovingProcess implements Process {
                 Map.of("approved", approved, "iteration", iteration));
         }
 
+        // 7. Determine stop reason and build final output
         String stopReason;
         if (approved) {
             stopReason = "APPROVED by reviewer";
-        } else if (staleIterations >= 2) {
+        } else if (staleIterationsRef[0] >= 2) {
             stopReason = "auto-stopped (convergence — no meaningful progress)";
         } else {
             stopReason = "max iterations (" + effectiveMaxIterations + ") reached";
         }
         logger.info("Self-Improving Process: Stopped — {}", stopReason);
 
-        // Auto-promote skills that meet the effectiveness threshold
         int promoted = autoPromoteSkills(swarmId);
+        return buildFinalOutput(allOutputs, iteration, approved, stopReason,
+            skillsGenerated, gapsSkippedAsDuplicateRef[0], promoted, swarmId);
+    }
 
-        // Build final output with metadata set via builder (getMetadata() returns a defensive copy)
+    /**
+     * Evolve the first task's description to incorporate feedback and command history from prior iterations.
+     */
+    private void evolveTaskDescription(List<Task> orderedTasks, String reviewFeedback,
+                                        String toolErrorSummary, List<String> commandLedger) {
+        if (reviewFeedback == null || orderedTasks.isEmpty()) return;
+
+        Task analysisTask = orderedTasks.get(0);
+
+        // Build structured summary from command ledger instead of raw output
+        String ledgerText = commandLedger.isEmpty() ? "(no commands executed yet)" :
+            commandLedger.stream()
+                .map(cmd -> "- " + cmd)
+                .collect(Collectors.joining("\n"));
+
+        String evolvedDescription = String.format(
+            "CONTINUE from where the previous iteration left off. Do NOT repeat completed work.\n\n" +
+            "COMMANDS ALREADY EXECUTED (DO NOT REPEAT THESE):\n%s\n\n" +
+            "REVIEWER FEEDBACK (what to do NOW):\n%s\n\n" +
+            "%s" +
+            "YOUR TASK: Address the reviewer's feedback by taking NEW actions. " +
+            "Use different commands, scan different targets, or try exploitation tools (hydra, nikto, etc.). " +
+            "Do NOT re-run commands that already succeeded.",
+            ledgerText.length() > 4000 ? ledgerText.substring(0, 4000) + "\n[... truncated ...]" : ledgerText,
+            reviewFeedback,
+            toolErrorSummary != null ?
+                "TOOL ERRORS (adapt your approach):\n" + toolErrorSummary + "\n\n" : ""
+        );
+
+        // Inject reviewer's specific next commands
+        ReviewResult lastReview = ReviewResult.parse(reviewFeedback);
+        if (lastReview != null && lastReview.hasNextCommands()) {
+            evolvedDescription += "\n\nMANDATORY COMMANDS TO EXECUTE (run these FIRST before anything else):\n";
+            int cmdNum = 1;
+            for (String cmd : lastReview.nextCommands()) {
+                evolvedDescription += cmdNum++ + ". " + cmd + "\n";
+            }
+            evolvedDescription += "\nYou MUST call shell_command with each of these commands. Do NOT skip them.\n";
+        }
+
+        analysisTask.setDescription(evolvedDescription);
+    }
+
+    // ==================== Extracted Methods (execute decomposition) ====================
+
+    /**
+     * Execute all tasks for a single iteration with the current agents.
+     * Returns the outputs from this iteration and populates contextOutputs for downstream use.
+     */
+    private List<TaskOutput> executeIterationTasks(List<Task> orderedTasks, Map<String, Object> inputs,
+                                                    List<TaskOutput> contextOutputs, String swarmId,
+                                                    int iteration) {
+        List<TaskOutput> iterationOutputs = new ArrayList<>();
+
+        for (Task task : orderedTasks) {
+            // Find the current agent for this task (may have been rebuilt with new tools)
+            Agent taskAgent = findCurrentAgent(task.getAgent());
+            // Execute with context from prior tasks
+            try {
+                publishEvent(SwarmEvent.Type.TASK_STARTED,
+                    "Starting task: " + task.getId() + " (iteration " + iteration + ")", swarmId, Map.of());
+
+                TaskOutput output = taskAgent.executeTask(task, contextOutputs);
+                iterationOutputs.add(output);
+                contextOutputs.add(output);
+
+                // Save to file if task has outputFile configured
+                if (task.getOutputFile() != null) {
+                    try {
+                        java.nio.file.Path path = java.nio.file.Path.of(task.getOutputFile());
+                        if (path.getParent() != null) {
+                            java.nio.file.Files.createDirectories(path.getParent());
+                        }
+                        java.nio.file.Files.writeString(path, output.getRawOutput() != null ? output.getRawOutput() : "",
+                            java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
+                        logger.info("Task output saved to: {}", task.getOutputFile());
+                    } catch (Exception fileErr) {
+                        logger.warn("Failed to save output to {}: {}", task.getOutputFile(), fileErr.getMessage());
+                    }
+                }
+
+                logger.info("Task completed (iteration {}): {} ({} chars, {} ms)",
+                    iteration, truncate(task.getDescription(), 50),
+                    output.getRawOutput().length(), output.getExecutionTimeMs());
+
+                // Record budget usage
+                BudgetTracker bt = inputs != null && inputs.get("__budgetTracker") instanceof BudgetTracker b ? b : null;
+                String bsId = inputs != null && inputs.get("__budgetSwarmId") instanceof String s ? s : swarmId;
+                recordBudgetUsage(bt, bsId, output, taskAgent.getModelName());
+
+                publishEvent(SwarmEvent.Type.TASK_COMPLETED,
+                    "Completed task: " + task.getId() + " (iteration " + iteration + ")", swarmId, Map.of());
+
+            } catch (Exception e) {
+                logger.error("Task failed (iteration {}): {}", iteration, e.getMessage());
+                TaskOutput errorOutput = TaskOutput.builder()
+                    .taskId(task.getId())
+                    .rawOutput("Error: " + e.getMessage())
+                    .build();
+                iterationOutputs.add(errorOutput);
+                contextOutputs.add(errorOutput);
+            }
+        }
+
+        return iterationOutputs;
+    }
+
+    /**
+     * Have the reviewer agent evaluate the iteration output.
+     * Returns the parsed ReviewResult.
+     */
+    private ReviewResult reviewIterationOutput(String outputToReview, int iteration,
+                                                List<Task> tasks, Map<String, Object> inputs,
+                                                String swarmId) {
+        Task reviewTask = createReviewTask(outputToReview, iteration, tasks);
+        TaskOutput reviewOutput = reviewerAgent.executeTask(reviewTask, Collections.emptyList());
+
+        // Record reviewer budget usage
+        BudgetTracker bt2 = inputs != null && inputs.get("__budgetTracker") instanceof BudgetTracker b ? b : null;
+        String bsId2 = inputs != null && inputs.get("__budgetSwarmId") instanceof String s ? s : swarmId;
+        recordBudgetUsage(bt2, bsId2, reviewOutput, reviewerAgent.getModelName());
+
+        // Parse structured review
+        return ReviewResult.parse(reviewOutput.getRawOutput());
+    }
+
+    /**
+     * Process capability gaps from a review: classify, deduplicate, generate skills, validate, rebuild agents.
+     * Returns the number of new skills generated in this pass.
+     */
+    private int processCapabilityGaps(ReviewResult review, List<String> processedGapDescriptions,
+                                       int[] gapsSkippedAsDuplicateRef,
+                                       Map<String, Object> inputs, String swarmId,
+                                       int iteration) {
+        int skillsGenerated = 0;
+
+        // Pre-filter: reclassify tool-error gaps as quality issues
+        List<String> genuineGaps = new ArrayList<>();
+        List<String> reclassifiedAsQuality = new ArrayList<>();
+
+        for (String gap : review.capabilityGaps()) {
+            String gapLower = gap.toLowerCase();
+            boolean isToolError = gapLower.contains("i/o error") || gapLower.contains("io error") ||
+                gapLower.contains("connection refused") || gapLower.contains("connection timed out") ||
+                gapLower.contains("unknownhostexception") || gapLower.contains("status=404") ||
+                gapLower.contains("status=403") || gapLower.contains("http error") ||
+                (gapLower.contains("failed") && (gapLower.contains("api") || gapLower.contains("request")) &&
+                 (gapLower.contains("error") || gapLower.contains("i/o")));
+
+            if (isToolError) {
+                reclassifiedAsQuality.add(gap);
+            } else {
+                genuineGaps.add(gap);
+            }
+        }
+
+        if (!reclassifiedAsQuality.isEmpty()) {
+            logger.info("Iteration {}: Reclassified {}/{} gaps as quality issues (tool errors, not missing capabilities)",
+                iteration, reclassifiedAsQuality.size(), review.capabilityGaps().size());
+            for (String reclassified : reclassifiedAsQuality) {
+                logger.info("  RECLASSIFIED (tool error): {}", truncate(reclassified, 100));
+            }
+        }
+
+        if (genuineGaps.isEmpty()) {
+            // All gaps were tool errors — signal caller to treat as quality issues
+            return -1; // sentinel: all gaps reclassified
+        }
+
+        logger.info("Iteration {}: {} genuine capability gaps (out of {} total)",
+            iteration, genuineGaps.size(), review.capabilityGaps().size());
+
+        // Collect tools once for all gaps in this iteration
+        List<String> existingNames = currentAgents.stream()
+            .flatMap(a -> a.getTools().stream())
+            .map(BaseTool::getFunctionName)
+            .distinct()
+            .collect(Collectors.toList());
+
+        Map<String, BaseTool> existingToolsMap = currentAgents.stream()
+            .flatMap(a -> a.getTools().stream())
+            .collect(Collectors.toMap(BaseTool::getFunctionName, t -> t, (a, b) -> a));
+
+        // Create generator once and discover formats once (cached, skips generated skills)
+        SkillGenerator generator = new SkillGenerator(reviewerAgent.getChatClient());
+        generator.discoverToolFormats(existingToolsMap);
+
+        for (String gap : genuineGaps) {
+            // --- Semantic Deduplication: check for existing similar skills ---
+            GeneratedSkill reusedSkill = findReusableSkill(gap, swarmId);
+            if (reusedSkill != null) {
+                // Skill already exists — reuse it if not already in agent toolkit
+                if (!existingNames.contains(reusedSkill.getFunctionName())) {
+                    reusedSkill.setAvailableTools(existingToolsMap);
+                    rebuildAgentsWithSkill(reusedSkill);
+                    existingNames.add(reusedSkill.getFunctionName());
+                }
+                skillsReused++;
+                saveToMemory("skill-reuse", String.format(
+                    "Reused skill '%s' for gap: %s (effectiveness: %.0f%%)",
+                    reusedSkill.getName(), truncate(gap, 100), reusedSkill.getEffectiveness() * 100),
+                    Map.of("skillName", reusedSkill.getName(), "gap", gap));
+                continue;
+            }
+
+            // --- Gap Quality Analysis: should we generate a skill at all? ---
+            List<BaseTool> allExistingTools = existingToolsMap.values().stream()
+                .collect(java.util.stream.Collectors.toList());
+            SkillGapAnalyzer.GapAnalysis gapAnalysis = gapAnalyzer.analyze(
+                gap, allExistingTools, skillRegistry);
+
+            if (!gapAnalysis.shouldGenerate()) {
+                logger.info("Gap analysis REJECTED skill generation for: {} (recommendation={}, score={:.2f}, reasons={})",
+                    truncate(gap, 60), gapAnalysis.recommendation(), gapAnalysis.score(), gapAnalysis.reasons());
+
+                publishEvent(SwarmEvent.Type.SKILL_GENERATION_SKIPPED,
+                    "Skill generation skipped: " + truncate(gap, 80), swarmId,
+                    Map.of("gap", gap, "recommendation", gapAnalysis.recommendation().name(),
+                           "reasons", gapAnalysis.reasons()));
+
+                saveToMemory("skill-skipped", String.format(
+                    "Skipped skill generation for gap: %s (reason: %s, score: %.2f)",
+                    truncate(gap, 100), gapAnalysis.recommendation(), gapAnalysis.score()),
+                    Map.of("gap", gap, "recommendation", gapAnalysis.recommendation().name()));
+                continue;
+            }
+
+            logger.info("Gap analysis APPROVED skill generation: {} (type={}, score={:.2f})",
+                truncate(gap, 60), gapAnalysis.recommendedType(), gapAnalysis.score());
+
+            // --- Cross-iteration dedup: skip if a very similar gap was already processed ---
+            boolean isDuplicateGap = false;
+            Set<String> gapTokens = tokenizeForDedup(gap);
+            for (String processed : processedGapDescriptions) {
+                Set<String> processedTokens = tokenizeForDedup(processed);
+                double overlap = jaccardSimilaritySimple(gapTokens, processedTokens);
+                if (overlap > 0.35) {
+                    isDuplicateGap = true;
+                    gapsSkippedAsDuplicateRef[0]++;
+                    logger.info("Gap SKIPPED (duplicate of previously processed gap, overlap={:.0f}%): {}",
+                        overlap * 100, truncate(gap, 80));
+                    break;
+                }
+            }
+            if (isDuplicateGap) continue;
+
+            // Track this gap as processed (whether generation succeeds or fails)
+            processedGapDescriptions.add(gap);
+
+            // Generate and validate skill for this gap
+            Optional<GeneratedSkill> validatedSkill = generateAndValidateSkill(
+                gap, generator, existingToolsMap, existingNames, swarmId, iteration);
+
+            if (validatedSkill.isPresent()) {
+                GeneratedSkill skill = validatedSkill.get();
+                rebuildAgentsWithSkill(skill);
+                existingNames.add(skill.getFunctionName());
+                skillsGenerated++;
+            }
+        }
+
+        return skillsGenerated;
+    }
+
+    /**
+     * Generate a single skill for a capability gap, validate it, and if invalid attempt one refinement.
+     * Returns the validated skill wrapped in Optional, or empty if generation/validation fails.
+     */
+    private Optional<GeneratedSkill> generateAndValidateSkill(String gap, SkillGenerator generator,
+                                                               Map<String, BaseTool> existingToolsMap,
+                                                               List<String> existingNames,
+                                                               String swarmId, int iteration) {
+        // Query memory for hints about similar past gaps
+        String memoryHint = queryMemoryForGap(gap);
+
+        logger.info("Generating skill for gap: {}", gap);
+
+        GeneratedSkill skill = generator.generate(
+            memoryHint != null ? gap + "\n\nHINT FROM PAST RUNS:\n" + memoryHint : gap,
+            existingNames);
+
+        if (skill == null) {
+            return Optional.empty();
+        }
+
+        publishEvent(SwarmEvent.Type.SKILL_GENERATED,
+            "Generated skill: " + skill.getName(), swarmId,
+            Map.of("skillName", skill.getName(), "gap", gap));
+
+        // Inject existing tools so validation can succeed
+        skill.setAvailableTools(existingToolsMap);
+
+        // Validate
+        SkillValidator.ValidationResult validation = skillValidator.validate(skill);
+
+        if (validation.passed()) {
+            skill.setStatus(SkillStatus.VALIDATED);
+            skill.setAvailableTools(existingToolsMap);
+            skillRegistry.register(skill);
+
+            // Log integration test results if available
+            String integrationSummary = "";
+            if (validation.hasIntegrationTestResults()) {
+                integrationSummary = String.format(", integration tests: %d/%d passed",
+                    validation.integrationTestsPassed(),
+                    validation.integrationTestsPassed() + validation.integrationTestsFailed());
+            }
+
+            publishEvent(SwarmEvent.Type.SKILL_VALIDATED,
+                "Skill validated: " + skill.getName() + integrationSummary, swarmId,
+                Map.of("skillName", skill.getName(), "skillId", skill.getId(),
+                    "integrationTestsPassed", validation.integrationTestsPassed(),
+                    "integrationTestsFailed", validation.integrationTestsFailed()));
+            publishEvent(SwarmEvent.Type.SKILL_REGISTERED,
+                "Skill registered: " + skill.getName(), swarmId,
+                Map.of("skillName", skill.getName(), "skillId", skill.getId()));
+
+            logger.info("New skill validated and registered: {} ({}{})",
+                skill.getName(), skill.getId(), integrationSummary);
+
+            // Persist to memory for future runs
+            saveToMemory("skill-generated", String.format(
+                "Generated skill '%s' for gap: %s%s",
+                skill.getName(), truncate(gap, 150), integrationSummary),
+                Map.of("skillName", skill.getName(), "gap", gap,
+                    "iteration", iteration));
+
+            return Optional.of(skill);
+        }
+
+        // Validation failed — attempt refinement
+        String allErrors = validation.errorsAsString();
+        if (validation.hasIntegrationTestResults() && validation.integrationTestsFailed() > 0) {
+            allErrors += "; Integration test failures: " +
+                String.join("; ", validation.integrationTestResults().failureMessages());
+        }
+
+        logger.warn("Skill '{}' failed validation: {}",
+            skill.getName(), allErrors);
+
+        publishEvent(SwarmEvent.Type.SKILL_VALIDATION_FAILED,
+            "Skill validation failed: " + skill.getName(), swarmId,
+            Map.of("skillName", skill.getName(), "errors", allErrors));
+
+        // Try to refine once — include integration test failures in feedback
+        GeneratedSkill refined = generator.refine(skill, allErrors);
+        if (refined != null) {
+            refined.setAvailableTools(existingToolsMap);
+            SkillValidator.ValidationResult retryValidation = skillValidator.validate(refined);
+            if (retryValidation.passed()) {
+                refined.setStatus(SkillStatus.VALIDATED);
+                refined.setAvailableTools(existingToolsMap);
+                skillRegistry.register(refined);
+
+                String retryIntSummary = retryValidation.hasIntegrationTestResults()
+                    ? String.format(", integration tests: %d/%d passed",
+                        retryValidation.integrationTestsPassed(),
+                        retryValidation.integrationTestsPassed() + retryValidation.integrationTestsFailed())
+                    : "";
+
+                publishEvent(SwarmEvent.Type.SKILL_VALIDATED,
+                    "Refined skill validated: " + refined.getName() + retryIntSummary, swarmId,
+                    Map.of("skillName", refined.getName(), "refined", true));
+                publishEvent(SwarmEvent.Type.SKILL_REGISTERED,
+                    "Refined skill registered: " + refined.getName(), swarmId,
+                    Map.of("skillName", refined.getName(), "skillId", refined.getId()));
+
+                logger.info("Refined skill validated: {}{}", refined.getName(), retryIntSummary);
+
+                saveToMemory("skill-refined", String.format(
+                    "Skill '%s' required refinement for gap: %s (original errors: %s)",
+                    refined.getName(), truncate(gap, 100), truncate(allErrors, 100)),
+                    Map.of("skillName", refined.getName(), "gap", gap));
+
+                return Optional.of(refined);
+            } else {
+                logger.warn("Refined skill also failed. Skipping gap: {}", gap);
+                saveToMemory("skill-failed", String.format(
+                    "Failed to generate skill for gap: %s (errors: %s)",
+                    truncate(gap, 150), truncate(retryValidation.errorsAsString(), 100)),
+                    Map.of("gap", gap, "iteration", iteration));
+            }
+        }
+
+        return Optional.empty();
+    }
+
+    /**
+     * Detect convergence: check if the process is making meaningful progress.
+     * Updates staleIterations counter in-place via the passed array (single-element carrier).
+     * Returns true if the process should stop due to convergence.
+     */
+    private boolean detectConvergence(List<TaskOutput> allOutputs, ReviewResult review,
+                                       String toolErrorSummary, int[] previousOutputLengthRef,
+                                       Set<String> previousGaps, int[] staleIterationsRef) {
+        // Check output growth: if output length didn't grow by >10%, we're stalling
+        int currentOutputLength = allOutputs.stream()
+            .mapToInt(o -> o.getRawOutput() != null ? o.getRawOutput().length() : 0).sum();
+        boolean outputGrew = previousOutputLengthRef[0] == 0 ||
+            currentOutputLength > previousOutputLengthRef[0] * 1.1;
+
+        // Check gap repetition: if same gaps keep appearing, we're stuck
+        Set<String> currentGaps = new HashSet<>();
+        if (review != null && review.hasCapabilityGaps()) {
+            currentGaps.addAll(review.capabilityGaps());
+        }
+        boolean sameGaps = !currentGaps.isEmpty() && currentGaps.equals(previousGaps);
+
+        // Check if agent adapted (tool errors changed) — if so, don't count as stale
+        boolean agentAdapted = toolErrorSummary != null &&
+            (previousOutputLengthRef[0] > 0 && !sameGaps);
+
+        if ((!outputGrew && sameGaps) && !agentAdapted) {
+            staleIterationsRef[0]++;
+        } else {
+            staleIterationsRef[0] = 0;
+        }
+
+        previousOutputLengthRef[0] = currentOutputLength;
+        previousGaps.clear();
+        previousGaps.addAll(currentGaps);
+
+        if (staleIterationsRef[0] >= 3) {
+            logger.info("Self-Improving Process: Auto-stopping — no meaningful progress for {} iterations " +
+                "(output growth stalled: {}, repeated gaps: {})", staleIterationsRef[0], !outputGrew, sameGaps);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Build the final SwarmOutput with metadata, persist skills and scan cache.
+     */
+    private SwarmOutput buildFinalOutput(List<TaskOutput> allOutputs, int iteration, boolean approved,
+                                          String stopReason, int skillsGenerated, int gapsSkippedAsDuplicate,
+                                          int promoted, String swarmId) {
         SwarmOutput.Builder outputBuilder = SwarmOutput.builder()
             .swarmId(swarmId)
             .successful(approved || !allOutputs.isEmpty())

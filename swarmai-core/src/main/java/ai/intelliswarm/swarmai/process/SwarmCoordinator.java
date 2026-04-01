@@ -221,69 +221,72 @@ public class SwarmCoordinator implements Process {
         int threadPoolSize = Math.min(maxParallelAgents, Runtime.getRuntime().availableProcessors());
         ExecutorService executor = Executors.newFixedThreadPool(threadPoolSize);
 
-        // Determine the analyst agent template (second agent if available, else first)
-        Agent analystTemplate = agentTemplates.size() > 1
-                ? agentTemplates.get(1)
-                : agentTemplates.get(0);
+        Map<String, SwarmOutput> targetResults;
+        try {
+            // Determine the analyst agent template (second agent if available, else first)
+            Agent analystTemplate = agentTemplates.size() > 1
+                    ? agentTemplates.get(1)
+                    : agentTemplates.get(0);
 
-        Map<String, CompletableFuture<SwarmOutput>> futureMap = new LinkedHashMap<>();
+            Map<String, CompletableFuture<SwarmOutput>> futureMap = new LinkedHashMap<>();
 
-        for (String target : targets) {
-            String subSwarmId = swarmId + "-target-" + target.replace(".", "_");
+            for (String target : targets) {
+                String subSwarmId = swarmId + "-target-" + target.replace(".", "_");
 
-            CompletableFuture<SwarmOutput> future = CompletableFuture.supplyAsync(() -> {
+                CompletableFuture<SwarmOutput> future = CompletableFuture.supplyAsync(() -> {
+                    try {
+                        return executeSubProcess(target, subSwarmId, analystTemplate, discoveryOutput);
+                    } catch (Exception e) {
+                        logger.error("SwarmCoordinator [{}]: Sub-process for target {} failed: {}",
+                                swarmId, target, e.getMessage(), e);
+                        return SwarmOutput.builder()
+                                .swarmId(subSwarmId)
+                                .successful(false)
+                                .finalOutput("Error analyzing target " + target + ": " + e.getMessage())
+                                .metadata("target", target)
+                                .metadata("error", e.getMessage())
+                                .build();
+                    }
+                }, executor);
+
+                futureMap.put(target, future);
+            }
+
+            // Wait for all sub-processes with timeout
+            targetResults = new LinkedHashMap<>();
+            for (Map.Entry<String, CompletableFuture<SwarmOutput>> entry : futureMap.entrySet()) {
+                String target = entry.getKey();
                 try {
-                    return executeSubProcess(target, subSwarmId, analystTemplate, discoveryOutput);
+                    SwarmOutput result = entry.getValue().get(SUB_PROCESS_TIMEOUT_MINUTES, TimeUnit.MINUTES);
+                    targetResults.put(target, result);
+                    logger.info("SwarmCoordinator [{}]: Target {} completed (successful={})",
+                            swarmId, target, result.isSuccessful());
+                } catch (TimeoutException e) {
+                    logger.error("SwarmCoordinator [{}]: Sub-process for target {} timed out after {} minutes",
+                            swarmId, target, SUB_PROCESS_TIMEOUT_MINUTES);
+                    entry.getValue().cancel(true);
+                    targetResults.put(target, SwarmOutput.builder()
+                            .swarmId(swarmId + "-target-" + target.replace(".", "_"))
+                            .successful(false)
+                            .finalOutput("Timed out after " + SUB_PROCESS_TIMEOUT_MINUTES + " minutes analyzing " + target)
+                            .metadata("target", target)
+                            .metadata("error", "timeout")
+                            .build());
                 } catch (Exception e) {
                     logger.error("SwarmCoordinator [{}]: Sub-process for target {} failed: {}",
-                            swarmId, target, e.getMessage(), e);
-                    return SwarmOutput.builder()
-                            .swarmId(subSwarmId)
+                            swarmId, target, e.getMessage());
+                    targetResults.put(target, SwarmOutput.builder()
+                            .swarmId(swarmId + "-target-" + target.replace(".", "_"))
                             .successful(false)
                             .finalOutput("Error analyzing target " + target + ": " + e.getMessage())
                             .metadata("target", target)
                             .metadata("error", e.getMessage())
-                            .build();
+                            .build());
                 }
-            }, executor);
-
-            futureMap.put(target, future);
-        }
-
-        // Wait for all sub-processes with timeout
-        Map<String, SwarmOutput> targetResults = new LinkedHashMap<>();
-        for (Map.Entry<String, CompletableFuture<SwarmOutput>> entry : futureMap.entrySet()) {
-            String target = entry.getKey();
-            try {
-                SwarmOutput result = entry.getValue().get(SUB_PROCESS_TIMEOUT_MINUTES, TimeUnit.MINUTES);
-                targetResults.put(target, result);
-                logger.info("SwarmCoordinator [{}]: Target {} completed (successful={})",
-                        swarmId, target, result.isSuccessful());
-            } catch (TimeoutException e) {
-                logger.error("SwarmCoordinator [{}]: Sub-process for target {} timed out after {} minutes",
-                        swarmId, target, SUB_PROCESS_TIMEOUT_MINUTES);
-                entry.getValue().cancel(true);
-                targetResults.put(target, SwarmOutput.builder()
-                        .swarmId(swarmId + "-target-" + target.replace(".", "_"))
-                        .successful(false)
-                        .finalOutput("Timed out after " + SUB_PROCESS_TIMEOUT_MINUTES + " minutes analyzing " + target)
-                        .metadata("target", target)
-                        .metadata("error", "timeout")
-                        .build());
-            } catch (Exception e) {
-                logger.error("SwarmCoordinator [{}]: Sub-process for target {} failed: {}",
-                        swarmId, target, e.getMessage());
-                targetResults.put(target, SwarmOutput.builder()
-                        .swarmId(swarmId + "-target-" + target.replace(".", "_"))
-                        .successful(false)
-                        .finalOutput("Error analyzing target " + target + ": " + e.getMessage())
-                        .metadata("target", target)
-                        .metadata("error", e.getMessage())
-                        .build());
             }
+        } finally {
+            executor.shutdownNow();
         }
-
-        executor.shutdown();
 
         // Collect all per-target task outputs
         for (SwarmOutput targetOutput : targetResults.values()) {

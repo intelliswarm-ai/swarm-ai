@@ -43,6 +43,26 @@ public interface Process {
     }
 
     /**
+     * Aggregates reactive-loop metadata (turns, compacted turns) from individual TaskOutputs.
+     * Call this when building SwarmOutput to populate totalTurns and totalCompactedTurns.
+     */
+    default void aggregateReactiveMetrics(SwarmOutput.Builder builder, List<TaskOutput> outputs) {
+        if (outputs == null || outputs.isEmpty()) return;
+        long totalTurns = 0;
+        long totalCompactedTurns = 0;
+        for (TaskOutput output : outputs) {
+            if (output.getMetadata() != null) {
+                Object turns = output.getMetadata().get("turns");
+                if (turns instanceof Number n) totalTurns += n.longValue();
+                Object compacted = output.getMetadata().get("compactedTurns");
+                if (compacted instanceof Number n) totalCompactedTurns += n.longValue();
+            }
+        }
+        if (totalTurns > 0) builder.metadata("totalTurns", totalTurns);
+        if (totalCompactedTurns > 0) builder.metadata("totalCompactedTurns", totalCompactedTurns);
+    }
+
+    /**
      * Interpolates input variables into a template string.
      * Replaces {variable_name} placeholders with values from the inputs map.
      */

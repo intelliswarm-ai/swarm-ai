@@ -27,7 +27,7 @@ import java.util.stream.Collectors;
  *       .tools(tools)
  *       .build();
  */
-public class McpToolAdapter implements BaseTool {
+public class McpToolAdapter implements BaseTool, AutoCloseable {
 
     private static final Logger logger = LoggerFactory.getLogger(McpToolAdapter.class);
 
@@ -146,5 +146,31 @@ public class McpToolAdapter implements BaseTool {
     @Override
     public int getMaxResponseLength() {
         return 15000; // MCP tools can return large content
+    }
+
+    /**
+     * Closes the underlying MCP client connection.
+     */
+    @Override
+    public void close() {
+        try {
+            mcpClient.closeGracefully();
+            logger.debug("MCP client closed for tool: {}", name);
+        } catch (Exception e) {
+            logger.warn("Error closing MCP client for tool {}: {}", name, e.getMessage());
+        }
+    }
+
+    /**
+     * Closes all McpToolAdapter instances in the given tool list.
+     * Non-MCP tools are silently ignored.
+     */
+    public static void closeAll(List<BaseTool> tools) {
+        if (tools == null) return;
+        for (BaseTool tool : tools) {
+            if (tool instanceof McpToolAdapter adapter) {
+                adapter.close();
+            }
+        }
     }
 }
