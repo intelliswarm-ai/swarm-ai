@@ -1,4 +1,4 @@
-# SwarmAI — Self-Improving Agentic Workflows (Killer Feature)
+# SwarmAI — Self-Improving Agentic Workflows
 
 ## The Vision
 
