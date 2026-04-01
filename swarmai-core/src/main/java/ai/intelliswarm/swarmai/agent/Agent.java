@@ -4,6 +4,10 @@ import ai.intelliswarm.swarmai.config.ModelContextConfig;
 import ai.intelliswarm.swarmai.memory.Memory;
 import ai.intelliswarm.swarmai.knowledge.Knowledge;
 import ai.intelliswarm.swarmai.tool.base.BaseTool;
+import ai.intelliswarm.swarmai.tool.base.PermissionLevel;
+import ai.intelliswarm.swarmai.tool.base.ToolHook;
+import ai.intelliswarm.swarmai.tool.base.ToolHookContext;
+import ai.intelliswarm.swarmai.tool.base.ToolHookResult;
 import ai.intelliswarm.swarmai.skill.GeneratedSkill;
 import ai.intelliswarm.swarmai.tool.mcp.McpToolAdapter;
 import ai.intelliswarm.swarmai.task.Task;
@@ -29,6 +33,7 @@ public class Agent {
     private static final Logger logger = LoggerFactory.getLogger(Agent.class);
     private static final int DEFAULT_MAX_RETRIES = 3;
     private static final int DEFAULT_TIMEOUT_MS = 300_000; // 5 minutes
+    private static final int DEFAULT_MAX_TURNS = 10; // reactive loop safety cap
 
     @NotNull
     private final String id;
@@ -65,7 +70,11 @@ public class Agent {
 
     @JsonIgnore
     private final ModelContextConfig contextConfig;
-    
+
+    private final Integer maxTurns;
+    private final PermissionLevel permissionMode;
+    private final List<ToolHook> toolHooks;
+
     private final LocalDateTime createdAt;
     private final Map<String, Object> metadata;
     private Integer executionCount = 0;
@@ -89,6 +98,9 @@ public class Agent {
         this.knowledge = builder.knowledge;
         this.modelName = builder.modelName;
         this.contextConfig = ModelContextConfig.forModel(builder.modelName);
+        this.maxTurns = builder.maxTurns;
+        this.permissionMode = builder.permissionMode;
+        this.toolHooks = new ArrayList<>(builder.toolHooks);
         this.createdAt = LocalDateTime.now();
         this.metadata = new HashMap<>(builder.metadata);
     }
@@ -98,23 +110,107 @@ public class Agent {
     }
 
     public TaskOutput executeTask(Task task, List<TaskOutput> context) {
+        // If maxTurns > 1, use the reactive multi-turn loop
+        if (maxTurns != null && maxTurns > 1) {
+            return executeTaskReactive(task, context);
+        }
+        return executeSingleShot(task, context);
+    }
+
+    /**
+     * Executes a task using the reactive multi-turn loop.
+     * The agent can work across multiple reasoning turns, accumulating context.
+     * Each turn may involve LLM calls with tool usage (handled by Spring AI).
+     * The loop continues while the agent signals {@code <CONTINUE>} or until maxTurns is reached.
+     */
+    public TaskOutput executeTaskReactive(Task task, List<TaskOutput> context) {
+        incrementExecutionCount();
+        long startTime = System.currentTimeMillis();
+        int turns = maxTurns != null ? maxTurns : DEFAULT_MAX_TURNS;
+
+        try {
+            AgentConversation conversation = new AgentConversation();
+            String systemPrompt = buildReactiveSystemPrompt();
+
+            for (int turn = 0; turn < turns; turn++) {
+                String userPrompt;
+                if (turn == 0) {
+                    userPrompt = buildUserPrompt(task, context);
+                } else {
+                    userPrompt = buildContinuationPrompt(task, conversation);
+                }
+
+                userPrompt = enforcePromptBudget(systemPrompt, userPrompt);
+
+                if (verbose) {
+                    logger.info("Agent [{}] reactive turn {}/{} ({} chars prompt): {}",
+                            role, turn + 1, turns, userPrompt.length(),
+                            truncate(task.getDescription(), 80));
+                }
+
+                ChatResponse chatResponse = callLlm(systemPrompt, userPrompt);
+                String response = chatResponse.getResult().getOutput().getText();
+
+                long promptTokens = extractTokenCount(chatResponse, true);
+                long completionTokens = extractTokenCount(chatResponse, false);
+
+                conversation.addTurn(new ConversationTurn(
+                        turn, response, promptTokens, completionTokens, System.currentTimeMillis()));
+
+                if (verbose) {
+                    logger.info("Agent [{}] turn {} complete ({} chars, continuation={})",
+                            role, turn + 1,
+                            response != null ? response.length() : 0,
+                            AgentConversation.shouldContinue(response));
+                }
+
+                if (!AgentConversation.shouldContinue(response)) {
+                    break;
+                }
+            }
+
+            String finalResponse = conversation.getFinalResponse();
+            long executionTimeMs = System.currentTimeMillis() - startTime;
+
+            saveToMemory(task, finalResponse, executionTimeMs);
+
+            if (verbose) {
+                logger.info("Agent [{}] reactive execution done: {} turns, {} ms, {} total tokens",
+                        role, conversation.getTurnCount(), executionTimeMs,
+                        conversation.getCumulativeTotalTokens());
+            }
+
+            return TaskOutput.builder()
+                    .agentId(id)
+                    .taskId(task.getId())
+                    .rawOutput(finalResponse)
+                    .description(task.getDescription())
+                    .summary(extractSummary(finalResponse))
+                    .executionTimeMs(executionTimeMs)
+                    .promptTokens(conversation.getCumulativePromptTokens())
+                    .completionTokens(conversation.getCumulativeCompletionTokens())
+                    .totalTokens(conversation.getCumulativeTotalTokens())
+                    .metadata("turns", conversation.getTurnCount())
+                    .build();
+
+        } catch (Exception e) {
+            long executionTimeMs = System.currentTimeMillis() - startTime;
+            logger.error("Agent [{}] reactive execution failed after {} ms: {}", role, executionTimeMs, e.getMessage());
+            throw new RuntimeException("Failed to execute task: " + task.getId(), e);
+        }
+    }
+
+    /**
+     * Original single-shot execution: one LLM call per task.
+     */
+    private TaskOutput executeSingleShot(Task task, List<TaskOutput> context) {
         incrementExecutionCount();
         long startTime = System.currentTimeMillis();
 
         try {
             String systemPrompt = buildSystemPrompt();
             String userPrompt = buildUserPrompt(task, context);
-
-            // Dynamic context management: truncate prompt based on model's context window
-            int maxPromptChars = contextConfig.getMaxTotalPromptChars() - systemPrompt.length();
-            if (userPrompt.length() > maxPromptChars) {
-                logger.warn("Agent [{}] prompt too large ({} chars), truncating to {} chars (model: {}, context: {} tokens)",
-                        role, userPrompt.length(), maxPromptChars,
-                        modelName != null ? modelName : "default",
-                        contextConfig.getContextWindowTokens());
-                userPrompt = userPrompt.substring(0, maxPromptChars)
-                        + "\n\n[... content truncated to fit model context window ...]";
-            }
+            userPrompt = enforcePromptBudget(systemPrompt, userPrompt);
 
             if (verbose) {
                 logger.info("Agent [{}] executing task ({} chars prompt, {} token context): {}",
@@ -122,83 +218,10 @@ public class Agent {
                         truncate(task.getDescription(), 80));
             }
 
-            // Use Spring AI ChatClient fluent API with system + user messages
-            var requestBuilder = chatClient.prompt()
-                    .system(systemPrompt)
-                    .user(userPrompt);
-
-            // Override model per-agent if specified (otherwise uses Spring default)
-            if (modelName != null && !modelName.isBlank()) {
-                requestBuilder.options(org.springframework.ai.openai.OpenAiChatOptions.builder()
-                        .model(modelName)
-                        .build());
-            }
-
-            if (!tools.isEmpty()) {
-                // Split tools: Spring bean tools use toolNames(), dynamic tools use toolCallbacks()
-                List<String> springToolNames = new ArrayList<>();
-                List<BaseTool> dynamicTools = new ArrayList<>();
-
-                for (BaseTool tool : tools) {
-                    if (tool instanceof McpToolAdapter || tool instanceof GeneratedSkill) {
-                        // Dynamic tools (MCP, GeneratedSkill) must be registered as callbacks
-                        dynamicTools.add(tool);
-                    } else {
-                        springToolNames.add(tool.getFunctionName());
-                    }
-                }
-
-                if (!springToolNames.isEmpty()) {
-                    requestBuilder.toolNames(springToolNames.toArray(new String[0]));
-                }
-
-                if (!dynamicTools.isEmpty()) {
-                    List<org.springframework.ai.tool.ToolCallback> callbacks = new ArrayList<>();
-
-                    for (BaseTool tool : dynamicTools) {
-                        if (tool instanceof McpToolAdapter) {
-                            // MCP tools use the fixed McpToolInput record
-                            callbacks.add(org.springframework.ai.tool.function.FunctionToolCallback
-                                    .builder(tool.getFunctionName(),
-                                            (java.util.function.Function<McpToolInput, String>)
-                                                    input -> {
-                                                Map<String, Object> params = new HashMap<>();
-                                                if (input.url() != null) params.put("url", input.url());
-                                                if (input.query() != null) params.put("query", input.query());
-                                                if (input.input() != null) params.put("input", input.input());
-                                                return String.valueOf(tool.execute(params));
-                                            })
-                                    .description(tool.getDescription())
-                                    .inputType(McpToolInput.class)
-                                    .build());
-                        } else {
-                            // GeneratedSkill and other dynamic tools — DynamicToolInput captures all params
-                            callbacks.add(org.springframework.ai.tool.function.FunctionToolCallback
-                                    .builder(tool.getFunctionName(),
-                                            (java.util.function.Function<DynamicToolInput, String>)
-                                                    input -> {
-                                                Map<String, Object> params = new HashMap<>(input.getParams());
-                                                return String.valueOf(tool.execute(params));
-                                            })
-                                    .description(tool.getDescription())
-                                    .inputType(DynamicToolInput.class)
-                                    .build());
-                        }
-                    }
-
-                    requestBuilder.toolCallbacks(callbacks.toArray(new org.springframework.ai.tool.ToolCallback[0]));
-                }
-            }
-
-            // Call LLM with retry and timeout — capture full ChatResponse for token stats
-            int timeoutMs = maxExecutionTime != null ? maxExecutionTime : DEFAULT_TIMEOUT_MS;
-            ChatResponse chatResponse = callWithRetry(
-                    () -> requestBuilder.call().chatResponse(), DEFAULT_MAX_RETRIES, timeoutMs);
-
+            ChatResponse chatResponse = callLlm(systemPrompt, userPrompt);
             String response = chatResponse.getResult().getOutput().getText();
             long executionTimeMs = System.currentTimeMillis() - startTime;
 
-            // Extract token usage (API returns Long in some versions, Integer in others)
             Long promptTokens = null, completionTokens = null, totalTokens = null;
             if (chatResponse.getMetadata() != null && chatResponse.getMetadata().getUsage() != null) {
                 var usage = chatResponse.getMetadata().getUsage();
@@ -207,13 +230,7 @@ public class Agent {
                 totalTokens = toLong(usage.getTotalTokens());
             }
 
-            // Save result to memory for future context
-            if (memory != null) {
-                memory.save(id,
-                        "Task: " + truncate(task.getDescription(), 200) +
-                        "\nResult: " + truncate(response, 500),
-                        Map.of("taskId", task.getId(), "executionTimeMs", executionTimeMs));
-            }
+            saveToMemory(task, response, executionTimeMs);
 
             if (verbose) {
                 logger.info("Agent [{}] completed task in {} ms ({} chars, {} prompt tokens, {} completion tokens)",
@@ -242,6 +259,166 @@ public class Agent {
         }
     }
 
+    // ==================== LLM Call Infrastructure ====================
+
+    /**
+     * Unified LLM call method: builds the request with permitted tools (filtered by
+     * permission level) and wraps dynamic tool execution with registered hooks.
+     */
+    private ChatResponse callLlm(String systemPrompt, String userPrompt) {
+        var requestBuilder = chatClient.prompt()
+                .system(systemPrompt)
+                .user(userPrompt);
+
+        if (modelName != null && !modelName.isBlank()) {
+            requestBuilder.options(org.springframework.ai.openai.OpenAiChatOptions.builder()
+                    .model(modelName)
+                    .build());
+        }
+
+        List<BaseTool> permittedTools = getPermittedTools();
+
+        if (!permittedTools.isEmpty()) {
+            List<String> springToolNames = new ArrayList<>();
+            List<BaseTool> dynamicTools = new ArrayList<>();
+
+            for (BaseTool tool : permittedTools) {
+                if (tool instanceof McpToolAdapter || tool instanceof GeneratedSkill) {
+                    dynamicTools.add(tool);
+                } else {
+                    springToolNames.add(tool.getFunctionName());
+                }
+            }
+
+            if (!springToolNames.isEmpty()) {
+                requestBuilder.toolNames(springToolNames.toArray(new String[0]));
+            }
+
+            if (!dynamicTools.isEmpty()) {
+                List<org.springframework.ai.tool.ToolCallback> callbacks = new ArrayList<>();
+                for (BaseTool tool : dynamicTools) {
+                    if (tool instanceof McpToolAdapter) {
+                        callbacks.add(org.springframework.ai.tool.function.FunctionToolCallback
+                                .builder(tool.getFunctionName(),
+                                        (java.util.function.Function<McpToolInput, String>)
+                                                input -> {
+                                            Map<String, Object> params = new HashMap<>();
+                                            if (input.url() != null) params.put("url", input.url());
+                                            if (input.query() != null) params.put("query", input.query());
+                                            if (input.input() != null) params.put("input", input.input());
+                                            return executeToolWithHooks(tool, params);
+                                        })
+                                .description(tool.getDescription())
+                                .inputType(McpToolInput.class)
+                                .build());
+                    } else {
+                        callbacks.add(org.springframework.ai.tool.function.FunctionToolCallback
+                                .builder(tool.getFunctionName(),
+                                        (java.util.function.Function<DynamicToolInput, String>)
+                                                input -> {
+                                            Map<String, Object> params = new HashMap<>(input.getParams());
+                                            return executeToolWithHooks(tool, params);
+                                        })
+                                .description(tool.getDescription())
+                                .inputType(DynamicToolInput.class)
+                                .build());
+                    }
+                }
+                requestBuilder.toolCallbacks(callbacks.toArray(new org.springframework.ai.tool.ToolCallback[0]));
+            }
+        }
+
+        int timeoutMs = maxExecutionTime != null ? maxExecutionTime : DEFAULT_TIMEOUT_MS;
+        return callWithRetry(() -> requestBuilder.call().chatResponse(), DEFAULT_MAX_RETRIES, timeoutMs);
+    }
+
+    /**
+     * Executes a tool with pre/post hook interception.
+     * Pre-hooks can deny execution; post-hooks can modify output.
+     */
+    private String executeToolWithHooks(BaseTool tool, Map<String, Object> params) {
+        // --- Pre-hooks ---
+        if (!toolHooks.isEmpty()) {
+            ToolHookContext preCtx = ToolHookContext.before(tool.getFunctionName(), params, id, null);
+            for (ToolHook hook : toolHooks) {
+                ToolHookResult result = hook.beforeToolUse(preCtx);
+                if (result.action() == ToolHookResult.Action.DENY) {
+                    logger.warn("Agent [{}] tool {} denied by hook: {}",
+                            role, tool.getFunctionName(), result.message());
+                    return "Tool execution denied: " + result.message();
+                }
+                if (result.action() == ToolHookResult.Action.WARN && result.message() != null) {
+                    logger.warn("Agent [{}] tool {} hook warning: {}",
+                            role, tool.getFunctionName(), result.message());
+                }
+            }
+        }
+
+        // --- Execute ---
+        long toolStart = System.currentTimeMillis();
+        String output;
+        Throwable toolError = null;
+        try {
+            output = String.valueOf(tool.execute(params));
+        } catch (Exception e) {
+            toolError = e;
+            long elapsed = System.currentTimeMillis() - toolStart;
+            // Run post-hooks for error case
+            if (!toolHooks.isEmpty()) {
+                ToolHookContext errCtx = ToolHookContext.error(
+                        tool.getFunctionName(), params, elapsed, e, id, null);
+                for (ToolHook hook : toolHooks) {
+                    hook.afterToolUse(errCtx);
+                }
+            }
+            throw e;
+        }
+        long toolElapsed = System.currentTimeMillis() - toolStart;
+
+        // --- Post-hooks ---
+        if (!toolHooks.isEmpty()) {
+            ToolHookContext postCtx = ToolHookContext.after(
+                    tool.getFunctionName(), params, output, toolElapsed, id, null);
+            for (ToolHook hook : toolHooks) {
+                ToolHookResult result = hook.afterToolUse(postCtx);
+                if (result.modifiedOutput() != null) {
+                    output = result.modifiedOutput();
+                }
+                if (result.action() == ToolHookResult.Action.DENY) {
+                    logger.warn("Agent [{}] tool {} output denied by post-hook: {}",
+                            role, tool.getFunctionName(), result.message());
+                    return "Tool output filtered: " + result.message();
+                }
+                if (result.action() == ToolHookResult.Action.WARN && result.message() != null) {
+                    logger.warn("Agent [{}] tool {} post-hook warning: {}",
+                            role, tool.getFunctionName(), result.message());
+                }
+            }
+        }
+
+        return output;
+    }
+
+    /**
+     * Returns tools filtered by this agent's permission mode.
+     * If no permission mode is set, all tools are returned.
+     */
+    private List<BaseTool> getPermittedTools() {
+        if (permissionMode == null) {
+            return tools;
+        }
+        List<BaseTool> permitted = new ArrayList<>();
+        for (BaseTool tool : tools) {
+            if (tool.getPermissionLevel().isPermittedBy(permissionMode)) {
+                permitted.add(tool);
+            } else if (verbose) {
+                logger.info("Agent [{}] tool {} filtered out (requires {}, agent mode is {})",
+                        role, tool.getFunctionName(), tool.getPermissionLevel(), permissionMode);
+            }
+        }
+        return permitted;
+    }
+
     private <T> T callWithRetry(Supplier<T> llmCall, int maxRetries, int timeoutMs) {
         Exception lastException = null;
         for (int attempt = 1; attempt <= maxRetries; attempt++) {
@@ -254,7 +431,6 @@ public class Agent {
                 lastException = e;
                 Throwable cause = e.getCause() != null ? e.getCause() : e;
                 String msg = cause.getMessage() != null ? cause.getMessage() : "";
-                // Don't retry non-transient errors (bad request, auth, context length)
                 if (msg.contains("400") || msg.contains("401") || msg.contains("403")
                         || msg.contains("context_length_exceeded") || msg.contains("NonTransient")) {
                     throw new RuntimeException("LLM call failed (non-retryable): " + msg, e);
@@ -274,6 +450,8 @@ public class Agent {
         }
         throw new RuntimeException("LLM call failed after " + maxRetries + " attempts", lastException);
     }
+
+    // ==================== Prompt Building ====================
 
     private String buildSystemPrompt() {
         StringBuilder system = new StringBuilder();
@@ -379,6 +557,73 @@ public class Agent {
         return prompt.toString();
     }
 
+    /**
+     * Builds an extended system prompt with multi-turn reasoning instructions.
+     */
+    private String buildReactiveSystemPrompt() {
+        String base = buildSystemPrompt();
+        return base + "\n" +
+                "MULTI-TURN REASONING:\n" +
+                "You can work in multiple reasoning turns to complete complex tasks.\n" +
+                "After each response:\n" +
+                "- If you need to do more work (call more tools, analyze further, refine results), " +
+                "end your response with <CONTINUE>\n" +
+                "- When you have completed the task fully, end your response with <DONE>\n" +
+                "The marker must be the last non-whitespace content in your response.\n" +
+                "If you use neither marker, your response is treated as final.\n";
+    }
+
+    /**
+     * Builds a continuation prompt for subsequent turns in the reactive loop,
+     * including accumulated conversation context.
+     */
+    private String buildContinuationPrompt(Task task, AgentConversation conversation) {
+        StringBuilder prompt = new StringBuilder();
+        prompt.append("You are continuing work on this task:\n");
+        prompt.append("Task: ").append(task.getDescription()).append("\n");
+        if (StringUtils.hasText(task.getExpectedOutput())) {
+            prompt.append("Expected Output: ").append(task.getExpectedOutput()).append("\n");
+        }
+        prompt.append("\nYour previous reasoning:\n");
+        prompt.append(conversation.toContextString());
+        prompt.append("\n\nContinue working. Use <CONTINUE> if you need more turns, or <DONE> when finished.\n");
+        return prompt.toString();
+    }
+
+    /**
+     * Truncates the user prompt if it exceeds the model's context budget.
+     */
+    private String enforcePromptBudget(String systemPrompt, String userPrompt) {
+        int maxPromptChars = contextConfig.getMaxTotalPromptChars() - systemPrompt.length();
+        if (userPrompt.length() > maxPromptChars) {
+            logger.warn("Agent [{}] prompt too large ({} chars), truncating to {} chars (model: {}, context: {} tokens)",
+                    role, userPrompt.length(), maxPromptChars,
+                    modelName != null ? modelName : "default",
+                    contextConfig.getContextWindowTokens());
+            return userPrompt.substring(0, maxPromptChars)
+                    + "\n\n[... content truncated to fit model context window ...]";
+        }
+        return userPrompt;
+    }
+
+    private long extractTokenCount(ChatResponse chatResponse, boolean prompt) {
+        if (chatResponse.getMetadata() != null && chatResponse.getMetadata().getUsage() != null) {
+            var usage = chatResponse.getMetadata().getUsage();
+            Long val = toLong(prompt ? usage.getPromptTokens() : usage.getCompletionTokens());
+            return val != null ? val : 0L;
+        }
+        return 0L;
+    }
+
+    private void saveToMemory(Task task, String response, long executionTimeMs) {
+        if (memory != null) {
+            memory.save(id,
+                    "Task: " + truncate(task.getDescription(), 200) +
+                    "\nResult: " + truncate(response, 500),
+                    Map.of("taskId", task.getId(), "executionTimeMs", executionTimeMs));
+        }
+    }
+
     private String extractSummary(String response) {
         if (response == null || response.length() <= 200) {
             return response;
@@ -475,6 +720,9 @@ public class Agent {
         private Knowledge knowledge;
         private String modelName;
         private Map<String, Object> metadata = new HashMap<>();
+        private Integer maxTurns;
+        private PermissionLevel permissionMode;
+        private List<ToolHook> toolHooks = new ArrayList<>();
 
         public Builder id(String id) {
             this.id = id;
@@ -571,6 +819,42 @@ public class Agent {
             return this;
         }
 
+        /**
+         * Sets the maximum number of reasoning turns for the reactive agent loop.
+         * When set to a value > 1, the agent uses multi-turn execution.
+         * Default: 1 (single-shot, backward compatible).
+         */
+        public Builder maxTurns(Integer maxTurns) {
+            this.maxTurns = maxTurns;
+            return this;
+        }
+
+        /**
+         * Sets the permission mode for this agent, restricting which tools it can invoke.
+         * Tools with a {@link PermissionLevel} above this mode will be filtered out.
+         * Default: null (no restriction).
+         */
+        public Builder permissionMode(PermissionLevel permissionMode) {
+            this.permissionMode = permissionMode;
+            return this;
+        }
+
+        /**
+         * Adds a tool hook that intercepts every tool invocation with pre/post callbacks.
+         */
+        public Builder toolHook(ToolHook hook) {
+            this.toolHooks.add(hook);
+            return this;
+        }
+
+        /**
+         * Sets all tool hooks at once.
+         */
+        public Builder toolHooks(List<ToolHook> hooks) {
+            this.toolHooks = new ArrayList<>(hooks);
+            return this;
+        }
+
         public Agent build() {
             Objects.requireNonNull(role, "Role cannot be null");
             Objects.requireNonNull(goal, "Goal cannot be null");
@@ -603,6 +887,9 @@ public class Agent {
     public ChatClient getChatClient() { return chatClient; }
     public Memory getMemory() { return memory; }
     public Knowledge getKnowledge() { return knowledge; }
+    public Integer getMaxTurns() { return maxTurns; }
+    public PermissionLevel getPermissionMode() { return permissionMode; }
+    public List<ToolHook> getToolHooks() { return new ArrayList<>(toolHooks); }
 
     /**
      * Create a copy of this agent with additional tools added to its toolkit.
@@ -622,6 +909,9 @@ public class Agent {
             .maxRpm(this.maxRpm != null ? this.maxRpm : 0)
             .temperature(this.temperature != null ? this.temperature : 0.7)
             .modelName(this.modelName)
+            .maxTurns(this.maxTurns)
+            .permissionMode(this.permissionMode)
+            .toolHooks(this.toolHooks)
             .build();
         copy.memory = this.memory;
         copy.knowledge = this.knowledge;

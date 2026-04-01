@@ -8,6 +8,7 @@ SwarmAI is a Java framework for building multi-agent AI workflows on Spring Boot
 - [Core Concepts](#core-concepts)
 - [Quick Start](#quick-start)
 - [Agents](#agents)
+  - [Reactive Agent Loop (Multi-Turn Reasoning)](#reactive-agent-loop-multi-turn-reasoning)
 - [Tasks](#tasks)
 - [Swarms and Process Types](#swarms-and-process-types)
   - [Sequential](#sequential-process)
@@ -18,6 +19,8 @@ SwarmAI is a Java framework for building multi-agent AI workflows on Spring Boot
   - [Composite](#composite-process)
 - [The Graph API](#the-graph-api)
 - [Tools](#tools)
+  - [Tool Permission Levels](#tool-permission-levels)
+  - [Tool Hooks (Pre/Post Interceptors)](#tool-hooks-prepost-interceptors)
 - [Memory](#memory)
 - [Knowledge](#knowledge)
 - [Budget Tracking](#budget-tracking)
@@ -201,6 +204,46 @@ Agent agent = Agent.builder()
 | `verbose`          | false     | Enable detailed logging                        |
 | `memory`           | null      | Memory store for cross-task context            |
 | `knowledge`        | null      | Knowledge base to query for relevant info      |
+| `maxTurns`         | null      | Max reasoning turns for reactive loop (null = single-shot) |
+| `permissionMode`   | null      | Max tool permission level this agent can use (null = unrestricted) |
+| `toolHooks`        | empty     | Pre/post interceptors for every tool call      |
+
+### Reactive Agent Loop (Multi-Turn Reasoning)
+
+By default, agents make a single LLM call per task. For complex tasks that require multi-step reasoning, enable the reactive loop with `maxTurns`. The agent works across multiple turns, accumulating context, until it signals completion or the turn limit is reached.
+
+```java
+Agent deepAnalyst = Agent.builder()
+        .role("Deep Analyst")
+        .goal("Perform thorough multi-step analysis")
+        .backstory("You break complex problems into steps and verify each one.")
+        .chatClient(chatClient)
+        .tools(List.of(webSearchTool, calculatorTool, csvTool))
+        .maxTurns(5)     // Up to 5 reasoning turns
+        .verbose(true)   // See each turn logged
+        .build();
+```
+
+How it works:
+1. **Turn 1**: Agent receives the task, calls tools, reasons about results
+2. Agent ends its response with `<CONTINUE>` if more work is needed
+3. **Turn 2+**: Agent receives its prior reasoning as context and continues
+4. Agent ends with `<DONE>` (or omits any marker) to signal completion
+5. Stops at `maxTurns` even if the agent wants to continue
+
+The final `TaskOutput` includes cumulative token usage across all turns and `metadata("turns", N)` with the actual turn count.
+
+```java
+TaskOutput output = deepAnalyst.executeTask(task, context);
+int turnsUsed = (int) output.getMetadata().get("turns");  // e.g., 3
+long totalTokens = output.getTotalTokens();                 // sum across all turns
+```
+
+You can also call `executeTaskReactive()` directly to force multi-turn mode regardless of `maxTurns`:
+
+```java
+TaskOutput output = agent.executeTaskReactive(task, context);
+```
 
 ---
 
@@ -632,6 +675,174 @@ Agent agent = Agent.builder()
         // ...
         .build();
 ```
+
+### Tool Permission Levels
+
+Tools declare a permission level that indicates how sensitive or dangerous they are. Agents declare a permission mode that limits which tools they can access. Tools above the agent's mode are filtered out at execution time.
+
+**Permission levels (ordered least to most privileged):**
+
+| Level | Description | Example tools |
+|-------|-------------|---------------|
+| `READ_ONLY` | Search, query, fetch | `web_search`, `file_read`, `csv_analysis` |
+| `WORKSPACE_WRITE` | Modify files, databases | `file_write`, `database_query` |
+| `DANGEROUS` | Shell commands, deletions | `shell_command`, `code_execution` |
+| `REQUIRES_APPROVAL` | Needs governance gate approval | Production deployments, external API mutations |
+
+**Declaring a tool's permission level:**
+
+```java
+@Component
+public class ShellCommandTool extends BaseTool {
+
+    @Override
+    public PermissionLevel getPermissionLevel() {
+        return PermissionLevel.DANGEROUS;
+    }
+
+    // ... other methods
+}
+```
+
+Tools default to `READ_ONLY` if not overridden.
+
+**Restricting an agent:**
+
+```java
+// This agent can only use READ_ONLY tools
+Agent explorer = Agent.builder()
+        .role("Explorer")
+        .goal("Gather data without modifying anything")
+        .backstory("Read-only research agent.")
+        .chatClient(chatClient)
+        .tools(List.of(webSearchTool, fileReadTool, shellTool))
+        .permissionMode(PermissionLevel.READ_ONLY)
+        .build();
+// shellTool is silently filtered out at execution time
+```
+
+```java
+// This agent can use READ_ONLY and WORKSPACE_WRITE tools
+Agent builder = Agent.builder()
+        .role("Builder")
+        .goal("Create and modify files")
+        .backstory("Builder agent with write access.")
+        .chatClient(chatClient)
+        .tools(List.of(webSearchTool, fileWriteTool, shellTool))
+        .permissionMode(PermissionLevel.WORKSPACE_WRITE)
+        .build();
+// shellTool (DANGEROUS) is filtered out; webSearchTool and fileWriteTool remain
+```
+
+If no `permissionMode` is set, the agent has access to all tools (no filtering).
+
+### Tool Hooks (Pre/Post Interceptors)
+
+Tool hooks wrap every individual tool invocation with pre/post callbacks. They enable audit logging, rate limiting, output sanitization, and cost tracking at the tool level.
+
+**The `ToolHook` interface:**
+
+```java
+public interface ToolHook {
+    default ToolHookResult beforeToolUse(ToolHookContext context) {
+        return ToolHookResult.allow();
+    }
+    default ToolHookResult afterToolUse(ToolHookContext context) {
+        return ToolHookResult.allow();
+    }
+}
+```
+
+**Example: Audit logging hook**
+
+```java
+ToolHook auditHook = new ToolHook() {
+    @Override
+    public ToolHookResult beforeToolUse(ToolHookContext ctx) {
+        log.info("TOOL_CALL agent={} tool={} params={}",
+                ctx.agentId(), ctx.toolName(), ctx.inputParams());
+        return ToolHookResult.allow();
+    }
+
+    @Override
+    public ToolHookResult afterToolUse(ToolHookContext ctx) {
+        log.info("TOOL_RESULT agent={} tool={} time={}ms error={}",
+                ctx.agentId(), ctx.toolName(), ctx.executionTimeMs(), ctx.hasError());
+        return ToolHookResult.allow();
+    }
+};
+```
+
+**Example: Rate-limiting hook**
+
+```java
+ToolHook rateLimitHook = new ToolHook() {
+    private final AtomicInteger calls = new AtomicInteger();
+
+    @Override
+    public ToolHookResult beforeToolUse(ToolHookContext ctx) {
+        if (calls.incrementAndGet() > 20) {
+            return ToolHookResult.deny("Rate limit: max 20 tool calls per task");
+        }
+        return ToolHookResult.allow();
+    }
+};
+```
+
+**Example: Output sanitization hook**
+
+```java
+ToolHook sanitizeHook = new ToolHook() {
+    @Override
+    public ToolHookResult afterToolUse(ToolHookContext ctx) {
+        if (ctx.output() != null && ctx.output().contains("API_KEY=")) {
+            return ToolHookResult.withModifiedOutput(
+                    ctx.output().replaceAll("API_KEY=\\S+", "API_KEY=[REDACTED]"));
+        }
+        return ToolHookResult.allow();
+    }
+};
+```
+
+**Attaching hooks to an agent:**
+
+```java
+Agent agent = Agent.builder()
+        .role("Guarded Agent")
+        .goal("Execute with audit trail and guardrails")
+        .backstory("Agent with hooks for compliance.")
+        .chatClient(chatClient)
+        .tools(List.of(webSearchTool, fileReadTool))
+        .toolHook(auditHook)
+        .toolHook(rateLimitHook)
+        .toolHook(sanitizeHook)
+        .build();
+```
+
+Hooks are called in registration order. Multiple hooks chain — if any pre-hook returns `DENY`, execution is blocked immediately.
+
+**Hook result actions:**
+
+| Result | Pre-hook | Post-hook |
+|--------|----------|-----------|
+| `ToolHookResult.allow()` | Proceed with execution | Pass through original output |
+| `ToolHookResult.deny(reason)` | Block execution; reason returned to LLM | Replace output with reason |
+| `ToolHookResult.warn(message)` | Log warning, proceed | Log warning, proceed |
+| `ToolHookResult.withModifiedOutput(out)` | N/A | Replace tool output |
+
+**`ToolHookContext` fields:**
+
+| Field | Description |
+|-------|-------------|
+| `toolName()` | Name of the tool being called |
+| `inputParams()` | Parameters passed to the tool |
+| `output()` | Tool output (null for pre-hooks) |
+| `executionTimeMs()` | Execution duration (0 for pre-hooks) |
+| `error()` | Exception if tool threw (null otherwise) |
+| `agentId()` | ID of the agent invoking the tool |
+| `workflowId()` | Workflow ID (may be null) |
+
+Hooks are preserved when calling `agent.withAdditionalTools()` (used by self-improving workflows).
 
 ---
 

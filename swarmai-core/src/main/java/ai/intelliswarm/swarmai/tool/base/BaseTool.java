@@ -32,6 +32,17 @@ public interface BaseTool {
         return 8000;
     }
 
+    // ==================== Permission Level ====================
+
+    /**
+     * The permission level required to use this tool.
+     * Agents with a permissionMode below this level cannot invoke the tool.
+     * Default: READ_ONLY (most permissive — any agent can use it).
+     */
+    default PermissionLevel getPermissionLevel() {
+        return PermissionLevel.READ_ONLY;
+    }
+
     // ==================== Routing (P0) ====================
 
     /**

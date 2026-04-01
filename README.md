@@ -5,7 +5,7 @@
 [![Spring Boot 3.4](https://img.shields.io/badge/Spring%20Boot-3.4.4-brightgreen.svg)](https://spring.io/projects/spring-boot)
 [![Spring AI 1.0](https://img.shields.io/badge/Spring%20AI-1.0.4%20GA-brightgreen.svg)](https://spring.io/projects/spring-ai)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-744%20passing-brightgreen.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-783%20passing-brightgreen.svg)](#)
 
 Java multi-agent framework with type-safe state management, self-improving skills, runtime CODE tool generation, and enterprise governance. Built on Spring AI 1.0.4 GA and Spring Boot 3.4.
 
@@ -70,7 +70,7 @@ SwarmOutput result = Swarm.builder()
     .kickoff(Map.of("topic", "AI agents"));
 ```
 
-For the full guide with examples, see **[docs/GETTING_STARTED.md](GETTING_STARTED.md)**.
+> **New to SwarmAI?** Read the **[Getting Started Guide](GETTING_STARTED.md)** — a comprehensive tutorial covering agents, tasks, processes, tools, memory, knowledge, budget tracking, governance, and multi-tenancy with full code examples.
 
 ### Run Examples
 
@@ -86,7 +86,7 @@ mvn compile exec:java -Dexec.mainClass="ai.intelliswarm.swarmai.examples.feature
 ### Build & Test
 
 ```bash
-./mvnw clean test       # 744 tests, all passing
+./mvnw clean test       # 783 tests, all passing
 ./mvnw clean install    # install to local Maven repo
 ```
 
@@ -127,6 +127,23 @@ Agent agent = Agent.builder()
 ```
 
 Agents automatically manage context window limits per model, retry transient LLM errors with exponential backoff, and include anti-hallucination guardrails in their system prompts.
+
+### Reactive Agent Loop (Multi-Turn Reasoning)
+
+By default, agents execute a single LLM call per task. Enable multi-turn reasoning with `maxTurns` — the agent works across multiple reasoning steps, accumulating context between turns, until it signals completion or the turn limit is reached.
+
+```java
+Agent agent = Agent.builder()
+    .role("Deep Analyst")
+    .goal("Perform thorough multi-step analysis")
+    .backstory("Expert at breaking complex problems into steps.")
+    .chatClient(chatClient)
+    .tools(List.of(webSearchTool, calculatorTool))
+    .maxTurns(5)   // Up to 5 reasoning turns per task
+    .build();
+```
+
+The agent uses `<CONTINUE>` and `<DONE>` markers to signal whether more work is needed. Token usage is accumulated across all turns, and the final `TaskOutput` includes `metadata("turns", N)` with the actual turn count.
 
 ## Tasks
 
@@ -310,6 +327,88 @@ public class StockPriceTool extends BaseTool {
     }
 }
 ```
+
+### Tool Permission Levels
+
+Tools declare a permission level, and agents declare a permission mode. Tools above the agent's mode are filtered out at execution time — enabling scoped agents like read-only explorers or restricted workers.
+
+```java
+// Tool declares its permission level
+public class ShellCommandTool extends BaseTool {
+    @Override
+    public PermissionLevel getPermissionLevel() {
+        return PermissionLevel.DANGEROUS;
+    }
+}
+
+// Agent restricted to read-only tools
+Agent explorer = Agent.builder()
+    .role("Explorer")
+    .goal("Research and gather data")
+    .backstory("Read-only research agent.")
+    .chatClient(chatClient)
+    .tools(List.of(webSearchTool, fileReadTool, shellTool))
+    .permissionMode(PermissionLevel.READ_ONLY)  // shellTool filtered out
+    .build();
+```
+
+| Level | Description |
+|-------|-------------|
+| `READ_ONLY` | Search, query, fetch — safe for any agent |
+| `WORKSPACE_WRITE` | Modify files, databases, workspace state |
+| `DANGEROUS` | Shell commands, network calls, deletions |
+| `REQUIRES_APPROVAL` | Requires governance gate approval before execution |
+
+### Tool Hooks (Pre/Post Interceptors)
+
+Tool hooks wrap every tool invocation with pre/post callbacks — enabling audit logging, rate limiting, output sanitization, and cost tracking at the tool level.
+
+```java
+// Audit hook — logs every tool call
+ToolHook auditHook = new ToolHook() {
+    @Override
+    public ToolHookResult beforeToolUse(ToolHookContext ctx) {
+        log.info("Tool {} called by agent {}", ctx.toolName(), ctx.agentId());
+        return ToolHookResult.allow();
+    }
+
+    @Override
+    public ToolHookResult afterToolUse(ToolHookContext ctx) {
+        log.info("Tool {} completed in {} ms", ctx.toolName(), ctx.executionTimeMs());
+        return ToolHookResult.allow();
+    }
+};
+
+// Rate-limiting hook — deny after N calls
+ToolHook rateLimitHook = new ToolHook() {
+    private final AtomicInteger count = new AtomicInteger();
+    @Override
+    public ToolHookResult beforeToolUse(ToolHookContext ctx) {
+        return count.incrementAndGet() > 10
+            ? ToolHookResult.deny("Rate limit exceeded")
+            : ToolHookResult.allow();
+    }
+};
+
+// Attach hooks to an agent
+Agent agent = Agent.builder()
+    .role("Guarded Agent")
+    .goal("Execute with guardrails")
+    .backstory("Agent with audit trail and rate limits.")
+    .chatClient(chatClient)
+    .toolHook(auditHook)
+    .toolHook(rateLimitHook)
+    .build();
+```
+
+Hook results control execution flow:
+
+| Result | Pre-hook effect | Post-hook effect |
+|--------|----------------|------------------|
+| `ToolHookResult.allow()` | Proceed | Pass through output |
+| `ToolHookResult.deny(reason)` | Block execution, return reason to LLM | Replace output with reason |
+| `ToolHookResult.warn(msg)` | Log warning, proceed | Log warning, proceed |
+| `ToolHookResult.withModifiedOutput(out)` | — | Replace tool output |
 
 ## Memory
 
@@ -502,11 +601,11 @@ The optional `swarmai-studio` module provides a web UI for monitoring workflows 
 | MCP Java SDK | 0.10.0 |
 | Groovy | 4.x (skill sandbox) |
 | Build | Maven (multi-module) |
-| Tests | JUnit 5 + Mockito (744 tests) |
+| Tests | JUnit 5 + Mockito (783 tests) |
 
 ## Documentation
 
-- **[Getting Started Guide](GETTING_STARTED.md)** — Full tutorial with examples
+- **[Getting Started Guide](GETTING_STARTED.md)** — Comprehensive tutorial with full code examples for every feature
 - **[API Keys Setup](docs/API_KEYS_SETUP_GUIDE.md)** — Configure LLM provider API keys
 - **[Docker Guide](docs/DOCKER_EXAMPLE_GUIDE.md)** — Run SwarmAI in Docker
 - **[Self-Improving Workflows](docs/SELF_IMPROVING_WORKFLOWS.md)** — Skill generation deep dive
