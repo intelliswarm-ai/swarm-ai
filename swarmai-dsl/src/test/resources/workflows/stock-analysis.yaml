@@ -1,0 +1,66 @@
+##
+# Stock Analysis Workflow — YAML DSL
+#
+# A two-agent pipeline for equity research. A senior financial analyst
+# performs data-driven stock analysis with tool support, and an investment
+# report writer produces a professional report with a BUY/HOLD/SELL
+# recommendation.
+#
+# Pipeline (SEQUENTIAL):
+#   1. Senior Financial Analyst     — analyzes the stock using tools and financial data
+#   2. Investment Report Writer     — writes a professional investment report
+#
+# Features demonstrated:
+#   - Tool-equipped agents (calculator, web-search)
+#   - Permission modes (READ_ONLY, WORKSPACE_WRITE)
+#   - Conversation compaction for multi-turn efficiency
+#   - maxTurns for bounded agent execution
+#
+# Equivalent Java class: StockAnalysisWorkflow.java
+# Template variables: {{ticker}}
+##
+
+swarm:
+  name: "StockAnalysisWorkflow"
+  process: SEQUENTIAL
+
+  agents:
+    analyst:
+      role: "Senior Financial Analyst"
+      goal: "Analyze stock {{ticker}} using available financial data and market indicators"
+      backstory: >
+        You are a CFA-certified financial analyst specializing in equity research.
+        You extract key metrics and provide data-driven analysis.
+      maxTurns: 3
+      temperature: 0.2
+      permissionMode: READ_ONLY
+      compaction:
+        preserveRecentTurns: 3
+        thresholdTokens: 4000
+      tools:
+        - calculator
+        - web-search
+
+    writer:
+      role: "Investment Report Writer"
+      goal: "Write a professional investment analysis report for {{ticker}}"
+      backstory: >
+        You write institutional-quality investment reports that are data-driven
+        and actionable.
+      temperature: 0.3
+      permissionMode: WORKSPACE_WRITE
+
+  tasks:
+    analyze:
+      description: "Analyze stock {{ticker}}: price performance, financial metrics, competitive position, and growth outlook"
+      expectedOutput: "Structured financial analysis with key metrics"
+      agent: analyst
+      outputFormat: MARKDOWN
+
+    report:
+      description: "Write a professional investment analysis report for {{ticker}} with BUY/HOLD/SELL recommendation"
+      agent: writer
+      dependsOn:
+        - analyze
+      outputFile: "output/stock_analysis_{{ticker}}.md"
+      outputFormat: MARKDOWN

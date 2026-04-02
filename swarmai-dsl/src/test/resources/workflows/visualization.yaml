@@ -1,0 +1,54 @@
+##
+# Visualization Workflow — YAML DSL (for Studio visualization)
+#
+# A simple two-agent workflow designed for visual representation in
+# SwarmAI Studio. A project planner creates a structured plan, and a
+# project executor delivers the results.
+#
+# Pipeline (SEQUENTIAL, verbose):
+#   1. Project Planner  — creates a detailed project plan with phases and milestones
+#   2. Project Executor — executes the plan and produces deliverables
+#
+# Features demonstrated:
+#   - Verbose mode for detailed execution tracing in Studio
+#   - Clean sequential handoff suitable for graph visualization
+#
+# Equivalent Java class: VisualizationWorkflow.java
+# Template variables: {{project}}
+##
+
+swarm:
+  name: "VisualizationWorkflow"
+  process: SEQUENTIAL
+  verbose: true
+
+  agents:
+    planner:
+      role: "Project Planner"
+      goal: "Create a structured project plan for {{project}}"
+      backstory: >
+        You are a project planner who breaks down complex projects into clear,
+        actionable phases.
+      temperature: 0.3
+
+    executor:
+      role: "Project Executor"
+      goal: "Execute the project plan and deliver results"
+      backstory: >
+        You are a detail-oriented executor who follows plans precisely and
+        delivers quality results.
+      temperature: 0.3
+
+  tasks:
+    plan:
+      description: "Create a detailed project plan for: {{project}}"
+      expectedOutput: "Structured project plan with phases, milestones, and deliverables"
+      agent: planner
+
+    execute:
+      description: "Execute the project plan and produce deliverables"
+      agent: executor
+      dependsOn:
+        - plan
+      outputFile: "output/visualization_output.md"
+      outputFormat: MARKDOWN

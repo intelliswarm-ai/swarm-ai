@@ -1,0 +1,41 @@
+swarm:
+  name: "Audited Research"
+  process: SEQUENTIAL
+
+  agents:
+    researcher:
+      role: "Research Analyst"
+      goal: "Conduct thorough research with audited tool usage"
+      backstory: "You are a research analyst whose tool usage is monitored"
+      maxTurns: 3
+      toolHooks:
+        - type: audit
+        - type: sanitize
+          patterns:
+            - "\\b[\\w.+-]+@[\\w-]+\\.[a-z]{2,}\\b"
+            - "\\b\\d{3}[-.]?\\d{3}[-.]?\\d{4}\\b"
+        - type: rate-limit
+          maxCalls: 10
+          windowSeconds: 30
+        - type: deny
+          tools:
+            - shell-command
+            - file-write
+
+    writer:
+      role: "Report Writer"
+      goal: "Write a comprehensive report"
+      backstory: "You are a technical writer"
+      toolHooks:
+        - type: audit
+
+  tasks:
+    research:
+      description: "Research the topic thoroughly"
+      agent: researcher
+
+    report:
+      description: "Write the final report"
+      agent: writer
+      dependsOn:
+        - research

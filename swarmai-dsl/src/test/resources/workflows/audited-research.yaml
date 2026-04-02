@@ -1,0 +1,119 @@
+##
+# Audited Research Pipeline — YAML DSL
+#
+# Multi-turn research workflow with tool-equipped agents, compaction,
+# permission controls, and structured output.
+#
+# Pipeline (SEQUENTIAL):
+#   1. Senior Research Analyst — iterative multi-turn investigation (up to 5 turns)
+#   2. Research Report Writer  — synthesizes findings into a polished report
+#
+# NOTE: The Java version uses toolHooks for audit logging, PII sanitization,
+# and rate limiting. Decision tracing and event recording are also Java-only features.
+#
+# Equivalent Java class: AuditedResearchWorkflow.java
+# Template variables: {{topic}}
+##
+
+swarm:
+  name: "Audited Research Pipeline"
+  process: SEQUENTIAL
+  verbose: true
+
+  agents:
+    researcher:
+      role: "Senior Research Analyst"
+      goal: >
+        Conduct thorough, multi-turn research on the given topic.
+        Use tools iteratively: search, fetch details, cross-reference,
+        and refine findings across multiple turns. Cite all sources.
+      backstory: >
+        You are a seasoned research analyst who methodically builds
+        understanding through iterative investigation. You never stop at
+        the first search result — you dig deeper, cross-reference, and
+        verify facts across multiple sources.
+      maxTurns: 5
+      temperature: 0.2
+      maxRpm: 15
+      permissionMode: READ_ONLY
+      compaction:
+        enabled: true
+        preserveRecentTurns: 3
+        thresholdTokens: 4000
+      tools:
+        - web-search
+        - http-request
+        - web-scrape
+        - calculator
+      toolHooks:
+        - type: audit
+        - type: sanitize
+          patterns:
+            - "\\b[\\w.+-]+@[\\w-]+\\.[a-z]{2,}\\b"
+            - "\\b\\d{3}[-.]?\\d{3}[-.]?\\d{4}\\b"
+        - type: rate-limit
+          maxCalls: 10
+          windowSeconds: 30
+
+    writer:
+      role: "Research Report Writer"
+      goal: >
+        Synthesize research findings into a comprehensive, well-structured
+        report with proper citations and executive summary.
+      backstory: >
+        You are a professional technical writer who transforms raw
+        research into polished reports. You ensure every claim is
+        backed by evidence from the research phase.
+      maxTurns: 1
+      temperature: 0.3
+      maxRpm: 10
+      permissionMode: WORKSPACE_WRITE
+      tools:
+        - file-write
+      toolHooks:
+        - type: audit
+
+  tasks:
+    research:
+      description: |
+        Research the following topic thoroughly: {{topic}}
+
+        INSTRUCTIONS:
+        1. Start with broad searches to identify key themes
+        2. Drill into the most important findings with targeted searches
+        3. Cross-reference facts across at least 2 sources
+        4. Identify key players, trends, and quantitative data
+        5. Note any conflicting information or gaps
+
+        Use multiple search queries and tool calls across your turns.
+        Signal <CONTINUE> after each turn until your research is thorough.
+        Signal <DONE> when you have comprehensive coverage.
+      expectedOutput: |
+        Structured research notes with:
+        - Key findings (numbered, with sources)
+        - Quantitative data points
+        - Key players and their positions
+        - Trends and predictions
+        - Information gaps
+      agent: researcher
+      outputFormat: MARKDOWN
+      maxExecutionTime: 300
+
+    report:
+      description: |
+        Write a comprehensive research report based on the research findings.
+
+        REQUIRED SECTIONS:
+        1. Executive Summary (3-5 bullet points)
+        2. Key Findings (detailed, with citations)
+        3. Market Landscape / Key Players
+        4. Trends and Predictions
+        5. Risk Factors and Uncertainties
+        6. Recommendations
+        7. Sources and References
+      expectedOutput: "Professional research report in markdown format"
+      agent: writer
+      outputFormat: MARKDOWN
+      outputFile: "output/audited_research_report.md"
+      dependsOn:
+        - research

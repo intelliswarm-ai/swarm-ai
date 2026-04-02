@@ -1,0 +1,134 @@
+##
+# Investment Analysis Swarm — YAML DSL
+#
+# A SWARM workflow that dynamically discovers tickers in a sector and spawns
+# parallel analysis tasks. A reviewer/manager identifies tickers (prefixed with
+# "TICKER:"), an analyst agent is cloned per ticker for deep financial analysis,
+# and a synthesizer produces the final investment memo.
+#
+# Pipeline (SWARM, managerAgent: reviewer):
+#   1. discover  — reviewer identifies key tickers as TICKER:<symbol>
+#   2. (dynamic) — analyst clones run in parallel per discovered ticker
+#   3. memo      — synthesizer merges all analyses into an investment memo
+#
+# Config: maxIterations 5, maxParallelAgents 5, targetPrefix "TICKER:"
+#
+# Equivalent Java class: InvestmentAnalysisSwarm.java
+# Template variables: {{sector}}
+##
+
+swarm:
+  name: "Investment Analysis Swarm"
+  process: SWARM
+  managerAgent: reviewer
+  verbose: true
+
+  config:
+    maxIterations: 5
+    maxParallelAgents: 5
+    targetPrefix: "TICKER:"
+
+  agents:
+    analyst:
+      role: "Senior Financial Analyst"
+      goal: >
+        Perform comprehensive financial analysis on the assigned ticker. Gather
+        real-time data including price, market cap, revenue, earnings, valuation
+        multiples, and recent news. Produce a structured analysis with investment
+        thesis, financial metrics, risk factors, and a preliminary rating.
+        Every number must come from tool calls — never fabricate financial data.
+      backstory: >
+        You are a senior financial analyst at a top-tier investment bank with
+        expertise in equity research. You have covered multiple sectors and
+        produced hundreds of company analyses used by portfolio managers to
+        make allocation decisions. You are meticulous about data sourcing and
+        always distinguish between confirmed data and estimates.
+      maxTurns: 3
+      temperature: 0.2
+      permissionMode: READ_ONLY
+      compaction:
+        enabled: true
+        preserveRecentTurns: 3
+        thresholdTokens: 4000
+      tools:
+        - http-request
+        - calculator
+        - file-write
+        - file-read
+        - headless-browser
+
+    synthesizer:
+      role: "Chief Investment Officer"
+      goal: >
+        Write a comprehensive investment memo combining analyses of ALL companies
+        in the sector. Create valuation comparison tables, identify sector themes,
+        and provide portfolio allocation recommendations with clear rationale.
+        The memo should be suitable for an investment committee review.
+      backstory: >
+        You are a Chief Investment Officer at a $20B multi-strategy fund. You
+        oversee sector allocation and have a track record of identifying
+        undervalued opportunities through rigorous cross-company analysis. You
+        synthesize individual company analyses into sector-level investment
+        theses with specific allocation recommendations.
+      temperature: 0.3
+      permissionMode: WORKSPACE_WRITE
+
+    reviewer:
+      role: "Investment Research Director"
+      goal: >
+        Identify the key companies and tickers that should be analyzed for a
+        comprehensive sector investment thesis. Ensure all analyses meet
+        institutional quality standards with sourced data, proper valuation
+        methodology, and balanced risk assessment.
+      backstory: >
+        You are an Investment Research Director who has built research platforms
+        at leading asset managers. You know which companies are essential for a
+        complete sector analysis — the market leaders, the disruptors, and the
+        turnaround stories. You set quality standards for all published research
+        and reject work that lacks data rigor.
+      temperature: 0.1
+      permissionMode: READ_ONLY
+
+  tasks:
+    discover:
+      description: |
+        List the key companies/tickers to analyze for the {{sector}} sector
+        investment thesis. Format each as TICKER:SYMBOL.
+
+        Guidelines:
+        - Include 4-8 companies that represent the sector landscape
+        - Cover market leaders (by market cap and revenue)
+        - Include at least one high-growth challenger
+        - Include at least one value / turnaround opportunity
+        - For each ticker, provide a one-line rationale for inclusion
+
+        Example format:
+          TICKER:AAPL — Market leader in consumer hardware with services growth
+          TICKER:RIVN — High-growth EV challenger with unique positioning
+      expectedOutput: "A list of tickers formatted as TICKER:SYMBOL with rationale for each"
+      agent: reviewer
+
+    memo:
+      description: |
+        Write a comprehensive investment memo combining analyses of ALL companies
+        discovered and analyzed in the previous step.
+
+        Memo structure:
+        1. **Sector Overview** — Market size, growth drivers, and macro backdrop
+        2. **Company Summaries** — One-page summary per company with key metrics
+        3. **Valuation Comparison** — Table comparing P/E, EV/EBITDA, P/S,
+           revenue growth, and margin profiles across all companies
+        4. **Sector Themes** — Cross-cutting investment themes and trends
+        5. **Risk Matrix** — Sector-wide and company-specific risks
+        6. **Portfolio Recommendations** — Specific BUY/HOLD/SELL ratings per ticker
+           with target prices and position sizing rationale
+        7. **Appendix** — Data sources, methodology notes, and disclaimers
+
+        Every financial figure must be traced to a data source.
+        Use markdown tables for comparison matrices.
+      expectedOutput: "A comprehensive sector investment memo with ratings, valuation tables, and allocation recommendations"
+      agent: synthesizer
+      dependsOn:
+        - discover
+      outputFile: "output/investment_analysis.md"
+      outputFormat: MARKDOWN

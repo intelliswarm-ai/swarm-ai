@@ -1,0 +1,191 @@
+##
+# RAG Research Workflow — YAML DSL
+#
+# A SEQUENTIAL workflow that demonstrates Retrieval-Augmented Generation (RAG).
+# A retriever agent searches the embedded knowledge base for relevant passages,
+# then a writer agent synthesizes those passages into an evidence-based report
+# with full source citations.
+#
+# Pipeline (SEQUENTIAL):
+#   1. retriever — exhaustively searches knowledgeSources, quotes passages verbatim
+#   2. writer    — synthesizes retrieved passages into a cited, structured report
+#
+# Knowledge sources are defined inline and loaded into the knowledge base at
+# workflow startup.
+#
+# Equivalent Java class: RAGResearchWorkflow.java
+# Template variables: {{query}}
+##
+
+swarm:
+  name: "RAG Research"
+  process: SEQUENTIAL
+  verbose: true
+
+  knowledgeSources:
+    - id: "architecture-patterns"
+      content: |
+        Architecture Patterns for Agent Systems
+
+        Multi-agent systems can be organized using several orchestration patterns:
+
+        1. Sequential Pipeline — agents execute in a fixed order, each receiving
+           the output of the previous agent. Best for linear workflows like
+           research-then-write pipelines.
+
+        2. Hierarchical Orchestration — a manager agent delegates tasks to worker
+           agents and synthesizes their outputs. Suitable for complex tasks that
+           require coordination and quality control.
+
+        3. Parallel Fan-Out / Fan-In — multiple agents work on independent sub-tasks
+           concurrently, and a synthesizer merges their results. Ideal for data
+           gathering from multiple sources.
+
+        4. Iterative Refinement — an agent produces a draft, a reviewer critiques it,
+           and the agent revises. The loop continues until quality criteria are met
+           or a maximum iteration count is reached.
+
+        5. Swarm — a dynamic pattern where a manager agent spawns worker agents
+           on-the-fly based on discovered sub-tasks. The number of workers is not
+           known in advance.
+
+    - id: "tool-integration"
+      content: |
+        Tool Integration Guide
+
+        Agents can be equipped with tools that extend their capabilities beyond
+        text generation. Tools are declared by name in the agent definition and
+        resolved at runtime by the tool registry.
+
+        Common tool categories:
+        - Web tools: web-search, web-scrape, http-request
+        - File tools: file-read, file-write
+        - Code tools: code-executor, calculator
+        - Data tools: sql-query, api-call
+        - Browser tools: headless-browser
+
+        Tool permissions are governed by the agent's permissionMode:
+        - READ_ONLY: agent can read data but cannot modify files or state
+        - WORKSPACE_WRITE: agent can write to the workspace output directory
+        - FULL_ACCESS: agent has unrestricted tool access (use with caution)
+
+        Best practices:
+        - Grant the minimum permissions required for the task
+        - Use READ_ONLY for research and analysis agents
+        - Use WORKSPACE_WRITE for agents that produce final deliverables
+        - Monitor tool call rates via maxRpm to avoid API throttling
+
+    - id: "orchestration-models"
+      content: |
+        Orchestration Models — Comparison and Selection Guide
+
+        Choosing the right orchestration model depends on the task structure,
+        quality requirements, and latency constraints.
+
+        SEQUENTIAL is the simplest model. Use it when tasks have a natural order
+        and each step depends on the previous one. Latency equals the sum of all
+        step durations.
+
+        HIERARCHICAL adds a manager agent that coordinates workers. Use it when
+        tasks require dynamic delegation, quality oversight, or when the manager
+        needs to decide which agent handles which sub-task. Overhead comes from
+        manager reasoning turns.
+
+        PARALLEL is best for independent sub-tasks that can run concurrently.
+        Total latency equals the duration of the slowest sub-task. Use fan-in
+        synthesis to combine results.
+
+        ITERATIVE is designed for quality-sensitive outputs. A reviewer agent
+        evaluates the output against criteria and requests revisions. Convergence
+        depends on the quality of feedback and the writer's ability to incorporate it.
+
+        COMPOSITE chains multiple models in stages. For example:
+        Stage 1 (PARALLEL) — gather data from multiple sources
+        Stage 2 (HIERARCHICAL) — manager coordinates analysis
+        Stage 3 (ITERATIVE) — refine the final report
+
+        SWARM is the most dynamic model. A manager discovers sub-tasks at runtime
+        and spawns workers for each one. The number of agents scales with the
+        problem. Use targetPrefix to identify dynamically discovered items.
+
+  agents:
+    retriever:
+      role: "Knowledge Retrieval Specialist"
+      goal: >
+        Search the knowledge base exhaustively for passages that are relevant to the
+        user's query. Retrieve ALL matching passages, quote them verbatim, and record
+        the source identifier for each one. Do NOT paraphrase or summarize at this
+        stage — preserve the original text so the downstream writer can cite it
+        accurately.
+      backstory: >
+        You are an information retrieval expert with a decade of experience in
+        knowledge management and library science. You know how to formulate multiple
+        search queries to maximize recall — varying keywords, using synonyms, and
+        breaking a complex question into sub-questions. You never stop after a single
+        search; you keep probing until you are confident that no relevant passage has
+        been missed.
+      maxTurns: 3
+      temperature: 0.1
+      maxRpm: 15
+      permissionMode: READ_ONLY
+      knowledge: true
+
+    writer:
+      role: "Evidence-Based Report Writer"
+      goal: >
+        Synthesize the retrieved passages into a comprehensive, well-structured report
+        that directly answers the user's query. Every factual claim MUST be grounded
+        in a passage from the knowledge base and cite the source identifier in brackets,
+        e.g. [source: architecture-patterns]. If the retrieved evidence is insufficient
+        to answer part of the query, state that explicitly rather than speculating.
+      backstory: >
+        You are a senior technical writer who specialises in producing evidence-based
+        reports for engineering leadership. You never introduce information that is not
+        backed by the provided evidence. You structure your reports with an executive
+        summary, detailed findings sections, and a bibliography of sources used.
+      temperature: 0.3
+      maxRpm: 10
+      permissionMode: WORKSPACE_WRITE
+
+  tasks:
+    retrieval:
+      description: |
+        Search the knowledge base for all passages relevant to the following query:
+
+        {{query}}
+
+        Instructions:
+        - Formulate multiple search queries using different keywords and synonyms
+        - For each matching passage, quote the text verbatim
+        - Record the source identifier (e.g., "architecture-patterns") for each passage
+        - Organize retrieved passages by source
+        - If no relevant passages are found for a sub-question, note that explicitly
+      expectedOutput: "A collection of verbatim passages from the knowledge base, each tagged with its source identifier"
+      outputFormat: MARKDOWN
+      maxExecutionTime: 120
+      agent: retriever
+
+    report:
+      description: |
+        Using ONLY the passages retrieved in the previous step, write a comprehensive
+        report that answers the query:
+
+        {{query}}
+
+        Report structure:
+        1. **Executive Summary** — Key findings in 2-3 sentences
+        2. **Detailed Findings** — Organized by theme, with inline citations
+           e.g. [source: architecture-patterns]
+        3. **Gaps & Limitations** — What the knowledge base did not cover
+        4. **Bibliography** — List all source identifiers used
+
+        Rules:
+        - Every factual claim must cite a source identifier
+        - Do not introduce information beyond what was retrieved
+        - If evidence is insufficient, say so explicitly
+      expectedOutput: "A structured, evidence-based report with inline citations and a bibliography"
+      outputFile: "output/rag_research_report.md"
+      outputFormat: MARKDOWN
+      agent: writer
+      dependsOn:
+        - retrieval

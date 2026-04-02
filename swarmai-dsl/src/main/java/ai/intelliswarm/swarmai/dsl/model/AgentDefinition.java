@@ -55,6 +55,9 @@ public class AgentDefinition {
 
     private CompactionConfigDefinition compaction;
 
+    @JsonProperty("toolHooks")
+    private List<ToolHookDefinition> toolHooks = new ArrayList<>();
+
     private boolean memory = false;
 
     private boolean knowledge = false;
@@ -101,6 +104,9 @@ public class AgentDefinition {
 
     public CompactionConfigDefinition getCompaction() { return compaction; }
     public void setCompaction(CompactionConfigDefinition compaction) { this.compaction = compaction; }
+
+    public List<ToolHookDefinition> getToolHooks() { return toolHooks; }
+    public void setToolHooks(List<ToolHookDefinition> toolHooks) { this.toolHooks = toolHooks; }
 
     public boolean isMemory() { return memory; }
     public void setMemory(boolean memory) { this.memory = memory; }

@@ -8,11 +8,19 @@ import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import ai.intelliswarm.swarmai.dsl.model.EdgeDefinition;
+import ai.intelliswarm.swarmai.dsl.model.ConditionalEdgeDefinition;
+import ai.intelliswarm.swarmai.dsl.model.GraphDefinition;
+import ai.intelliswarm.swarmai.dsl.model.ToolHookDefinition;
+import ai.intelliswarm.swarmai.dsl.compiler.ConditionEvaluator;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -132,10 +140,12 @@ public class YamlSwarmParser {
     }
 
     private void validate(SwarmDefinition definition) {
+        boolean isGraph = definition.getGraph() != null;
+
         if (definition.getAgents().isEmpty()) {
             throw new SwarmParseException("At least one agent must be defined");
         }
-        if (definition.getTasks().isEmpty()) {
+        if (!isGraph && definition.getTasks().isEmpty()) {
             throw new SwarmParseException("At least one task must be defined");
         }
 
@@ -187,6 +197,171 @@ public class YamlSwarmParser {
                 } catch (IllegalArgumentException e) {
                     throw new SwarmParseException("Stage " + i + " has unknown process type: '" + stage.getProcess() + "'");
                 }
+            }
+        }
+
+        // Validate tool hooks on agents
+        Set<String> validHookTypes = Set.of("audit", "sanitize", "rate-limit", "deny", "custom");
+        definition.getAgents().forEach((agentId, agentDef) -> {
+            List<ToolHookDefinition> hooks = agentDef.getToolHooks();
+            if (hooks == null) return;
+            for (int i = 0; i < hooks.size(); i++) {
+                ToolHookDefinition hook = hooks.get(i);
+                if (hook.getType() == null || !validHookTypes.contains(hook.getType())) {
+                    throw new SwarmParseException(
+                            "Agent '" + agentId + "' toolHook[" + i + "] has invalid type: '" +
+                            hook.getType() + "'. Valid types: " + validHookTypes);
+                }
+                switch (hook.getType()) {
+                    case "sanitize" -> {
+                        if (hook.getPatterns() == null || hook.getPatterns().isEmpty()) {
+                            throw new SwarmParseException(
+                                    "Agent '" + agentId + "' toolHook[" + i + "] (sanitize) requires 'patterns'");
+                        }
+                    }
+                    case "rate-limit" -> {
+                        if (hook.getMaxCalls() == null || hook.getMaxCalls() <= 0) {
+                            throw new SwarmParseException(
+                                    "Agent '" + agentId + "' toolHook[" + i + "] (rate-limit) requires 'maxCalls' > 0");
+                        }
+                        if (hook.getWindowSeconds() == null || hook.getWindowSeconds() <= 0) {
+                            throw new SwarmParseException(
+                                    "Agent '" + agentId + "' toolHook[" + i + "] (rate-limit) requires 'windowSeconds' > 0");
+                        }
+                    }
+                    case "deny" -> {
+                        if (hook.getTools() == null || hook.getTools().isEmpty()) {
+                            throw new SwarmParseException(
+                                    "Agent '" + agentId + "' toolHook[" + i + "] (deny) requires 'tools'");
+                        }
+                    }
+                    case "custom" -> {
+                        if (hook.getHookClass() == null || hook.getHookClass().isBlank()) {
+                            throw new SwarmParseException(
+                                    "Agent '" + agentId + "' toolHook[" + i + "] (custom) requires 'class'");
+                        }
+                    }
+                    default -> { /* audit has no required fields */ }
+                }
+            }
+        });
+
+        // Validate workflow hooks
+        if (definition.getHooks() != null) {
+            Set<String> validHookPoints = Set.of(
+                    "BEFORE_WORKFLOW", "AFTER_WORKFLOW", "BEFORE_TASK", "AFTER_TASK",
+                    "BEFORE_TOOL", "AFTER_TOOL", "ON_ERROR", "ON_CHECKPOINT");
+            Set<String> validWorkflowHookTypes = Set.of("log", "checkpoint", "custom");
+
+            for (int i = 0; i < definition.getHooks().size(); i++) {
+                var hook = definition.getHooks().get(i);
+                if (hook.getPoint() == null || !validHookPoints.contains(hook.getPoint())) {
+                    throw new SwarmParseException("hooks[" + i + "] has invalid point: '" +
+                            hook.getPoint() + "'. Valid: " + validHookPoints);
+                }
+                if (hook.getType() == null || !validWorkflowHookTypes.contains(hook.getType())) {
+                    throw new SwarmParseException("hooks[" + i + "] has invalid type: '" +
+                            hook.getType() + "'. Valid: " + validWorkflowHookTypes);
+                }
+                if ("custom".equals(hook.getType()) && (hook.getHookClass() == null || hook.getHookClass().isBlank())) {
+                    throw new SwarmParseException("hooks[" + i + "] (custom) requires 'class'");
+                }
+            }
+        }
+
+        // Validate task conditions
+        definition.getTasks().forEach((taskId, taskDef) -> {
+            if (taskDef.getCondition() != null && !taskDef.getCondition().isBlank()) {
+                try {
+                    // Validate that the condition expression is parseable
+                    if (taskDef.getCondition().startsWith("contains(")) {
+                        ConditionEvaluator.toPredicate(taskDef.getCondition());
+                    } else {
+                        ConditionEvaluator.validate(taskDef.getCondition());
+                    }
+                } catch (Exception e) {
+                    throw new SwarmParseException("Task '" + taskId + "' has invalid condition '" +
+                            taskDef.getCondition() + "': " + e.getMessage());
+                }
+            }
+        });
+
+        // Validate graph definition
+        if (isGraph) {
+            GraphDefinition graph = definition.getGraph();
+            if (graph.getNodes().isEmpty()) {
+                throw new SwarmParseException("Graph must define at least one node");
+            }
+
+            // Validate node agent references
+            graph.getNodes().forEach((nodeId, nodeDef) -> {
+                if (nodeDef.getAgent() == null) {
+                    throw new SwarmParseException("Graph node '" + nodeId + "' must specify an agent");
+                }
+                if (!definition.getAgents().containsKey(nodeDef.getAgent())) {
+                    throw new SwarmParseException("Graph node '" + nodeId +
+                            "' references unknown agent '" + nodeDef.getAgent() + "'");
+                }
+                if (nodeDef.getTask() == null || nodeDef.getTask().isBlank()) {
+                    throw new SwarmParseException("Graph node '" + nodeId + "' must specify a task description");
+                }
+            });
+
+            // Validate edges
+            Set<String> validTargets = new java.util.HashSet<>(graph.getNodes().keySet());
+            validTargets.add("START");
+            validTargets.add("END");
+
+            boolean hasStartEdge = false;
+            for (EdgeDefinition edge : graph.getEdges()) {
+                if (edge.getFrom() == null) {
+                    throw new SwarmParseException("Edge must specify 'from'");
+                }
+                if (!validTargets.contains(edge.getFrom())) {
+                    throw new SwarmParseException("Edge 'from' references unknown node: '" + edge.getFrom() + "'");
+                }
+                if ("START".equals(edge.getFrom())) hasStartEdge = true;
+
+                if (edge.isConditional()) {
+                    for (ConditionalEdgeDefinition cond : edge.getConditional()) {
+                        String target = cond.target();
+                        if (target != null && !validTargets.contains(target)) {
+                            throw new SwarmParseException("Conditional edge target '" + target +
+                                    "' is not a known node");
+                        }
+                        // Validate condition expression syntax
+                        if (cond.getWhen() != null) {
+                            try {
+                                ConditionEvaluator.validate(cond.getWhen());
+                            } catch (ConditionEvaluator.ConditionParseException e) {
+                                throw new SwarmParseException("Invalid condition '" + cond.getWhen() +
+                                        "' in edge from '" + edge.getFrom() + "': " + e.getMessage());
+                            }
+                        }
+                    }
+                } else {
+                    if (edge.getTo() == null) {
+                        throw new SwarmParseException("Static edge from '" + edge.getFrom() + "' must specify 'to'");
+                    }
+                    if (!validTargets.contains(edge.getTo())) {
+                        throw new SwarmParseException("Edge 'to' references unknown node: '" + edge.getTo() + "'");
+                    }
+                }
+            }
+
+            if (!hasStartEdge) {
+                throw new SwarmParseException("Graph must have at least one edge from START");
+            }
+
+            // Validate state channel types
+            if (definition.getState() != null && definition.getState().getChannels() != null) {
+                Set<String> validChannelTypes = Set.of("lastWriteWins", "appender", "counter", "stringAppender");
+                definition.getState().getChannels().forEach((name, channelDef) -> {
+                    if (!validChannelTypes.contains(channelDef.getType())) {
+                        throw new SwarmParseException("Unknown channel type '" + channelDef.getType() +
+                                "' for channel '" + name + "'. Valid types: " + validChannelTypes);
+                    }
+                });
             }
         }
     }

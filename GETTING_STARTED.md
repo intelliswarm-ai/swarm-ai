@@ -29,6 +29,7 @@ SwarmAI is a Java framework for building multi-agent AI workflows on Spring Boot
 - [Batch Execution](#batch-execution)
 - [Working with Output](#working-with-output)
 - [Configuration Reference](#configuration-reference)
+- [YAML DSL](#yaml-dsl)
 
 ---
 
@@ -1247,8 +1248,323 @@ public class CompanyResearchPipeline {
 
 ---
 
+## YAML DSL
+
+The `swarmai-dsl` module lets you define workflows in YAML instead of Java. This dramatically reduces boilerplate — a 60-line Java workflow becomes a single YAML file loaded in 2 lines of code.
+
+### Setup
+
+Add the DSL dependency to your project:
+
+```xml
+<dependency>
+    <groupId>ai.intelliswarm</groupId>
+    <artifactId>swarmai-dsl</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+</dependency>
+```
+
+The module includes Spring Boot auto-configuration. When you add it to your classpath, a `SwarmLoader` bean is automatically available for injection.
+
+### Basic Usage
+
+**1. Define your workflow in YAML:**
+
+```yaml
+# src/main/resources/workflows/research.yaml
+swarm:
+  name: "Research Pipeline"
+  process: SEQUENTIAL
+
+  agents:
+    researcher:
+      role: "Senior Researcher"
+      goal: "Find comprehensive information on {{topic}}"
+      backstory: "Expert researcher with deep analytical skills"
+      maxTurns: 3
+      temperature: 0.7
+
+    writer:
+      role: "Technical Writer"
+      goal: "Create clear, well-structured reports"
+      backstory: "Skilled writer who transforms research into readable content"
+
+  tasks:
+    research:
+      description: "Research {{topic}} thoroughly"
+      expectedOutput: "Detailed research summary"
+      agent: researcher
+
+    report:
+      description: "Write a final report"
+      expectedOutput: "Well-formatted report"
+      agent: writer
+      dependsOn: [research]
+      outputFormat: MARKDOWN
+      outputFile: "output/report.md"
+```
+
+**2. Load and run:**
+
+```java
+@Autowired SwarmLoader swarmLoader;
+
+Swarm swarm = swarmLoader.load("workflows/research.yaml",
+    Map.of("topic", "AI Safety"));
+SwarmOutput output = swarm.kickoff(Map.of());
+```
+
+Template variables like `{{topic}}` are substituted at load time.
+
+### Programmatic Usage (Without Spring)
+
+```java
+YamlSwarmParser parser = new YamlSwarmParser();
+SwarmCompiler compiler = SwarmCompiler.builder()
+    .chatClient(chatClient)
+    .eventPublisher(eventPublisher)
+    .tool("web-search", webSearchTool)
+    .build();
+
+SwarmLoader loader = new SwarmLoader(parser, compiler);
+Swarm swarm = loader.load("workflows/research.yaml",
+    Map.of("topic", "AI Safety"));
+```
+
+### All Supported Features
+
+#### Agent Configuration
+
+```yaml
+agents:
+  analyst:
+    role: "Data Analyst"
+    goal: "Analyze data thoroughly"
+    backstory: "Expert analyst with 10 years experience"
+    model: "anthropic/claude-sonnet-4-20250514"
+    maxTurns: 3
+    temperature: 0.2
+    verbose: true
+    allowDelegation: false
+    maxExecutionTime: 300
+    maxRpm: 15
+    permissionMode: READ_ONLY     # READ_ONLY, WORKSPACE_WRITE, DANGEROUS
+    memory: true                   # Enable agent-level memory
+    knowledge: true                # Enable agent-level knowledge
+    tools: [web-search, calculator]
+    compaction:
+      enabled: true
+      preserveRecentTurns: 4
+      thresholdTokens: 80000
+    toolHooks:
+      - type: audit
+      - type: sanitize
+        patterns: ["\\b[\\w.+-]+@[\\w-]+\\.[a-z]{2,}\\b"]
+      - type: rate-limit
+        maxCalls: 10
+        windowSeconds: 30
+      - type: deny
+        tools: [shell-command]
+```
+
+#### Task Configuration
+
+```yaml
+tasks:
+  analyze:
+    description: "Analyze {{topic}} in depth"
+    expectedOutput: "Comprehensive analysis report"
+    agent: analyst
+    dependsOn: [gather-data]
+    outputFormat: MARKDOWN         # TEXT, JSON, MARKDOWN
+    outputFile: "output/analysis.md"
+    asyncExecution: false
+    maxExecutionTime: 600
+    condition: "contains('risk')"  # Skip unless prior output contains 'risk'
+    tools: [calculator]
+```
+
+#### Budget Tracking
+
+```yaml
+budget:
+  maxTokens: 100000
+  maxCostUsd: 5.0
+  onExceeded: WARN              # WARN or HARD_STOP
+  warningThresholdPercent: 80.0
+```
+
+#### Governance and Approval Gates
+
+```yaml
+governance:
+  approvalGates:
+    - name: "Quality Review"
+      trigger: AFTER_TASK          # BEFORE_TASK, AFTER_TASK, BEFORE_SKILL_PROMOTION, etc.
+      timeoutMinutes: 30
+      policy:
+        requiredApprovals: 2
+        approverRoles: [tech-lead, security-reviewer]
+        autoApproveOnTimeout: false
+```
+
+#### Workflow Hooks
+
+```yaml
+hooks:
+  - point: BEFORE_WORKFLOW
+    type: log
+    message: "Workflow started"
+  - point: AFTER_TASK
+    type: checkpoint
+  - point: ON_ERROR
+    type: log
+    message: "Error occurred"
+```
+
+#### Knowledge Sources
+
+```yaml
+knowledgeSources:
+  - id: "architecture-guide"
+    content: "The system uses a microservices architecture with..."
+  - id: "best-practices"
+    content: "Always validate inputs at service boundaries..."
+```
+
+### Process Types
+
+All 7 process types are supported:
+
+```yaml
+# Simple sequential
+swarm:
+  process: SEQUENTIAL
+
+# Parallel execution
+swarm:
+  process: PARALLEL
+
+# Manager coordinates workers
+swarm:
+  process: HIERARCHICAL
+  managerAgent: manager
+
+# Iterative refinement with reviewer
+swarm:
+  process: ITERATIVE
+  managerAgent: reviewer
+  config:
+    maxIterations: 3
+    qualityCriteria: "Must include data sources"
+
+# Self-improving with skill generation
+swarm:
+  process: SELF_IMPROVING
+  managerAgent: reviewer
+
+# Distributed fan-out
+swarm:
+  process: SWARM
+  managerAgent: coordinator
+  config:
+    maxParallelAgents: 5
+    targetPrefix: "TARGET:"
+
+# Multi-stage pipeline
+swarm:
+  process: COMPOSITE
+  stages:
+    - process: PARALLEL
+    - process: HIERARCHICAL
+      managerAgent: manager
+    - process: ITERATIVE
+      managerAgent: reviewer
+      maxIterations: 3
+```
+
+### Graph Workflows (Conditional Routing)
+
+For workflows that need conditional routing, feedback loops, or state-based decisions, use the `graph:` section instead of `process:`:
+
+```yaml
+swarm:
+  name: "Quality Gate Workflow"
+
+  state:
+    channels:
+      score:
+        type: lastWriteWins
+      feedback:
+        type: stringAppender
+      iteration:
+        type: counter
+
+  agents:
+    writer:
+      role: "Writer"
+      goal: "Write articles"
+      backstory: "Skilled content writer"
+    evaluator:
+      role: "Evaluator"
+      goal: "Score articles 0-100"
+      backstory: "Strict quality reviewer"
+    optimizer:
+      role: "Optimizer"
+      goal: "Improve articles based on feedback"
+      backstory: "Content optimization specialist"
+
+  graph:
+    nodes:
+      write:
+        agent: writer
+        task: "Write an article about the topic"
+      evaluate:
+        agent: evaluator
+        task: "Score the article 0-100"
+      optimize:
+        agent: optimizer
+        task: "Improve the article based on feedback"
+    edges:
+      - from: START
+        to: write
+      - from: write
+        to: evaluate
+      - from: evaluate
+        conditional:
+          - when: "score >= 80"
+            to: END
+          - when: "iteration >= 3"
+            to: END
+          - default: optimize
+      - from: optimize
+        to: evaluate
+```
+
+**Supported channel types:** `lastWriteWins`, `appender`, `counter`, `stringAppender`
+
+**Supported condition expressions:**
+- Numeric: `round < 3`, `score >= 80`
+- String: `category == "BILLING"`
+- Boolean: `approved == true`
+- Combined: `score >= 80 || iteration >= 3`
+
+Load graph workflows with `compileWorkflow()`:
+
+```java
+CompiledWorkflow workflow = swarmLoader.loadWorkflow("workflows/graph.yaml");
+SwarmOutput output = workflow.kickoff(Map.of("topic", "AI Safety"));
+```
+
+### Example YAML Files
+
+The **[swarm-ai-examples](https://github.com/intelliswarm-ai/swarm-ai-examples)** repository includes 30 YAML workflow definitions under `src/main/resources/workflows/`, covering every feature and process type.
+
+---
+
 ## Next Steps
 
 - [API_KEYS_SETUP_GUIDE.md](docs/API_KEYS_SETUP_GUIDE.md) — Configure LLM provider API keys
 - [DOCKER_EXAMPLE_GUIDE.md](docs/DOCKER_EXAMPLE_GUIDE.md) — Run SwarmAI in Docker
 - [SELF_IMPROVING_WORKFLOWS.md](docs/SELF_IMPROVING_WORKFLOWS.md) — Deep dive into self-improving processes and skill generation
+- **[YAML Workflow Examples](https://github.com/intelliswarm-ai/swarm-ai-examples)** — 30 ready-to-use YAML workflow definitions

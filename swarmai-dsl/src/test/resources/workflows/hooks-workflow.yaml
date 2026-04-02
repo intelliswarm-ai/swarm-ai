@@ -1,0 +1,41 @@
+swarm:
+  name: "Hooked Workflow"
+
+  state:
+    channels:
+      status:
+        type: lastWriteWins
+
+  agents:
+    worker:
+      role: "Worker"
+      goal: "Complete tasks"
+      backstory: "A reliable worker"
+
+  graph:
+    nodes:
+      step1:
+        agent: worker
+        task: "Execute the first step"
+      step2:
+        agent: worker
+        task: "Execute the second step"
+
+    edges:
+      - from: START
+        to: step1
+      - from: step1
+        to: step2
+      - from: step2
+        to: END
+
+  hooks:
+    - point: BEFORE_WORKFLOW
+      type: log
+      message: "Starting hooked workflow"
+    - point: AFTER_TASK
+      type: log
+      message: "Task completed"
+    - point: AFTER_WORKFLOW
+      type: log
+      message: "Workflow finished"

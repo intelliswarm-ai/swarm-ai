@@ -1,0 +1,93 @@
+##
+# Governed Pipeline Workflow — YAML DSL
+#
+# A research-to-publication pipeline with governance gates that enforce
+# quality and compliance review. Research must pass a quality gate before
+# publication, and the final article must pass editorial and compliance
+# approval.
+#
+# Pipeline (SEQUENTIAL):
+#   1. Senior Researcher     — conducts thorough research with citations
+#      -> [Research Quality Gate] — 1 approval, auto-approves on timeout
+#   2. Publication Writer    — writes publication-ready content
+#      -> [Publication Gate] — 2 approvals from editor + compliance, blocks on timeout
+#
+# Features demonstrated:
+#   - Budget tracking with token and cost limits
+#   - Governance approval gates with different policies
+#   - Auto-approve vs. block-on-timeout gate behaviors
+#   - Role-based approval (approverRoles)
+#   - Agent memory for cross-task context retention
+#
+# Equivalent Java class: GovernedPipelineWorkflow.java
+# Template variables: {{topic}}
+##
+
+swarm:
+  name: "GovernedPipelineWorkflow"
+  process: SEQUENTIAL
+
+  budget:
+    maxTokens: 300000
+    maxCostUsd: 5.0
+    onExceeded: WARN
+
+  hooks:
+    - point: BEFORE_WORKFLOW
+      type: log
+      message: "Governed pipeline started"
+    - point: AFTER_TASK
+      type: checkpoint
+
+  agents:
+    researcher:
+      role: "Senior Researcher"
+      goal: "Conduct thorough research on {{topic}} that meets quality standards"
+      backstory: >
+        You are a senior researcher whose work must pass quality gates
+        before publication.
+      temperature: 0.2
+      memory: true
+
+    writer:
+      role: "Publication Writer"
+      goal: "Transform research into publication-ready content on {{topic}}"
+      backstory: >
+        You write publication-quality content that must pass editorial
+        and compliance review.
+      temperature: 0.3
+
+  tasks:
+    research:
+      description: "Research {{topic}} thoroughly with cited sources"
+      expectedOutput: "Comprehensive research with citations"
+      agent: researcher
+      outputFormat: MARKDOWN
+
+    publish:
+      description: "Write a publication-ready article on {{topic}} based on the research"
+      agent: writer
+      dependsOn:
+        - research
+      outputFile: "output/governed_pipeline_output.md"
+      outputFormat: MARKDOWN
+      condition: "contains('finding')"
+
+  governance:
+    approvalGates:
+      - name: "Research Quality Gate"
+        trigger: AFTER_TASK
+        timeoutMinutes: 5
+        policy:
+          requiredApprovals: 1
+          autoApproveOnTimeout: true
+
+      - name: "Publication Gate"
+        trigger: AFTER_TASK
+        timeoutMinutes: 10
+        policy:
+          requiredApprovals: 2
+          approverRoles:
+            - editor
+            - compliance
+          autoApproveOnTimeout: false

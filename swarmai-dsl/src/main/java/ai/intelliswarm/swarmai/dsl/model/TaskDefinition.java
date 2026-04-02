@@ -47,6 +47,8 @@ public class TaskDefinition {
     @JsonProperty("maxExecutionTime")
     private Integer maxExecutionTime;
 
+    private String condition;
+
     private List<String> tools = new ArrayList<>();
 
     // --- Getters & Setters ---
@@ -74,6 +76,9 @@ public class TaskDefinition {
 
     public Integer getMaxExecutionTime() { return maxExecutionTime; }
     public void setMaxExecutionTime(Integer maxExecutionTime) { this.maxExecutionTime = maxExecutionTime; }
+
+    public String getCondition() { return condition; }
+    public void setCondition(String condition) { this.condition = condition; }
 
     public List<String> getTools() { return tools; }
     public void setTools(List<String> tools) { this.tools = tools; }

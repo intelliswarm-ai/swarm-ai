@@ -70,6 +70,14 @@ public class SwarmDefinition {
 
     private GovernanceDefinition governance;
 
+    private GraphDefinition graph;
+
+    private StateDefinition state;
+
+    private CheckpointDefinition checkpoint;
+
+    private List<WorkflowHookDefinition> hooks = new ArrayList<>();
+
     private List<KnowledgeSourceDefinition> knowledgeSources = new ArrayList<>();
 
     private List<StageDefinition> stages = new ArrayList<>();
@@ -110,6 +118,18 @@ public class SwarmDefinition {
 
     public GovernanceDefinition getGovernance() { return governance; }
     public void setGovernance(GovernanceDefinition governance) { this.governance = governance; }
+
+    public GraphDefinition getGraph() { return graph; }
+    public void setGraph(GraphDefinition graph) { this.graph = graph; }
+
+    public StateDefinition getState() { return state; }
+    public void setState(StateDefinition state) { this.state = state; }
+
+    public CheckpointDefinition getCheckpoint() { return checkpoint; }
+    public void setCheckpoint(CheckpointDefinition checkpoint) { this.checkpoint = checkpoint; }
+
+    public List<WorkflowHookDefinition> getHooks() { return hooks; }
+    public void setHooks(List<WorkflowHookDefinition> hooks) { this.hooks = hooks; }
 
     public List<KnowledgeSourceDefinition> getKnowledgeSources() { return knowledgeSources; }
     public void setKnowledgeSources(List<KnowledgeSourceDefinition> knowledgeSources) { this.knowledgeSources = knowledgeSources; }

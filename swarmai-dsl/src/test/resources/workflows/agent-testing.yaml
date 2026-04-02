@@ -1,0 +1,82 @@
+##
+# Agent Testing & Evaluation Workflow — YAML DSL
+#
+# Evaluates agent output quality with a dedicated evaluator agent,
+# then produces a scored report card.
+#
+# Pipeline (SEQUENTIAL):
+#   1. Content Writer  — writes a short article on the requested topic
+#   2. Quality Evaluator — scores the article on 5 criteria (0-10 each)
+#
+# After execution the evaluator's structured output can be parsed for
+# per-criterion scores. PASS threshold: average >= 7.
+#
+# NOTE: The Java version uses toolHooks for content filtering and metrics.
+# toolHooks are not supported in YAML — omitted here.
+#
+# Equivalent Java class: AgentTestingWorkflow.java
+# Template variables: {{topic}}
+##
+
+swarm:
+  name: "Agent Testing & Evaluation"
+  process: SEQUENTIAL
+  verbose: true
+
+  agents:
+    writer:
+      role: "Content Writer"
+      goal: >
+        Write a well-structured, factual short article (300-500 words)
+        about the given topic. Include specific examples and evidence.
+      backstory: >
+        You are an experienced technical writer known for clear,
+        accurate, and evidence-backed articles.
+      maxTurns: 1
+      temperature: 0.7
+      permissionMode: READ_ONLY
+
+    evaluator:
+      role: "Quality Evaluator"
+      goal: >
+        Score the provided article on five criteria, each 0-10.
+        Be rigorous and provide a one-line justification per score.
+      backstory: >
+        You are a senior editorial reviewer with 20 years of experience.
+        You evaluate content objectively against strict quality rubrics.
+      maxTurns: 1
+      temperature: 0.2
+      permissionMode: READ_ONLY
+
+  tasks:
+    write:
+      description: |
+        Write a short article (300-500 words) about: {{topic}}
+
+        Requirements:
+        - Hook opening that establishes importance
+        - 2-3 body sections with specific examples or data points
+        - Concise conclusion with a forward-looking statement
+        - Markdown format
+      expectedOutput: "A 300-500 word markdown article with examples"
+      agent: writer
+
+    evaluate:
+      description: |
+        Evaluate the article above on these five criteria.
+
+        For EACH criterion, respond on its own line as:
+          CRITERION_NAME: SCORE/10 - justification
+
+        Criteria:
+          Accuracy: Are claims factual and verifiable?
+          Completeness: Are key aspects of the topic covered?
+          Clarity: Is the writing clear, well-structured, and readable?
+          Evidence: Are claims supported with specific examples or data?
+          Relevance: Does the article stay focused on the topic?
+
+        End with a line: OVERALL: brief summary of quality assessment.
+      expectedOutput: "Five scored criteria lines and an overall summary"
+      agent: evaluator
+      dependsOn:
+        - write

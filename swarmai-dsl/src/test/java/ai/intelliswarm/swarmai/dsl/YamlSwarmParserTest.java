@@ -293,4 +293,339 @@ class YamlSwarmParserTest {
         SwarmParseException ex = assertThrows(SwarmParseException.class, () -> parser.parseString(yaml));
         assertTrue(ex.getMessage().contains("COMPOSITE"));
     }
+
+    // ==================== ToolHooks Tests ====================
+
+    @Test
+    void parseToolHooks() throws IOException {
+        SwarmDefinition def = parser.parseResource("workflows/toolhooks-workflow.yaml");
+
+        var researcher = def.getAgents().get("researcher");
+        assertEquals(4, researcher.getToolHooks().size());
+        assertEquals("audit", researcher.getToolHooks().get(0).getType());
+        assertEquals("sanitize", researcher.getToolHooks().get(1).getType());
+        assertEquals(2, researcher.getToolHooks().get(1).getPatterns().size());
+        assertEquals("rate-limit", researcher.getToolHooks().get(2).getType());
+        assertEquals(10, researcher.getToolHooks().get(2).getMaxCalls());
+        assertEquals(30, researcher.getToolHooks().get(2).getWindowSeconds());
+        assertEquals("deny", researcher.getToolHooks().get(3).getType());
+        assertEquals(2, researcher.getToolHooks().get(3).getTools().size());
+
+        var writer = def.getAgents().get("writer");
+        assertEquals(1, writer.getToolHooks().size());
+        assertEquals("audit", writer.getToolHooks().get(0).getType());
+    }
+
+    @Test
+    void failOnUnknownToolHookType() {
+        String yaml = """
+                swarm:
+                  process: SEQUENTIAL
+                  agents:
+                    worker:
+                      role: "Worker"
+                      goal: "Work"
+                      backstory: "Worker"
+                      toolHooks:
+                        - type: nonexistent
+                  tasks:
+                    task1:
+                      description: "Do"
+                      agent: worker
+                """;
+
+        SwarmParseException ex = assertThrows(SwarmParseException.class, () -> parser.parseString(yaml));
+        assertTrue(ex.getMessage().contains("nonexistent"));
+    }
+
+    @Test
+    void failOnSanitizeWithoutPatterns() {
+        String yaml = """
+                swarm:
+                  process: SEQUENTIAL
+                  agents:
+                    worker:
+                      role: "Worker"
+                      goal: "Work"
+                      backstory: "Worker"
+                      toolHooks:
+                        - type: sanitize
+                  tasks:
+                    task1:
+                      description: "Do"
+                      agent: worker
+                """;
+
+        SwarmParseException ex = assertThrows(SwarmParseException.class, () -> parser.parseString(yaml));
+        assertTrue(ex.getMessage().contains("patterns"));
+    }
+
+    @Test
+    void failOnRateLimitWithoutMaxCalls() {
+        String yaml = """
+                swarm:
+                  process: SEQUENTIAL
+                  agents:
+                    worker:
+                      role: "Worker"
+                      goal: "Work"
+                      backstory: "Worker"
+                      toolHooks:
+                        - type: rate-limit
+                          windowSeconds: 30
+                  tasks:
+                    task1:
+                      description: "Do"
+                      agent: worker
+                """;
+
+        SwarmParseException ex = assertThrows(SwarmParseException.class, () -> parser.parseString(yaml));
+        assertTrue(ex.getMessage().contains("maxCalls"));
+    }
+
+    @Test
+    void failOnDenyWithoutTools() {
+        String yaml = """
+                swarm:
+                  process: SEQUENTIAL
+                  agents:
+                    worker:
+                      role: "Worker"
+                      goal: "Work"
+                      backstory: "Worker"
+                      toolHooks:
+                        - type: deny
+                  tasks:
+                    task1:
+                      description: "Do"
+                      agent: worker
+                """;
+
+        SwarmParseException ex = assertThrows(SwarmParseException.class, () -> parser.parseString(yaml));
+        assertTrue(ex.getMessage().contains("tools"));
+    }
+
+    @Test
+    void failOnCustomWithoutClass() {
+        String yaml = """
+                swarm:
+                  process: SEQUENTIAL
+                  agents:
+                    worker:
+                      role: "Worker"
+                      goal: "Work"
+                      backstory: "Worker"
+                      toolHooks:
+                        - type: custom
+                  tasks:
+                    task1:
+                      description: "Do"
+                      agent: worker
+                """;
+
+        SwarmParseException ex = assertThrows(SwarmParseException.class, () -> parser.parseString(yaml));
+        assertTrue(ex.getMessage().contains("class"));
+    }
+
+    // ==================== Graph Tests ====================
+
+    @Test
+    void parseGraphDebateWorkflow() throws IOException {
+        SwarmDefinition def = parser.parseResource("workflows/graph-debate.yaml");
+
+        assertNotNull(def.getGraph());
+        assertEquals(3, def.getGraph().getNodes().size());
+        assertEquals(4, def.getGraph().getEdges().size());
+
+        // State channels
+        assertNotNull(def.getState());
+        assertTrue(def.getState().getChannels().size() >= 3);
+        assertEquals("counter", def.getState().getChannels().get("round").getType());
+        assertEquals("stringAppender", def.getState().getChannels().get("debate_log").getType());
+        assertEquals("lastWriteWins", def.getState().getChannels().get("verdict").getType());
+
+        // Graph nodes
+        var proponent = def.getGraph().getNodes().get("proponent");
+        assertEquals("proponent", proponent.getAgent());
+        assertTrue(proponent.getTask().contains("FOR the proposition"));
+
+        // Conditional edge
+        var conditionalEdge = def.getGraph().getEdges().stream()
+                .filter(e -> "opponent".equals(e.getFrom()) && e.isConditional())
+                .findFirst().orElseThrow();
+        assertEquals(2, conditionalEdge.getConditional().size());
+        assertEquals("round < 3", conditionalEdge.getConditional().get(0).getWhen());
+        assertEquals("proponent", conditionalEdge.getConditional().get(0).getTo());
+        assertTrue(conditionalEdge.getConditional().get(1).isDefault());
+        assertEquals("judge", conditionalEdge.getConditional().get(1).target());
+    }
+
+    @Test
+    void parseGraphEvaluatorWorkflow() throws IOException {
+        SwarmDefinition def = parser.parseResource("workflows/graph-evaluator.yaml");
+
+        assertNotNull(def.getGraph());
+        assertEquals(3, def.getGraph().getNodes().size());
+        assertEquals(4, def.getGraph().getEdges().size());
+
+        // Conditional with multiple conditions + default
+        var evalEdge = def.getGraph().getEdges().stream()
+                .filter(e -> "evaluate".equals(e.getFrom()))
+                .findFirst().orElseThrow();
+        assertTrue(evalEdge.isConditional());
+        assertEquals(3, evalEdge.getConditional().size());
+        assertEquals("score >= 80", evalEdge.getConditional().get(0).getWhen());
+        assertEquals("iteration >= 3", evalEdge.getConditional().get(1).getWhen());
+        assertTrue(evalEdge.getConditional().get(2).isDefault());
+    }
+
+    @Test
+    void graphWorkflowAllowsEmptyTasks() throws IOException {
+        // Graph workflows don't require a tasks: section
+        SwarmDefinition def = parser.parseResource("workflows/graph-debate.yaml");
+        assertTrue(def.getTasks().isEmpty());
+    }
+
+    @Test
+    void failOnGraphWithoutStartEdge() {
+        String yaml = """
+                swarm:
+                  name: "Bad Graph"
+                  agents:
+                    worker:
+                      role: "Worker"
+                      goal: "Work"
+                      backstory: "Worker"
+                  graph:
+                    nodes:
+                      step1:
+                        agent: worker
+                        task: "Do something"
+                    edges:
+                      - from: step1
+                        to: END
+                """;
+
+        SwarmParseException ex = assertThrows(SwarmParseException.class, () -> parser.parseString(yaml));
+        assertTrue(ex.getMessage().contains("START"));
+    }
+
+    @Test
+    void failOnGraphNodeReferencingUnknownAgent() {
+        String yaml = """
+                swarm:
+                  name: "Bad Graph"
+                  agents:
+                    worker:
+                      role: "Worker"
+                      goal: "Work"
+                      backstory: "Worker"
+                  graph:
+                    nodes:
+                      step1:
+                        agent: nonexistent
+                        task: "Do something"
+                    edges:
+                      - from: START
+                        to: step1
+                """;
+
+        SwarmParseException ex = assertThrows(SwarmParseException.class, () -> parser.parseString(yaml));
+        assertTrue(ex.getMessage().contains("nonexistent"));
+    }
+
+    @Test
+    void failOnEdgeReferencingUnknownNode() {
+        String yaml = """
+                swarm:
+                  name: "Bad Graph"
+                  agents:
+                    worker:
+                      role: "Worker"
+                      goal: "Work"
+                      backstory: "Worker"
+                  graph:
+                    nodes:
+                      step1:
+                        agent: worker
+                        task: "Do something"
+                    edges:
+                      - from: START
+                        to: nonexistent
+                """;
+
+        SwarmParseException ex = assertThrows(SwarmParseException.class, () -> parser.parseString(yaml));
+        assertTrue(ex.getMessage().contains("nonexistent"));
+    }
+
+    // ==================== Workflow Hooks & Task Conditions Tests ====================
+
+    @Test
+    void parseWorkflowHooks() throws IOException {
+        SwarmDefinition def = parser.parseResource("workflows/hooks-workflow.yaml");
+
+        assertEquals(3, def.getHooks().size());
+        assertEquals("BEFORE_WORKFLOW", def.getHooks().get(0).getPoint());
+        assertEquals("log", def.getHooks().get(0).getType());
+        assertEquals("Starting hooked workflow", def.getHooks().get(0).getMessage());
+        assertEquals("AFTER_TASK", def.getHooks().get(1).getPoint());
+        assertEquals("AFTER_WORKFLOW", def.getHooks().get(2).getPoint());
+    }
+
+    @Test
+    void parseTaskCondition() throws IOException {
+        SwarmDefinition def = parser.parseResource("workflows/condition-workflow.yaml");
+
+        var riskReport = def.getTasks().get("risk-report");
+        assertEquals("contains('risk')", riskReport.getCondition());
+
+        var summary = def.getTasks().get("summary");
+        assertNull(summary.getCondition());
+    }
+
+    @Test
+    void failOnInvalidHookPoint() {
+        String yaml = """
+                swarm:
+                  process: SEQUENTIAL
+                  agents:
+                    worker:
+                      role: "Worker"
+                      goal: "Work"
+                      backstory: "Worker"
+                  tasks:
+                    task1:
+                      description: "Do"
+                      agent: worker
+                  hooks:
+                    - point: INVALID_POINT
+                      type: log
+                """;
+
+        SwarmParseException ex = assertThrows(SwarmParseException.class, () -> parser.parseString(yaml));
+        assertTrue(ex.getMessage().contains("INVALID_POINT"));
+    }
+
+    @Test
+    void failOnInvalidHookType() {
+        String yaml = """
+                swarm:
+                  process: SEQUENTIAL
+                  agents:
+                    worker:
+                      role: "Worker"
+                      goal: "Work"
+                      backstory: "Worker"
+                  tasks:
+                    task1:
+                      description: "Do"
+                      agent: worker
+                  hooks:
+                    - point: BEFORE_WORKFLOW
+                      type: nonexistent
+                """;
+
+        SwarmParseException ex = assertThrows(SwarmParseException.class, () -> parser.parseString(yaml));
+        assertTrue(ex.getMessage().contains("nonexistent"));
+    }
 }

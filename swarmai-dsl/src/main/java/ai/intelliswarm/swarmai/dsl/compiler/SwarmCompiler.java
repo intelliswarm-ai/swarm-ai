@@ -23,6 +23,16 @@ import ai.intelliswarm.swarmai.swarm.Swarm;
 import ai.intelliswarm.swarmai.task.Task;
 import ai.intelliswarm.swarmai.task.output.OutputFormat;
 import ai.intelliswarm.swarmai.tool.base.BaseTool;
+import ai.intelliswarm.swarmai.tool.base.ToolHook;
+import ai.intelliswarm.swarmai.tool.hooks.AuditToolHook;
+import ai.intelliswarm.swarmai.tool.hooks.DenyToolHook;
+import ai.intelliswarm.swarmai.tool.hooks.RateLimitToolHook;
+import ai.intelliswarm.swarmai.tool.hooks.SanitizeToolHook;
+import ai.intelliswarm.swarmai.state.AgentState;
+import ai.intelliswarm.swarmai.state.HookPoint;
+import ai.intelliswarm.swarmai.state.SwarmHook;
+import ai.intelliswarm.swarmai.state.hooks.CheckpointSwarmHook;
+import ai.intelliswarm.swarmai.state.hooks.LoggingSwarmHook;
 import ai.intelliswarm.swarmai.tool.base.PermissionLevel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,14 +69,20 @@ public class SwarmCompiler {
     private final ChatClient defaultChatClient;
     private final Map<String, ChatClient> namedChatClients;
     private final Map<String, BaseTool> toolRegistry;
+    private final Map<String, ToolHook> hookRegistry;
+    @SuppressWarnings("rawtypes")
+    private final Map<String, SwarmHook> swarmHookRegistry;
     private final ApplicationEventPublisher eventPublisher;
     private final Memory memory;
     private final Knowledge knowledge;
 
+    @SuppressWarnings("rawtypes")
     private SwarmCompiler(Builder builder) {
         this.defaultChatClient = builder.defaultChatClient;
         this.namedChatClients = new HashMap<>(builder.namedChatClients);
         this.toolRegistry = new HashMap<>(builder.toolRegistry);
+        this.hookRegistry = new HashMap<>(builder.hookRegistry);
+        this.swarmHookRegistry = new HashMap<>(builder.swarmHookRegistry);
         this.eventPublisher = builder.eventPublisher;
         this.memory = builder.memory;
         this.knowledge = builder.knowledge;
@@ -79,6 +95,11 @@ public class SwarmCompiler {
      * @throws SwarmCompileException if the process type is COMPOSITE
      */
     public Swarm compile(SwarmDefinition definition) {
+        if (definition.getGraph() != null) {
+            throw new SwarmCompileException(
+                    "Graph-based workflows cannot be compiled to a plain Swarm. " +
+                    "Use compileWorkflow() instead, which returns a CompiledWorkflow.");
+        }
         ProcessType processType = ProcessType.valueOf(definition.getProcess());
         if (processType == ProcessType.COMPOSITE) {
             throw new SwarmCompileException(
@@ -92,9 +113,14 @@ public class SwarmCompiler {
 
     /**
      * Compiles a SwarmDefinition into a {@link CompiledWorkflow} that supports all
-     * process types, including COMPOSITE with multi-stage pipelines.
+     * process types, including COMPOSITE pipelines and graph-based workflows.
      */
     public CompiledWorkflow compileWorkflow(SwarmDefinition definition) {
+        // Graph-based workflow
+        if (definition.getGraph() != null) {
+            return compileGraphWorkflow(definition);
+        }
+
         CompilationContext ctx = buildContext(definition);
         ProcessType processType = ProcessType.valueOf(definition.getProcess());
 
@@ -263,6 +289,96 @@ public class SwarmCompiler {
         };
     }
 
+    private CompiledWorkflow compileGraphWorkflow(SwarmDefinition definition) {
+        // Build agents
+        Map<String, Agent> agentMap = new LinkedHashMap<>();
+        definition.getAgents().forEach((agentId, agentDef) -> {
+            Agent agent = compileAgent(agentId, agentDef, knowledge);
+            agentMap.put(agentId, agent);
+        });
+
+        // Compile state schema
+        ai.intelliswarm.swarmai.state.StateSchema stateSchema = compileStateSchema(definition.getState());
+
+        String swarmId = definition.getName() != null ? definition.getName() : UUID.randomUUID().toString();
+
+        // Compile workflow hooks
+        Map<HookPoint, List<SwarmHook<AgentState>>> compiledHooks = compileWorkflowHooks(definition);
+
+        GraphExecutor executor = new GraphExecutor(
+                swarmId,
+                definition.getGraph().getNodes(),
+                definition.getGraph().getEdges(),
+                agentMap,
+                stateSchema,
+                compiledHooks);
+
+        logger.info("Compiled graph workflow: id={}, nodes={}, edges={}, agents={}, hooks={}",
+                swarmId,
+                definition.getGraph().getNodes().size(),
+                definition.getGraph().getEdges().size(),
+                agentMap.size(),
+                compiledHooks.size());
+
+        return CompiledWorkflow.fromGraph(executor);
+    }
+
+    private ai.intelliswarm.swarmai.state.StateSchema compileStateSchema(
+            ai.intelliswarm.swarmai.dsl.model.StateDefinition stateDef) {
+        if (stateDef == null) {
+            return ai.intelliswarm.swarmai.state.StateSchema.PERMISSIVE;
+        }
+
+        ai.intelliswarm.swarmai.state.StateSchema.Builder builder =
+                ai.intelliswarm.swarmai.state.StateSchema.builder();
+
+        if (stateDef.getChannels() != null) {
+            stateDef.getChannels().forEach((name, channelDef) -> {
+                ai.intelliswarm.swarmai.state.Channel<?> channel = switch (channelDef.getType()) {
+                    case "lastWriteWins" -> ai.intelliswarm.swarmai.state.Channels.lastWriteWins();
+                    case "appender" -> ai.intelliswarm.swarmai.state.Channels.appender();
+                    case "counter" -> ai.intelliswarm.swarmai.state.Channels.counter();
+                    case "stringAppender" -> ai.intelliswarm.swarmai.state.Channels.stringAppender();
+                    default -> throw new SwarmCompileException(
+                            "Unknown channel type: '" + channelDef.getType() + "' for channel '" + name + "'");
+                };
+                builder.channel(name, channel);
+            });
+        }
+
+        builder.allowUndeclaredKeys(stateDef.isAllowUndeclaredKeys());
+        return builder.build();
+    }
+
+    private Map<HookPoint, List<SwarmHook<AgentState>>> compileWorkflowHooks(
+            ai.intelliswarm.swarmai.dsl.model.SwarmDefinition definition) {
+        Map<HookPoint, List<SwarmHook<AgentState>>> result = new java.util.EnumMap<>(HookPoint.class);
+        if (definition.getHooks() == null || definition.getHooks().isEmpty()) {
+            return result;
+        }
+
+        for (ai.intelliswarm.swarmai.dsl.model.WorkflowHookDefinition hookDef : definition.getHooks()) {
+            HookPoint point = HookPoint.valueOf(hookDef.getPoint());
+            SwarmHook<AgentState> hook = switch (hookDef.getType()) {
+                case "log" -> new LoggingSwarmHook(hookDef.getMessage());
+                case "checkpoint" -> new CheckpointSwarmHook();
+                case "custom" -> {
+                    @SuppressWarnings("unchecked")
+                    SwarmHook<AgentState> custom = (SwarmHook<AgentState>) swarmHookRegistry.get(hookDef.getHookClass());
+                    if (custom == null) {
+                        throw new SwarmCompileException(
+                                "Custom workflow hook class '" + hookDef.getHookClass() +
+                                "' is not registered");
+                    }
+                    yield custom;
+                }
+                default -> throw new SwarmCompileException("Unknown workflow hook type: " + hookDef.getType());
+            };
+            result.computeIfAbsent(point, k -> new ArrayList<>()).add(hook);
+        }
+        return result;
+    }
+
     private record CompilationContext(Map<String, Agent> agentMap, List<Task> tasks, Knowledge knowledge) {}
 
     private Agent compileAgent(String agentId, AgentDefinition def, Knowledge effectiveKnowledge) {
@@ -308,6 +424,13 @@ public class SwarmCompiler {
                 int preserve = cc.getPreserveRecentTurns() != null ? cc.getPreserveRecentTurns() : 4;
                 long threshold = cc.getThresholdTokens() != null ? cc.getThresholdTokens() : 100_000L;
                 builder.compactionConfig(CompactionConfig.of(preserve, threshold));
+            }
+        }
+
+        // Tool hooks
+        if (def.getToolHooks() != null && !def.getToolHooks().isEmpty()) {
+            for (ToolHook hook : compileToolHooks(def.getToolHooks(), agentId)) {
+                builder.toolHook(hook);
             }
         }
 
@@ -358,6 +481,11 @@ public class SwarmCompiler {
         // Dependencies
         for (String dep : def.getDependsOn()) {
             builder.dependsOn(dep);
+        }
+
+        // Task condition
+        if (def.getCondition() != null && !def.getCondition().isBlank()) {
+            builder.condition(ConditionEvaluator.toPredicate(def.getCondition()));
         }
 
         // Task-level tools
@@ -421,6 +549,36 @@ public class SwarmCompiler {
         return defaultChatClient;
     }
 
+    private List<ToolHook> compileToolHooks(List<ToolHookDefinition> hookDefs, String agentId) {
+        List<ToolHook> hooks = new ArrayList<>();
+        for (ToolHookDefinition def : hookDefs) {
+            ToolHook hook = switch (def.getType()) {
+                case "audit" -> new AuditToolHook();
+                case "sanitize" -> new SanitizeToolHook(
+                        def.getPatterns().stream()
+                                .map(java.util.regex.Pattern::compile)
+                                .toList());
+                case "rate-limit" -> new RateLimitToolHook(def.getMaxCalls(), def.getWindowSeconds());
+                case "deny" -> new DenyToolHook(new java.util.HashSet<>(def.getTools()));
+                case "custom" -> {
+                    ToolHook custom = hookRegistry.get(def.getHookClass());
+                    if (custom == null) {
+                        throw new SwarmCompileException(
+                                "Agent '" + agentId + "' references custom hook class '" +
+                                def.getHookClass() + "' which is not registered. " +
+                                "Register it via SwarmCompiler.builder().hook(\"" +
+                                def.getHookClass() + "\", hookInstance)");
+                    }
+                    yield custom;
+                }
+                default -> throw new SwarmCompileException(
+                        "Unknown tool hook type: '" + def.getType() + "' on agent '" + agentId + "'");
+            };
+            hooks.add(hook);
+        }
+        return hooks;
+    }
+
     private List<BaseTool> resolveTools(List<String> toolNames, String context) {
         List<BaseTool> tools = new ArrayList<>();
         for (String toolName : toolNames) {
@@ -443,6 +601,9 @@ public class SwarmCompiler {
         private ChatClient defaultChatClient;
         private final Map<String, ChatClient> namedChatClients = new HashMap<>();
         private final Map<String, BaseTool> toolRegistry = new HashMap<>();
+        private final Map<String, ToolHook> hookRegistry = new HashMap<>();
+        @SuppressWarnings("rawtypes")
+        private final Map<String, SwarmHook> swarmHookRegistry = new HashMap<>();
         private ApplicationEventPublisher eventPublisher;
         private Memory memory;
         private Knowledge knowledge;
@@ -464,6 +625,16 @@ public class SwarmCompiler {
 
         public Builder tools(Map<String, BaseTool> tools) {
             this.toolRegistry.putAll(tools);
+            return this;
+        }
+
+        public Builder hook(String className, ToolHook hook) {
+            this.hookRegistry.put(className, hook);
+            return this;
+        }
+
+        public Builder swarmHook(String className, SwarmHook<AgentState> hook) {
+            this.swarmHookRegistry.put(className, hook);
             return this;
         }
 

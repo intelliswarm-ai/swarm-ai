@@ -377,4 +377,265 @@ class SwarmCompilerTest {
         assertEquals(1, swarm.getAgents().size());
         assertEquals(2, swarm.getTasks().size());
     }
+
+    // ==================== ToolHooks Tests ====================
+
+    @Test
+    void compileAgentWithToolHooks() throws IOException {
+        SwarmDefinition def = parser.parseResource("workflows/toolhooks-workflow.yaml");
+
+        SwarmCompiler compiler = SwarmCompiler.builder()
+                .chatClient(mockChatClient)
+                .eventPublisher(mockEventPublisher)
+                .build();
+
+        Swarm swarm = compiler.compile(def);
+
+        // Researcher should have 4 hooks
+        var researcher = swarm.getAgents().stream()
+                .filter(a -> a.getId().equals("researcher"))
+                .findFirst().orElseThrow();
+        assertEquals(4, researcher.getToolHooks().size());
+
+        // Writer should have 1 hook
+        var writer = swarm.getAgents().stream()
+                .filter(a -> a.getId().equals("writer"))
+                .findFirst().orElseThrow();
+        assertEquals(1, writer.getToolHooks().size());
+    }
+
+    @Test
+    void compileAuditHookType() throws IOException {
+        String yaml = """
+                swarm:
+                  process: SEQUENTIAL
+                  agents:
+                    worker:
+                      role: "Worker"
+                      goal: "Work"
+                      backstory: "Worker"
+                      toolHooks:
+                        - type: audit
+                  tasks:
+                    task1:
+                      description: "Do"
+                      agent: worker
+                """;
+
+        SwarmDefinition def = parser.parseString(yaml);
+        SwarmCompiler compiler = SwarmCompiler.builder()
+                .chatClient(mockChatClient)
+                .eventPublisher(mockEventPublisher)
+                .build();
+
+        Swarm swarm = compiler.compile(def);
+        var agent = swarm.getAgents().get(0);
+        assertEquals(1, agent.getToolHooks().size());
+        assertInstanceOf(ai.intelliswarm.swarmai.tool.hooks.AuditToolHook.class,
+                agent.getToolHooks().get(0));
+    }
+
+    @Test
+    void compileDenyHookType() throws IOException {
+        String yaml = """
+                swarm:
+                  process: SEQUENTIAL
+                  agents:
+                    worker:
+                      role: "Worker"
+                      goal: "Work"
+                      backstory: "Worker"
+                      toolHooks:
+                        - type: deny
+                          tools: [dangerous-tool, risky-tool]
+                  tasks:
+                    task1:
+                      description: "Do"
+                      agent: worker
+                """;
+
+        SwarmDefinition def = parser.parseString(yaml);
+        SwarmCompiler compiler = SwarmCompiler.builder()
+                .chatClient(mockChatClient)
+                .eventPublisher(mockEventPublisher)
+                .build();
+
+        Swarm swarm = compiler.compile(def);
+        var agent = swarm.getAgents().get(0);
+        assertEquals(1, agent.getToolHooks().size());
+        assertInstanceOf(ai.intelliswarm.swarmai.tool.hooks.DenyToolHook.class,
+                agent.getToolHooks().get(0));
+    }
+
+    @Test
+    void compileCustomHookWithRegistry() throws IOException {
+        String yaml = """
+                swarm:
+                  process: SEQUENTIAL
+                  agents:
+                    worker:
+                      role: "Worker"
+                      goal: "Work"
+                      backstory: "Worker"
+                      toolHooks:
+                        - type: custom
+                          class: "com.example.MyHook"
+                  tasks:
+                    task1:
+                      description: "Do"
+                      agent: worker
+                """;
+
+        // Create a custom hook and register it
+        ai.intelliswarm.swarmai.tool.base.ToolHook customHook =
+                new ai.intelliswarm.swarmai.tool.hooks.AuditToolHook(); // reuse as stand-in
+
+        SwarmDefinition def = parser.parseString(yaml);
+        SwarmCompiler compiler = SwarmCompiler.builder()
+                .chatClient(mockChatClient)
+                .eventPublisher(mockEventPublisher)
+                .hook("com.example.MyHook", customHook)
+                .build();
+
+        Swarm swarm = compiler.compile(def);
+        var agent = swarm.getAgents().get(0);
+        assertEquals(1, agent.getToolHooks().size());
+        assertSame(customHook, agent.getToolHooks().get(0));
+    }
+
+    @Test
+    void failOnUnregisteredCustomHook() throws IOException {
+        String yaml = """
+                swarm:
+                  process: SEQUENTIAL
+                  agents:
+                    worker:
+                      role: "Worker"
+                      goal: "Work"
+                      backstory: "Worker"
+                      toolHooks:
+                        - type: custom
+                          class: "com.example.NotRegistered"
+                  tasks:
+                    task1:
+                      description: "Do"
+                      agent: worker
+                """;
+
+        SwarmDefinition def = parser.parseString(yaml);
+        SwarmCompiler compiler = SwarmCompiler.builder()
+                .chatClient(mockChatClient)
+                .eventPublisher(mockEventPublisher)
+                .build();
+
+        SwarmCompileException ex = assertThrows(SwarmCompileException.class,
+                () -> compiler.compile(def));
+        assertTrue(ex.getMessage().contains("NotRegistered"));
+    }
+
+    // ==================== Graph Tests ====================
+
+    @Test
+    void compileGraphDebateWorkflow() throws IOException {
+        SwarmDefinition def = parser.parseResource("workflows/graph-debate.yaml");
+
+        SwarmCompiler compiler = SwarmCompiler.builder()
+                .chatClient(mockChatClient)
+                .eventPublisher(mockEventPublisher)
+                .build();
+
+        CompiledWorkflow workflow = compiler.compileWorkflow(def);
+
+        assertTrue(workflow.isGraph());
+        assertFalse(workflow.isComposite());
+        assertNull(workflow.getSwarm());
+    }
+
+    @Test
+    void compileGraphEvaluatorWorkflow() throws IOException {
+        SwarmDefinition def = parser.parseResource("workflows/graph-evaluator.yaml");
+
+        SwarmCompiler compiler = SwarmCompiler.builder()
+                .chatClient(mockChatClient)
+                .eventPublisher(mockEventPublisher)
+                .build();
+
+        CompiledWorkflow workflow = compiler.compileWorkflow(def);
+
+        assertTrue(workflow.isGraph());
+    }
+
+    @Test
+    void graphThrowsOnPlainCompile() throws IOException {
+        SwarmDefinition def = parser.parseResource("workflows/graph-debate.yaml");
+
+        SwarmCompiler compiler = SwarmCompiler.builder()
+                .chatClient(mockChatClient)
+                .eventPublisher(mockEventPublisher)
+                .build();
+
+        SwarmCompileException ex = assertThrows(SwarmCompileException.class,
+                () -> compiler.compile(def));
+        assertTrue(ex.getMessage().contains("compileWorkflow"));
+    }
+
+    @Test
+    void compileWorkflowRoutesNonGraphToSwarm() throws IOException {
+        SwarmDefinition def = parser.parseResource("workflows/simple-sequential.yaml");
+
+        SwarmCompiler compiler = SwarmCompiler.builder()
+                .chatClient(mockChatClient)
+                .eventPublisher(mockEventPublisher)
+                .build();
+
+        CompiledWorkflow workflow = compiler.compileWorkflow(def);
+
+        assertFalse(workflow.isGraph());
+        assertFalse(workflow.isComposite());
+        assertNotNull(workflow.getSwarm());
+    }
+
+    // ==================== Workflow Hooks & Task Conditions Tests ====================
+
+    @Test
+    void compileGraphWithHooks() throws IOException {
+        SwarmDefinition def = parser.parseResource("workflows/hooks-workflow.yaml");
+
+        SwarmCompiler compiler = SwarmCompiler.builder()
+                .chatClient(mockChatClient)
+                .eventPublisher(mockEventPublisher)
+                .build();
+
+        CompiledWorkflow workflow = compiler.compileWorkflow(def);
+
+        assertTrue(workflow.isGraph());
+    }
+
+    @Test
+    void compileTaskWithCondition() throws IOException {
+        SwarmDefinition def = parser.parseResource("workflows/condition-workflow.yaml");
+
+        SwarmCompiler compiler = SwarmCompiler.builder()
+                .chatClient(mockChatClient)
+                .eventPublisher(mockEventPublisher)
+                .build();
+
+        Swarm swarm = compiler.compile(def);
+
+        // The task with condition should have a Predicate set
+        var riskTask = swarm.getTasks().stream()
+                .filter(t -> t.getId().equals("risk-report"))
+                .findFirst().orElseThrow();
+        assertNotNull(riskTask.getCondition());
+
+        // Test the predicate
+        assertTrue(riskTask.getCondition().test("There is a risk factor here"));
+        assertFalse(riskTask.getCondition().test("Everything is fine"));
+
+        // Task without condition should have null
+        var summaryTask = swarm.getTasks().stream()
+                .filter(t -> t.getId().equals("summary"))
+                .findFirst().orElseThrow();
+        assertNull(summaryTask.getCondition());
+    }
 }

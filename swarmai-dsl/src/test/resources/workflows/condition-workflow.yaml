@@ -1,0 +1,27 @@
+swarm:
+  name: "Conditional Tasks"
+  process: SEQUENTIAL
+
+  agents:
+    analyst:
+      role: "Analyst"
+      goal: "Analyze data"
+      backstory: "A data analyst"
+
+  tasks:
+    analyze:
+      description: "Analyze the input data"
+      agent: analyst
+
+    risk-report:
+      description: "Write a risk assessment report"
+      agent: analyst
+      dependsOn:
+        - analyze
+      condition: "contains('risk')"
+
+    summary:
+      description: "Write a final summary"
+      agent: analyst
+      dependsOn:
+        - analyze

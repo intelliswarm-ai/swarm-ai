@@ -1,0 +1,66 @@
+##
+# Self-Improving Workflow — YAML DSL
+#
+# A SELF_IMPROVING workflow that iteratively refines analysis output.
+# The reviewer agent identifies capability gaps and quality issues,
+# driving the system to generate new skills and improve results
+# across iterations.
+#
+# Pipeline (SELF_IMPROVING):
+#   1. worker   — executes analysis tasks using available tools and skills
+#   2. reviewer — reviews output quality and identifies capability gaps
+#
+# The reviewer acts as manager, guiding iterative improvement up to
+# maxIterations rounds until quality criteria are satisfied.
+#
+# Equivalent Java class: SelfImprovingWorkflow.java
+# Template variables: {{topic}}
+##
+
+swarm:
+  name: "Self-Improving Analysis"
+  process: SELF_IMPROVING
+  verbose: true
+  managerAgent: reviewer
+
+  agents:
+    worker:
+      role: "Senior Analyst"
+      goal: >
+        Execute analysis tasks using available tools. Apply generated skills
+        when they provide better capabilities.
+      backstory: >
+        You are a senior analyst who adapts your approach based on available
+        tools and skills. You provide thorough, well-structured analysis.
+      maxTurns: 3
+      temperature: 0.2
+      permissionMode: READ_ONLY
+
+    reviewer:
+      role: "Quality Assurance Director"
+      goal: >
+        Review output quality and identify capability gaps. When tools or
+        skills are missing, describe what capability is needed so the system
+        can generate it.
+      backstory: >
+        You review work output against quality standards. When you identify
+        missing capabilities, you describe them precisely so new skills can
+        be generated.
+      temperature: 0.2
+      permissionMode: READ_ONLY
+
+  tasks:
+    analyze:
+      description: "Analyze {{topic}} thoroughly using all available tools and skills"
+      expectedOutput: "Comprehensive analysis report"
+      agent: worker
+
+    review:
+      description: "Review the analysis quality and identify any gaps"
+      expectedOutput: "Quality assessment with identified gaps and improvement suggestions"
+      agent: reviewer
+      dependsOn:
+        - analyze
+
+  config:
+    maxIterations: 5

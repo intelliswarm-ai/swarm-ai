@@ -1,0 +1,56 @@
+##
+# Multi-Provider Workflow — YAML DSL
+#
+# Demonstrates multi-provider model routing, where different agents use
+# different LLM providers and models. A fast agent provides a quick overview
+# using a lightweight model, and a deep agent follows up with thorough
+# analysis using a more capable model.
+#
+# Note: Multi-provider model routing requires named ChatClients registered
+# in the compiler.
+#
+# Pipeline (SEQUENTIAL):
+#   1. Quick Analyst — rapid initial analysis (openai/gpt-4o-mini)
+#   2. Deep Analyst  — in-depth comprehensive analysis (anthropic/claude-sonnet-4-20250514)
+#
+# Features demonstrated:
+#   - Per-agent model specification for multi-provider routing
+#   - Sequential handoff from fast to deep analysis
+#
+# Equivalent Java class: MultiProviderWorkflow.java
+# Template variables: {{topic}}
+##
+
+swarm:
+  name: "MultiProviderWorkflow"
+  process: SEQUENTIAL
+
+  agents:
+    fast-agent:
+      role: "Quick Analyst"
+      goal: "Provide a rapid initial analysis of {{topic}}"
+      backstory: >
+        You are a fast-thinking analyst who provides quick, high-level overviews.
+      temperature: 0.5
+      model: "openai/gpt-4o-mini"
+
+    deep-agent:
+      role: "Deep Analyst"
+      goal: "Provide an in-depth, thorough analysis of {{topic}}"
+      backstory: >
+        You are a deep thinker who produces comprehensive, nuanced analysis.
+      temperature: 0.2
+      model: "anthropic/claude-sonnet-4-20250514"
+
+  tasks:
+    quick-scan:
+      description: "Provide a quick overview of {{topic}}"
+      agent: fast-agent
+
+    deep-analysis:
+      description: "Provide a comprehensive in-depth analysis of {{topic}}"
+      agent: deep-agent
+      dependsOn:
+        - quick-scan
+      outputFile: "output/multiprovider_report.md"
+      outputFormat: MARKDOWN

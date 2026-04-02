@@ -1,0 +1,81 @@
+##
+# Evaluator-Optimizer — Graph Workflow Example
+#
+# Demonstrates a quality improvement feedback loop:
+# Generate → Evaluate → (score >= 80 → END | iteration >= 3 → END | else → Optimize → Evaluate)
+##
+
+swarm:
+  name: "Evaluator Optimizer"
+
+  state:
+    channels:
+      content:
+        type: lastWriteWins
+      score:
+        type: lastWriteWins
+      feedback:
+        type: stringAppender
+      iteration:
+        type: counter
+      topic:
+        type: lastWriteWins
+
+  agents:
+    writer:
+      role: "Content Writer"
+      goal: "Write a compelling, well-researched article on the given topic"
+      backstory: "You are a talented writer who creates engaging content with specific examples and data."
+      temperature: 0.7
+      permissionMode: READ_ONLY
+
+    evaluator:
+      role: "Quality Evaluator"
+      goal: "Score the article 0-100 on accuracy, completeness, clarity, evidence, and relevance. Be rigorous."
+      backstory: "You are a strict quality evaluator with 20 years of editorial experience. You score objectively."
+      temperature: 0.2
+      permissionMode: READ_ONLY
+
+    optimizer:
+      role: "Content Optimizer"
+      goal: "Improve the article based on evaluator feedback. Address every point raised. Show measurable improvement."
+      backstory: "You are a content optimization specialist who systematically addresses feedback to improve quality."
+      temperature: 0.5
+      permissionMode: READ_ONLY
+
+  graph:
+    nodes:
+      generate:
+        agent: writer
+        task: "Write an article about the given topic"
+        expectedOutput: "A well-written article with examples"
+      evaluate:
+        agent: evaluator
+        task: "Score the article 0-100 and provide specific feedback for each criterion"
+        expectedOutput: "Numeric score and detailed feedback"
+      optimize:
+        agent: optimizer
+        task: "Improve the article based on the evaluator's feedback. Address every point."
+        expectedOutput: "Improved version of the article"
+
+    edges:
+      - from: START
+        to: generate
+      - from: generate
+        to: evaluate
+      - from: evaluate
+        conditional:
+          - when: "score >= 80"
+            to: END
+          - when: "iteration >= 3"
+            to: END
+          - default: optimize
+      - from: optimize
+        to: evaluate
+
+  hooks:
+    - point: BEFORE_WORKFLOW
+      type: log
+      message: "Evaluator-optimizer loop starting"
+    - point: AFTER_TASK
+      type: log

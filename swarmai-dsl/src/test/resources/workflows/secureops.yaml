@@ -1,0 +1,95 @@
+##
+# SecureOps Workflow — YAML DSL
+#
+# A SEQUENTIAL security operations workflow that scans infrastructure,
+# analyzes findings, and produces a comprehensive security report.
+#
+# Pipeline (SEQUENTIAL):
+#   1. scanner  — scans the target for vulnerabilities and misconfigurations
+#   2. analyst  — assesses risk levels and prioritizes findings
+#   3. reporter — writes a comprehensive security assessment report
+#
+# Includes budget controls to limit token usage and cost.
+#
+# Equivalent Java class: SecureOpsWorkflow.java
+# Template variables: {{target}}
+##
+
+swarm:
+  name: "SecureOps Assessment"
+  process: SEQUENTIAL
+  verbose: true
+
+  budget:
+    maxTokens: 200000
+    maxCostUsd: 5.0
+    onExceeded: WARN
+
+  hooks:
+    - point: BEFORE_WORKFLOW
+      type: log
+      message: "Security scan initiated"
+    - point: AFTER_TASK
+      type: log
+    - point: ON_ERROR
+      type: log
+      message: "Security scan error"
+
+  agents:
+    scanner:
+      role: "Security Scanner"
+      goal: "Scan the target infrastructure and identify potential security issues"
+      backstory: >
+        You are a security scanner specialized in identifying vulnerabilities
+        and misconfigurations.
+      maxTurns: 2
+      temperature: 0.1
+      permissionMode: READ_ONLY
+      tools:
+        - shell-command
+        - http-request
+      toolHooks:
+        - type: audit
+        - type: sanitize
+          patterns:
+            - "\\b\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\b"
+
+    analyst:
+      role: "Security Analyst"
+      goal: "Analyze scan results and assess risk levels for identified issues"
+      backstory: >
+        You are a security analyst who assesses risk and prioritizes findings
+        based on severity and exploitability.
+      temperature: 0.2
+      permissionMode: READ_ONLY
+
+    reporter:
+      role: "Security Report Writer"
+      goal: "Write a comprehensive security assessment report with findings and recommendations"
+      backstory: >
+        You write clear, actionable security reports for technical and
+        executive audiences.
+      temperature: 0.3
+      permissionMode: WORKSPACE_WRITE
+
+  tasks:
+    scan:
+      description: "Scan {{target}} for security vulnerabilities and misconfigurations"
+      expectedOutput: "Scan results with identified vulnerabilities and misconfigurations"
+      agent: scanner
+
+    analyze:
+      description: "Analyze the scan results, assess risk levels, and prioritize findings"
+      expectedOutput: "Risk-assessed and prioritized security findings"
+      agent: analyst
+      dependsOn:
+        - scan
+
+    report:
+      description: "Write a comprehensive security assessment report"
+      expectedOutput: "Professional security assessment report in markdown format"
+      agent: reporter
+      dependsOn:
+        - analyze
+      outputFile: "output/security_report.md"
+      outputFormat: MARKDOWN

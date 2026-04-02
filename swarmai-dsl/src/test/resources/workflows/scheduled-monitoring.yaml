@@ -1,0 +1,65 @@
+##
+# Scheduled Monitoring Workflow — YAML DSL
+#
+# A monitoring and trend analysis pipeline designed for recurring execution.
+# A monitoring agent tracks changes over time by comparing current findings
+# with historical reports, and a trend analyst synthesizes all reports into
+# a comprehensive evolution summary.
+#
+# Pipeline (SEQUENTIAL):
+#   1. Monitoring Agent — monitors the topic, compares with previous reports
+#   2. Trend Analyst    — analyzes all monitoring reports for trends and patterns
+#
+# Features demonstrated:
+#   - Multi-turn agents with bounded execution (maxTurns)
+#   - File I/O tools for reading/writing historical reports
+#   - Change detection by comparing with prior outputs
+#   - Trend identification across multiple monitoring cycles
+#
+# Equivalent Java class: ScheduledMonitoringWorkflow.java
+# Template variables: {{topic}}
+##
+
+swarm:
+  name: "ScheduledMonitoringWorkflow"
+  process: SEQUENTIAL
+
+  agents:
+    monitor:
+      role: "Monitoring Agent"
+      goal: "Monitor and analyze {{topic}}, comparing with previous reports to identify changes and trends"
+      backstory: >
+        You are a monitoring agent who tracks changes over time. You compare
+        current findings with historical data to identify trends, anomalies,
+        and emerging patterns.
+      maxTurns: 3
+      temperature: 0.2
+      tools:
+        - file-read
+        - file-write
+
+    trend-analyst:
+      role: "Trend Analyst"
+      goal: "Analyze all monitoring reports and produce an evolution summary with trend identification"
+      backstory: >
+        You synthesize multiple monitoring reports into a comprehensive trend
+        analysis, identifying patterns and making predictions.
+      maxTurns: 3
+      temperature: 0.3
+      tools:
+        - file-read
+        - file-write
+
+  tasks:
+    monitor:
+      description: "Monitor {{topic}} and produce a status report. Read previous reports from output/ if available for comparison."
+      expectedOutput: "Monitoring report with current status and change detection"
+      agent: monitor
+
+    trends:
+      description: "Analyze all monitoring reports and produce a trend summary"
+      agent: trend-analyst
+      dependsOn:
+        - monitor
+      outputFile: "output/scheduled_trend_summary.md"
+      outputFormat: MARKDOWN

@@ -1,0 +1,162 @@
+##
+# Data Pipeline Workflow — YAML DSL
+#
+# Three-agent sequential pipeline for data profiling, statistical analysis,
+# and business insights reporting.
+#
+# Pipeline (SEQUENTIAL):
+#   1. Senior Data Engineer   — profiles the raw data file
+#   2. Senior Data Scientist  — performs statistical analysis
+#   3. Senior Business Analyst — translates findings into executive insights
+#
+# NOTE: The Java version uses toolHooks for metrics collection.
+#
+# Equivalent Java class: DataPipelineWorkflow.java
+# Template variables: {{dataPath}}
+##
+
+swarm:
+  name: "Data Pipeline"
+  process: SEQUENTIAL
+  verbose: true
+  language: en
+
+  agents:
+    profiler:
+      role: "Senior Data Engineer"
+      goal: >
+        Profile the data file at '{{dataPath}}'. Use file_read to examine the raw file.
+        Use csv_analysis with operation='describe' for an overview, then operation='stats'
+        for column statistics. Determine: file format, schema, data types, row count,
+        null values, unique value counts per column.
+      backstory: >
+        You are a data engineer with 8 years of experience in data quality and profiling.
+        You treat every dataset with skepticism — checking for nulls, duplicates, outliers,
+        and format inconsistencies. You produce a complete data dictionary.
+      maxTurns: 2
+      temperature: 0.1
+      maxRpm: 15
+      permissionMode: WORKSPACE_WRITE
+      compaction:
+        enabled: true
+        preserveRecentTurns: 3
+        thresholdTokens: 4000
+      tools:
+        - file-read
+        - csv-analysis
+        - json-transform
+        - xml-parse
+      toolHooks:
+        - type: audit
+
+    analyst:
+      role: "Senior Data Scientist"
+      goal: >
+        Perform statistical analysis on the dataset. Use csv_analysis with operation='stats'
+        for column-level statistics. Use csv_analysis with operation='count' to find distributions
+        across categorical columns. Use csv_analysis with operation='filter' to investigate
+        interesting subsets. Use code_execution to compute derived metrics if needed.
+      backstory: >
+        You are a data scientist with 6 years of experience in exploratory data analysis.
+        You look for patterns, correlations, and anomalies. You segment data by categories
+        and compare group statistics. Every insight must be backed by a specific number.
+      maxTurns: 2
+      temperature: 0.2
+      maxRpm: 15
+      permissionMode: READ_ONLY
+      compaction:
+        enabled: true
+        preserveRecentTurns: 3
+        thresholdTokens: 4000
+      tools:
+        - csv-analysis
+        - code-execution
+        - json-transform
+
+    reporter:
+      role: "Senior Business Analyst"
+      goal: >
+        Translate the data profiling and statistical analysis into actionable business insights.
+        Your ENTIRE response must BE the complete executive report in markdown with all
+        findings, tables, and recommendations.
+      backstory: >
+        You are a business analyst with 10 years translating data findings into business
+        decisions. You write for executives who need clear, actionable recommendations —
+        not technical jargon. Every recommendation must reference a specific data finding.
+        You ALWAYS write the complete report as your response — never a summary.
+      maxTurns: 1
+      temperature: 0.3
+      maxRpm: 10
+      permissionMode: READ_ONLY
+
+  tasks:
+    profiling:
+      description: |
+        Profile the data file at '{{dataPath}}'.
+
+        USE YOUR TOOLS (call each one):
+        1. Use file_read with path='{{dataPath}}' and limit=5 to preview the raw data
+        2. Use csv_analysis with path='{{dataPath}}' and operation='describe' for overview
+        3. Use csv_analysis with path='{{dataPath}}' and operation='stats' for column statistics
+        4. Use csv_analysis with path='{{dataPath}}' and operation='head' and rows=5 for sample rows
+
+        REQUIRED DELIVERABLES:
+        1. **Data Dictionary** — Table: column name, type (numeric/text), description
+        2. **Shape** — Row count, column count
+        3. **Quality Assessment** — Nulls per column, duplicate rows, data type issues
+        4. **Sample Data** — First 5 rows as table
+        5. **Key Observations** — Initial patterns noticed
+
+        RULES: Report exact numbers from tools. Do NOT estimate or assume.
+      expectedOutput: "Complete data profile with dictionary, quality metrics, and sample data"
+      agent: profiler
+      outputFormat: MARKDOWN
+      outputFile: "output/data_pipeline_report.md"
+
+    analysis:
+      description: |
+        Perform statistical analysis on the dataset at '{{dataPath}}' based on the data profile.
+
+        USE YOUR TOOLS:
+        1. Use csv_analysis with operation='stats' for numeric column statistics
+        2. Use csv_analysis with operation='count' and column='department' (or similar categorical column)
+        3. Use csv_analysis with operation='count' on other categorical columns found in the profile
+        4. Use csv_analysis with operation='filter' to investigate interesting subsets
+        5. Optionally use code_execution to compute derived metrics
+
+        REQUIRED DELIVERABLES:
+        1. **Descriptive Statistics** — Table: column, min, max, mean, median for numeric columns
+        2. **Distribution Analysis** — Group counts for each categorical column
+        3. **Segment Comparison** — Compare numeric metrics across categorical groups
+        4. **Outlier Detection** — Any values >2 std deviations from mean
+        5. **Key Patterns** — 3-5 data-driven observations with exact numbers
+
+        RULES: Every finding must cite a specific number from your tools.
+      expectedOutput: "Statistical analysis with tables, distributions, and patterns"
+      agent: analyst
+      outputFormat: MARKDOWN
+      dependsOn:
+        - profiling
+
+    insights:
+      condition: "contains('pattern')"
+      description: |
+        Create a Data Analysis Report from the profiling and statistical findings.
+
+        REQUIRED SECTIONS:
+        1. **Executive Summary** — 3-5 key findings in business language
+        2. **Dataset Overview** — From the data profiling task
+        3. **Key Metrics** — Most important statistics (include tables)
+        4. **Segment Analysis** — Group comparisons with insights
+        5. **Patterns & Trends** — From the statistical analysis
+        6. **Recommendations** — 3-5 actionable recommendations based on data
+        7. **Data Quality Notes** — Any limitations or concerns
+
+        CRITICAL: Your ENTIRE response must BE the full report in markdown.
+        Do NOT use any tools. Do NOT call file_write. Just write the report as your response.
+        RULES: Every recommendation must reference a specific metric. No vague advice.
+      expectedOutput: "Complete markdown report with all sections, tables, and data"
+      agent: reporter
+      outputFormat: MARKDOWN
+      dependsOn:
+        - analysis

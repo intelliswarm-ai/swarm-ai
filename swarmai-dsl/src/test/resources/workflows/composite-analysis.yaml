@@ -1,0 +1,93 @@
+##
+# Composite Analysis Pipeline — YAML DSL Example
+#
+# Demonstrates a COMPOSITE process that chains multiple stages:
+#   1. PARALLEL — gather data from multiple agents simultaneously
+#   2. HIERARCHICAL — manager coordinates analysis across agents
+#   3. ITERATIVE — refine the report until quality criteria are met
+#
+# Also showcases: compaction config, approval policy, template variables.
+##
+
+swarm:
+  name: "{{pipelineName}}"
+  process: COMPOSITE
+  verbose: true
+
+  budget:
+    maxTokens: 200000
+    maxCostUsd: 10.0
+    onExceeded: WARN
+
+  agents:
+    manager:
+      role: "Research Director"
+      goal: "Coordinate the research team and ensure quality output on {{topic}}"
+      backstory: >
+        You are a research director with experience managing cross-functional teams.
+        You review work critically and push for depth and accuracy.
+      maxTurns: 5
+      temperature: 0.3
+
+    researcher:
+      role: "Lead Researcher"
+      goal: "Gather comprehensive data on {{topic}}"
+      backstory: "You are a meticulous researcher who leaves no stone unturned"
+      maxTurns: 3
+      compaction:
+        enabled: true
+        preserveRecentTurns: 6
+        thresholdTokens: 50000
+
+    analyst:
+      role: "Senior Analyst"
+      goal: "Extract insights and patterns from research data"
+      backstory: "You are a senior analyst with expertise in data synthesis"
+      temperature: 0.2
+      compaction:
+        enabled: true
+        preserveRecentTurns: 4
+        thresholdTokens: 80000
+
+  tasks:
+    gather:
+      description: "Research {{topic}} and collect key data points, trends, and sources"
+      expectedOutput: "Raw research data with sourced findings"
+      agent: researcher
+
+    analyze:
+      description: "Analyze the research data and extract top insights"
+      expectedOutput: "Structured analysis with ranked insights"
+      agent: analyst
+      dependsOn:
+        - gather
+
+    report:
+      description: "Synthesize findings into a comprehensive executive report on {{topic}}"
+      expectedOutput: "Polished executive report with recommendations"
+      agent: manager
+      dependsOn:
+        - analyze
+      outputFormat: MARKDOWN
+      outputFile: "{{outputDir}}/{{topic}}-report.md"
+
+  stages:
+    - process: PARALLEL
+    - process: HIERARCHICAL
+      managerAgent: manager
+    - process: ITERATIVE
+      managerAgent: manager
+      maxIterations: 3
+      qualityCriteria: "Report must include data sources, methodology, and actionable recommendations"
+
+  governance:
+    approvalGates:
+      - name: "Quality Assurance"
+        description: "Senior review before final report is published"
+        trigger: AFTER_TASK
+        timeoutMinutes: 30
+        policy:
+          requiredApprovals: 1
+          approverRoles:
+            - research-director
+          autoApproveOnTimeout: true

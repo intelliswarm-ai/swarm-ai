@@ -1,0 +1,158 @@
+##
+# Codebase Analysis Workflow — YAML DSL
+#
+# A PARALLEL workflow that analyzes a codebase from multiple angles
+# simultaneously, then synthesizes findings into a comprehensive report.
+#
+# Pipeline (PARALLEL):
+#   1. architect  — analyzes directory structure, module organization, design patterns
+#   2. quality    — gathers code quality metrics (LOC, file counts, git history)
+#   3. dependencies — extracts and analyzes project dependencies from pom.xml
+#   4. writer     — synthesizes all findings into a Codebase Analysis Report
+#
+# The first three agents run in parallel; the writer task depends on all three.
+#
+# Equivalent Java class: CodebaseAnalysisWorkflow.java
+# Template variables: none (operates on the current project directory)
+##
+
+swarm:
+  name: "Codebase Analysis"
+  process: PARALLEL
+  verbose: true
+
+  agents:
+    architect:
+      role: "Senior Software Architect"
+      goal: >
+        Analyze the codebase architecture: directory structure, module organization,
+        configuration files, and key design patterns. Use directory_read to scan
+        the file tree and file_read to examine configuration files (pom.xml,
+        application.yml, Dockerfile).
+      backstory: >
+        You are a software architect with 12 years of experience designing
+        Java/Spring Boot applications. You identify architectural patterns,
+        layering, and module boundaries. You always cite specific file paths
+        and line counts in your analysis.
+      maxTurns: 3
+      temperature: 0.2
+      maxRpm: 15
+      permissionMode: WORKSPACE_WRITE
+      compaction:
+        enabled: true
+        preserveRecentTurns: 3
+        thresholdTokens: 4000
+      tools:
+        - directory-read
+        - file-read
+        - xml-parse
+      toolHooks:
+        - type: audit
+
+    quality:
+      role: "Senior Code Quality Engineer"
+      goal: >
+        Gather code quality metrics: file counts by type, line counts, git history
+        summary, test file counts. Use shell_command for git and find commands,
+        file_read for examining test files and source files.
+      backstory: >
+        You are a code quality engineer with 8 years of experience. You focus on
+        measurable metrics: lines of code, test coverage indicators, commit
+        frequency, code complexity. You produce tables of data, not opinions.
+      maxTurns: 3
+      temperature: 0.1
+      maxRpm: 15
+      permissionMode: WORKSPACE_WRITE
+      compaction:
+        enabled: true
+        preserveRecentTurns: 3
+        thresholdTokens: 4000
+      tools:
+        - shell-command
+        - file-read
+        - directory-read
+      toolHooks:
+        - type: audit
+
+    dependencies:
+      role: "Senior Dependency Analyst"
+      goal: >
+        Analyze project dependencies from pom.xml. Use file_read to read the full
+        pom.xml (set limit=500 to get all content). Extract every dependency block
+        and list groupId, artifactId, version. Identify key frameworks and
+        potential risks.
+      backstory: >
+        You are a dependency and supply chain security analyst with 6 years of
+        experience. You know the Java/Spring ecosystem deeply. You flag known
+        risky dependencies and identify version conflicts. You present findings
+        in structured tables.
+      maxTurns: 3
+      temperature: 0.1
+      maxRpm: 12
+      permissionMode: WORKSPACE_WRITE
+      compaction:
+        enabled: true
+        preserveRecentTurns: 3
+        thresholdTokens: 4000
+      tools:
+        - file-read
+        - xml-parse
+        - json-transform
+      toolHooks:
+        - type: audit
+
+    writer:
+      role: "Senior Technical Writer"
+      goal: >
+        Synthesize all prior analysis into a comprehensive Codebase Analysis Report.
+        Your ENTIRE response must BE the report content in markdown. Do NOT
+        summarize — write the full report with all data, tables, and findings
+        from prior tasks.
+      backstory: >
+        You are a technical writer who creates clear, actionable engineering
+        documents. Every claim references specific data from the analysis. You
+        write in markdown with tables, headers, and bullet points. You never
+        invent data. You ALWAYS write the complete report as your response —
+        never a summary or confirmation.
+      temperature: 0.3
+      maxRpm: 10
+      permissionMode: WORKSPACE_WRITE
+
+  tasks:
+    architecture:
+      description: >
+        Analyze the project structure: directory layout, module organization,
+        configuration files, and key architectural patterns. Scan the file tree
+        and examine build files, Docker configuration, and application settings.
+      expectedOutput: "Architectural analysis with directory structure, module boundaries, and design patterns"
+      agent: architect
+      outputFile: "output/codebase_analysis_report.md"
+
+    metrics:
+      description: >
+        Gather code quality metrics for the codebase: file counts by type,
+        lines of code per module, git commit history summary, test file counts,
+        and code complexity indicators.
+      expectedOutput: "Structured metrics tables with file counts, LOC, and git history data"
+      agent: quality
+
+    dependency:
+      description: >
+        Extract the full dependency inventory from pom.xml files. List every
+        dependency with groupId, artifactId, and version. Identify key
+        frameworks, potential version conflicts, and known risky dependencies.
+      expectedOutput: "Dependency inventory table with risk assessment"
+      agent: dependencies
+
+    synthesis:
+      description: >
+        Synthesize all analysis findings into a comprehensive Codebase Analysis
+        Report. Combine architectural analysis, code quality metrics, and
+        dependency inventory into a single cohesive document with executive
+        summary, detailed sections, and recommendations.
+      expectedOutput: "Complete Codebase Analysis Report in markdown format"
+      agent: writer
+      dependsOn:
+        - architecture
+        - metrics
+        - dependency

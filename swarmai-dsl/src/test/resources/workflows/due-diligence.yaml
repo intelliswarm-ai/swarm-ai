@@ -1,0 +1,218 @@
+##
+# Due Diligence Workflow — YAML DSL
+#
+# Comprehensive company analysis using parallel agents for concurrent
+# research streams, followed by a synthesis task.
+#
+# Workflow structure:
+#   Layer 1 (parallel):  Financial Health | News & Sentiment | Legal & Regulatory
+#   Layer 2 (sequential): Due Diligence Synthesis (depends on all 3)
+#
+# Features demonstrated:
+#   - PARALLEL process type — 3 independent research streams run concurrently
+#   - Compaction config on each analyst agent
+#   - Anti-hallucination guardrails via task instructions
+#   - Multiple tool types (calculator, sec-filings, web-search)
+#
+# NOTE: The Java version uses toolHooks for metrics collection.
+#
+# Equivalent Java class: DueDiligenceWorkflow.java
+# Template variables: {{ticker}}
+##
+
+swarm:
+  name: "Due Diligence"
+  process: PARALLEL
+  verbose: true
+  language: en
+
+  config:
+    analysisType: "due-diligence"
+
+  hooks:
+    - point: BEFORE_WORKFLOW
+      type: log
+      message: "Due diligence investigation started"
+    - point: AFTER_TASK
+      type: log
+    - point: AFTER_WORKFLOW
+      type: log
+      message: "Due diligence investigation completed"
+
+  agents:
+    director:
+      role: "Due Diligence Program Director"
+      goal: >
+        Coordinate a rigorous due diligence investigation of {{ticker}}.
+        Ensure each research stream delivers evidence-based findings with cited sources.
+        Synthesize all findings into a clear investment decision framework.
+      backstory: >
+        You are a due diligence director with 15 years at a top-tier investment bank.
+        You coordinate multi-stream investigations and demand analytical rigor.
+        You synthesize complex findings into clear go/no-go investment recommendations.
+      allowDelegation: true
+      maxTurns: 1
+      temperature: 0.2
+
+    financial:
+      role: "Senior Financial Due Diligence Analyst"
+      goal: >
+        Analyze {{ticker}}'s financial health from SEC filings.
+        Extract revenue, margins, debt levels, cash flow, and red flags.
+        Every number must cite the specific filing and date.
+      backstory: >
+        You are a CPA and CFA with 10 years in financial due diligence.
+        You specialize in detecting financial irregularities, aggressive accounting,
+        and hidden liabilities in SEC filings. You never estimate — you extract and cite.
+      maxTurns: 3
+      temperature: 0.1
+      permissionMode: READ_ONLY
+      compaction:
+        enabled: true
+        preserveRecentTurns: 3
+        thresholdTokens: 4000
+      tools:
+        - calculator
+        - sec-filings
+
+    market:
+      role: "Senior Market Intelligence Analyst"
+      goal: >
+        Research recent news, analyst opinions, and market sentiment about {{ticker}}.
+        Identify material events, management changes, lawsuits, and market positioning.
+        Cite the source and date for every claim.
+      backstory: >
+        You are a market intelligence analyst with 8 years covering public companies.
+        You identify material non-public-filing events: management changes, lawsuits,
+        partnerships, product launches. You clearly distinguish facts from speculation.
+      maxTurns: 3
+      temperature: 0.2
+      permissionMode: READ_ONLY
+      compaction:
+        enabled: true
+        preserveRecentTurns: 3
+        thresholdTokens: 4000
+      tools:
+        - web-search
+
+    legal:
+      role: "Senior Legal & Regulatory Analyst"
+      goal: >
+        Assess legal and regulatory risks for {{ticker}}.
+        Review SEC filing disclosures for litigation, regulatory actions,
+        insider transactions, and compliance issues. Cite every finding.
+      backstory: >
+        You are a JD with 8 years in corporate law specializing in securities regulation.
+        You review risk factor disclosures, legal proceeding sections, and insider
+        transaction filings (Form 3, Form 4). You flag material legal risks precisely.
+      maxTurns: 3
+      temperature: 0.1
+      permissionMode: READ_ONLY
+      compaction:
+        enabled: true
+        preserveRecentTurns: 3
+        thresholdTokens: 4000
+      tools:
+        - sec-filings
+        - web-search
+
+  tasks:
+    financial-health:
+      description: |
+        Conduct financial due diligence on {{ticker}} using SEC filings.
+
+        REQUIRED ANALYSIS:
+        1. Revenue & Profitability: Last 2-3 reported periods with YoY trends
+        2. Balance Sheet Health: Total assets, liabilities, debt-to-equity ratio
+        3. Cash Flow: Operating cash flow, free cash flow, burn rate if negative
+        4. Red Flags: Aggressive revenue recognition, related-party transactions,
+           auditor changes, going concern opinions
+        5. Capital Structure: Dilution risk, convertible notes, warrants outstanding
+
+        DATA RULES:
+        - Use ONLY data from SEC filings (use the sec_filings tool)
+        - Cite every number with filing type, date, and accession number
+        - If data is unavailable, write 'DATA NOT AVAILABLE: [item]'
+        - Flag any data quality concerns explicitly
+      expectedOutput: >
+        Financial Due Diligence Report with sections:
+        Revenue & Profitability, Balance Sheet, Cash Flow, Red Flags,
+        Capital Structure, Data Gaps
+      agent: financial
+      outputFormat: MARKDOWN
+
+    news-sentiment:
+      description: |
+        Research recent news and market sentiment about {{ticker}}.
+
+        REQUIRED ANALYSIS:
+        1. Material Events: 5-7 most significant recent events with dates and sources
+        2. Management & Governance: CEO/CFO changes, board actions, insider transactions
+        3. Market Sentiment: Bull vs. bear arguments with supporting evidence
+        4. Competitive Position: How the company is positioned vs. peers
+        5. Upcoming Catalysts: Earnings dates, regulatory decisions, product launches
+
+        DATA RULES:
+        - Use the web_search tool to find recent information
+        - Cite source and date for every claim
+        - If no news is found, state 'NO RECENT NEWS FOUND' explicitly
+        - Distinguish between [CONFIRMED] facts and [SPECULATION]
+      expectedOutput: >
+        News & Sentiment Report with sections:
+        Material Events, Management & Governance, Market Sentiment,
+        Competitive Position, Catalysts
+      agent: market
+      outputFormat: MARKDOWN
+
+    legal-regulatory:
+      description: |
+        Assess legal and regulatory risks for {{ticker}}.
+
+        REQUIRED ANALYSIS:
+        1. Litigation: Active lawsuits, settlements, class actions from SEC filings
+        2. Regulatory Actions: SEC inquiries, FDA actions, EPA violations, etc.
+        3. Insider Transactions: Recent Form 3/4 filings — buying vs. selling patterns
+        4. Risk Factor Changes: New or modified risk factors vs. prior filings
+        5. Compliance: Any disclosure of material weaknesses in internal controls
+
+        DATA RULES:
+        - Use sec_filings and web_search tools for data
+        - Cite the specific filing section (e.g., 'Item 1A - Risk Factors, 20-F 2025-04-29')
+        - If no legal issues found, state 'NO MATERIAL LEGAL ISSUES IDENTIFIED'
+        - Rate overall legal risk as LOW / MEDIUM / HIGH with justification
+      expectedOutput: >
+        Legal & Regulatory Report with sections:
+        Litigation, Regulatory Actions, Insider Transactions,
+        Risk Factor Changes, Compliance, Overall Legal Risk Rating
+      agent: legal
+      outputFormat: MARKDOWN
+
+    synthesis:
+      description: |
+        Synthesize ALL prior due diligence findings into a final investment assessment.
+
+        REQUIRED:
+        1. Executive Summary: 1-paragraph verdict with GO / CAUTION / NO-GO rating
+        2. Financial Assessment: Key findings from the financial analysis (cross-reference)
+        3. Market Assessment: Key findings from news & sentiment (cross-reference)
+        4. Legal Assessment: Key findings from legal analysis (cross-reference)
+        5. Risk Matrix: Top 5 risks ranked by likelihood and impact
+        6. Investment Decision: GO / CAUTION / NO-GO with confidence level (HIGH/MEDIUM/LOW)
+        7. Data Quality Assessment: What data was available vs. what was missing
+
+        RULES:
+        - Reference specific findings from each prior task
+        - Do NOT introduce new information not present in prior task outputs
+        - If prior tasks reported data gaps, factor that into your confidence level
+        - Be direct: state GO, CAUTION, or NO-GO clearly in the first sentence
+      expectedOutput: >
+        Due Diligence Summary with:
+        Executive Summary (GO/CAUTION/NO-GO), Financial/Market/Legal Assessments,
+        Risk Matrix, Investment Decision with confidence, Data Quality Assessment
+      agent: director
+      outputFormat: MARKDOWN
+      outputFile: "output/due_diligence_report.md"
+      dependsOn:
+        - financial-health
+        - news-sentiment
+        - legal-regulatory

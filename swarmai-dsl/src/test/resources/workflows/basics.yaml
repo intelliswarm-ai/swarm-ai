@@ -1,0 +1,26 @@
+##
+# Bare Minimum Example — YAML DSL
+#
+# The absolute simplest SwarmAI workflow: ONE agent, ONE task, SEQUENTIAL process.
+# No tools, no hooks, no special features — just the bare essentials.
+#
+# Equivalent Java class: BareMinimumExample.java
+# Template variables: {{topic}}
+##
+
+swarm:
+  name: "Bare Minimum"
+  process: SEQUENTIAL
+  verbose: true
+
+  agents:
+    summarizer:
+      role: "Summarizer"
+      goal: "Provide a clear, concise summary of the given topic"
+      backstory: "You are an expert at distilling complex topics into easy-to-understand summaries."
+
+  tasks:
+    summarize:
+      description: "Summarize the latest trends in {{topic}}"
+      expectedOutput: "A concise 2-3 paragraph summary of the topic"
+      agent: summarizer

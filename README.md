@@ -5,7 +5,7 @@
 [![Spring Boot 3.4](https://img.shields.io/badge/Spring%20Boot-3.4.4-brightgreen.svg)](https://spring.io/projects/spring-boot)
 [![Spring AI 1.0](https://img.shields.io/badge/Spring%20AI-1.0.4%20GA-brightgreen.svg)](https://spring.io/projects/spring-ai)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-783%20passing-brightgreen.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-925%20passing-brightgreen.svg)](#)
 
 Java multi-agent framework with type-safe state management, self-improving skills, runtime CODE tool generation, and enterprise governance. Built on Spring AI 1.0.4 GA and Spring Boot 3.4.
 
@@ -23,6 +23,13 @@ Java multi-agent framework with type-safe state management, self-improving skill
 <dependency>
     <groupId>ai.intelliswarm</groupId>
     <artifactId>swarmai-tools</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+</dependency>
+
+<!-- Optional: YAML DSL for declarative workflow definitions -->
+<dependency>
+    <groupId>ai.intelliswarm</groupId>
+    <artifactId>swarmai-dsl</artifactId>
     <version>1.0.0-SNAPSHOT</version>
 </dependency>
 ```
@@ -70,6 +77,57 @@ SwarmOutput result = Swarm.builder()
     .kickoff(Map.of("topic", "AI agents"));
 ```
 
+### YAML DSL (Zero-Code Alternative)
+
+The same workflow above can be defined entirely in YAML — no Java required:
+
+```yaml
+# workflows/research.yaml
+swarm:
+  process: SEQUENTIAL
+
+  agents:
+    researcher:
+      role: "Research Analyst"
+      goal: "Find accurate, up-to-date information"
+      backstory: "Experienced researcher who verifies facts from multiple sources."
+      tools: [web-search]
+
+    writer:
+      role: "Content Writer"
+      goal: "Write clear, engaging reports"
+      backstory: "Turns research into well-structured articles."
+
+  tasks:
+    research:
+      description: "Research the topic: {{topic}}"
+      expectedOutput: "Key findings with sources"
+      agent: researcher
+
+    report:
+      description: "Write a report based on the research findings"
+      expectedOutput: "Well-structured report in markdown"
+      agent: writer
+      dependsOn: [research]
+      outputFormat: MARKDOWN
+```
+
+```java
+// Load and run — 2 lines of Java
+Swarm swarm = swarmLoader.load("workflows/research.yaml",
+    Map.of("topic", "AI agents"));
+SwarmOutput result = swarm.kickoff(Map.of());
+```
+
+```xml
+<!-- Add to your pom.xml -->
+<dependency>
+    <groupId>ai.intelliswarm</groupId>
+    <artifactId>swarmai-dsl</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+</dependency>
+```
+
 > **New to SwarmAI?** Read the **[Getting Started Guide](GETTING_STARTED.md)** — a comprehensive tutorial covering agents, tasks, processes, tools, memory, knowledge, budget tracking, governance, and multi-tenancy with full code examples.
 
 ### Run Examples
@@ -86,7 +144,7 @@ mvn compile exec:java -Dexec.mainClass="ai.intelliswarm.swarmai.examples.feature
 ### Build & Test
 
 ```bash
-./mvnw clean test       # 783 tests, all passing
+./mvnw clean test       # 925 tests, all passing
 ./mvnw clean install    # install to local Maven repo
 ```
 
@@ -96,6 +154,7 @@ mvn compile exec:java -Dexec.mainClass="ai.intelliswarm.swarmai.examples.feature
 swarm-ai/                    (parent POM)
 ├── swarmai-core/            Core framework: agents, tasks, processes, state, skills,
 │                            memory, knowledge, budget, governance, observability
+├── swarmai-dsl/             YAML DSL for declarative workflow definitions
 ├── swarmai-tools/           24 built-in tools (web, file, shell, PDF, CSV, etc.)
 ├── swarmai-studio/          Web dashboard for workflow monitoring
 ├── swarmai-bom/             Bill of Materials for version alignment
@@ -591,6 +650,89 @@ The optional `swarmai-studio` module provides a web UI for monitoring workflows 
 </dependency>
 ```
 
+## YAML DSL
+
+Define workflows declaratively in YAML instead of Java builder chains. The `swarmai-dsl` module parses, validates, and compiles YAML into live `Swarm` instances.
+
+### Features Supported
+
+| Feature | YAML Syntax |
+|---|---|
+| Agents | `agents:` with role, goal, backstory, model, maxTurns, temperature, tools, permissionMode, compaction |
+| Tasks | `tasks:` with description, expectedOutput, agent, dependsOn, condition, outputFormat, outputFile |
+| All 7 process types | `process: SEQUENTIAL \| PARALLEL \| HIERARCHICAL \| ITERATIVE \| SELF_IMPROVING \| SWARM \| COMPOSITE` |
+| Budget tracking | `budget:` with maxTokens, maxCostUsd, onExceeded |
+| Governance | `governance:` with approval gates, policies, timeouts |
+| Tool hooks | `toolHooks:` — audit, sanitize, rate-limit, deny, custom |
+| Workflow hooks | `hooks:` — log, checkpoint at BEFORE_WORKFLOW, AFTER_TASK, ON_ERROR, etc. |
+| Task conditions | `condition: "contains('risk')"` — skip tasks based on prior output |
+| Graph workflows | `graph:` with nodes, edges, conditional routing, state channels |
+| Template variables | `{{topic}}` — substituted at load time |
+| Composite stages | `stages:` — chain PARALLEL -> HIERARCHICAL -> ITERATIVE |
+| Knowledge sources | `knowledgeSources:` — inline knowledge base entries |
+| Memory | `memory: true` on agents |
+
+### Graph Workflows (Conditional Routing)
+
+```yaml
+swarm:
+  state:
+    channels:
+      score: { type: lastWriteWins }
+      iteration: { type: counter }
+
+  agents:
+    writer:
+      role: "Writer"
+      goal: "Write articles"
+      backstory: "Skilled writer"
+    evaluator:
+      role: "Evaluator"
+      goal: "Score articles 0-100"
+      backstory: "Strict quality reviewer"
+
+  graph:
+    nodes:
+      write:
+        agent: writer
+        task: "Write an article"
+      evaluate:
+        agent: evaluator
+        task: "Score 0-100"
+    edges:
+      - from: START
+        to: write
+      - from: write
+        to: evaluate
+      - from: evaluate
+        conditional:
+          - when: "score >= 80"
+            to: END
+          - when: "iteration >= 3"
+            to: END
+          - default: write
+```
+
+### Tool Hooks
+
+```yaml
+agents:
+  researcher:
+    toolHooks:
+      - type: audit                    # Log every tool call
+      - type: sanitize                 # Redact PII from output
+        patterns: ["\\b[\\w.+-]+@[\\w-]+\\.[a-z]{2,}\\b"]
+      - type: rate-limit               # Warn on excessive calls
+        maxCalls: 10
+        windowSeconds: 30
+      - type: deny                     # Block dangerous tools
+        tools: [shell-command]
+```
+
+See the **[swarm-ai-examples](https://github.com/intelliswarm-ai/swarm-ai-examples)** repository for 30 YAML workflow definitions covering every feature.
+
+---
+
 ## Tech Stack
 
 | Component | Version |
@@ -601,7 +743,7 @@ The optional `swarmai-studio` module provides a web UI for monitoring workflows 
 | MCP Java SDK | 0.10.0 |
 | Groovy | 4.x (skill sandbox) |
 | Build | Maven (multi-module) |
-| Tests | JUnit 5 + Mockito (783 tests) |
+| Tests | JUnit 5 + Mockito (925 tests) |
 
 ## Documentation
 
@@ -609,6 +751,7 @@ The optional `swarmai-studio` module provides a web UI for monitoring workflows 
 - **[API Keys Setup](docs/API_KEYS_SETUP_GUIDE.md)** — Configure LLM provider API keys
 - **[Docker Guide](docs/DOCKER_EXAMPLE_GUIDE.md)** — Run SwarmAI in Docker
 - **[Self-Improving Workflows](docs/SELF_IMPROVING_WORKFLOWS.md)** — Skill generation deep dive
+- **[YAML DSL Guide](GETTING_STARTED.md#yaml-dsl)** — Define workflows in YAML instead of Java
 
 ## Contributing
 

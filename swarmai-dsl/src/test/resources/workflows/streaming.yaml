@@ -1,0 +1,64 @@
+##
+# Streaming Workflow — YAML DSL
+#
+# A SEQUENTIAL workflow that demonstrates incremental story generation.
+# A single storyteller agent builds a short story across multiple turns,
+# signalling <CONTINUE> after each section and <DONE> when the story is
+# complete.
+#
+# Pipeline (SEQUENTIAL):
+#   1. storyteller — writes a short story in 4 incremental turns:
+#      Turn 1: Set the scene
+#      Turn 2: Introduce characters
+#      Turn 3: Develop the plot
+#      Turn 4: Conclude the story
+#
+# Equivalent Java class: StreamingWorkflow.java
+# Template variables: {{topic}}
+##
+
+swarm:
+  name: "Streaming Story"
+  process: SEQUENTIAL
+  verbose: true
+
+  hooks:
+    - point: AFTER_TASK
+      type: log
+      message: "Story section completed"
+
+  agents:
+    storyteller:
+      role: "Creative Story Writer"
+      goal: >
+        Write a compelling short story by building it incrementally. Each turn
+        should add a distinct section: scene, characters, plot development, and
+        conclusion. Signal <CONTINUE> after each section until the story is
+        complete, then signal <DONE>.
+      backstory: >
+        You are an acclaimed short fiction author known for vivid imagery and
+        emotional depth. You craft stories in stages, carefully layering setting,
+        character, conflict, and resolution.
+      maxTurns: 4
+      temperature: 0.7
+      permissionMode: READ_ONLY
+      compaction:
+        enabled: true
+        preserveRecentTurns: 2
+        thresholdTokens: 3000
+
+  tasks:
+    story:
+      description: |
+        Write a short story about: {{topic}}
+
+        Build the story incrementally:
+        - Turn 1: Set the scene
+        - Turn 2: Introduce characters
+        - Turn 3: Develop the plot
+        - Turn 4: Conclude the story
+
+        Use <CONTINUE> after each section, <DONE> for the final turn.
+      expectedOutput: "A complete short story built incrementally across 4 turns"
+      maxExecutionTime: 120
+      agent: storyteller

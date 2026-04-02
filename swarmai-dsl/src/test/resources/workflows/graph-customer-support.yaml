@@ -1,0 +1,107 @@
+##
+# Customer Support — Graph Workflow Example
+#
+# Demonstrates category-based conditional routing.
+# Classifier categorizes query → routes to the appropriate specialist.
+##
+
+swarm:
+  name: "Customer Support"
+
+  state:
+    channels:
+      query:
+        type: lastWriteWins
+      category:
+        type: lastWriteWins
+      response:
+        type: lastWriteWins
+      escalated:
+        type: lastWriteWins
+
+  agents:
+    classifier:
+      role: "Customer Support Classifier"
+      goal: "Classify the customer query into exactly one category: BILLING, TECHNICAL, ACCOUNT, or GENERAL. Respond with ONLY the category name."
+      backstory: "You are an expert at understanding customer intent and routing queries to the right team."
+      temperature: 0.1
+      permissionMode: READ_ONLY
+
+    billing:
+      role: "Billing Specialist"
+      goal: "Resolve billing and payment related issues with clear, actionable steps"
+      backstory: "You are a billing specialist with deep knowledge of pricing, invoices, and payment processing."
+      temperature: 0.3
+      permissionMode: READ_ONLY
+
+    technical:
+      role: "Technical Support Engineer"
+      goal: "Diagnose and resolve technical issues with step-by-step solutions"
+      backstory: "You are a senior technical support engineer who can troubleshoot complex issues."
+      temperature: 0.3
+      permissionMode: READ_ONLY
+
+    account:
+      role: "Account Manager"
+      goal: "Help customers with account access, settings, and profile management"
+      backstory: "You are an account manager who helps customers manage their accounts efficiently."
+      temperature: 0.3
+      permissionMode: READ_ONLY
+
+    general:
+      role: "General Support Representative"
+      goal: "Handle general inquiries, feature requests, and provide helpful information"
+      backstory: "You are a friendly support representative who handles general customer inquiries."
+      temperature: 0.4
+      permissionMode: READ_ONLY
+
+  graph:
+    nodes:
+      classify:
+        agent: classifier
+        task: "Classify the following customer query into BILLING, TECHNICAL, ACCOUNT, or GENERAL. Respond with ONLY the category name."
+        expectedOutput: "One of: BILLING, TECHNICAL, ACCOUNT, GENERAL"
+      billing:
+        agent: billing
+        task: "Resolve this billing-related query"
+        expectedOutput: "Billing resolution with action steps"
+      technical:
+        agent: technical
+        task: "Resolve this technical issue"
+        expectedOutput: "Technical solution with steps"
+      account:
+        agent: account
+        task: "Help with this account-related request"
+        expectedOutput: "Account assistance response"
+      general:
+        agent: general
+        task: "Respond to this general inquiry"
+        expectedOutput: "Helpful general response"
+
+    edges:
+      - from: START
+        to: classify
+      - from: classify
+        conditional:
+          - when: "category == 'BILLING'"
+            to: billing
+          - when: "category == 'TECHNICAL'"
+            to: technical
+          - when: "category == 'ACCOUNT'"
+            to: account
+          - default: general
+      - from: billing
+        to: END
+      - from: technical
+        to: END
+      - from: account
+        to: END
+      - from: general
+        to: END
+
+  hooks:
+    - point: BEFORE_WORKFLOW
+      type: log
+      message: "Customer support query received"
+    - point: AFTER_TASK
+      type: log

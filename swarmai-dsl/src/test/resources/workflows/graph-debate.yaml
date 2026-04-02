@@ -1,0 +1,92 @@
+##
+# Agent Debate — Graph Workflow Example
+#
+# Demonstrates a multi-round debate with conditional looping.
+# Uses: state channels (counter, stringAppender, lastWriteWins),
+#       conditional edges, workflow hooks
+##
+
+swarm:
+  name: "Agent Debate"
+
+  state:
+    channels:
+      proposition:
+        type: lastWriteWins
+      debate_log:
+        type: stringAppender
+      round:
+        type: counter
+      proponent_arg:
+        type: lastWriteWins
+      opponent_arg:
+        type: lastWriteWins
+      verdict:
+        type: lastWriteWins
+
+  agents:
+    proponent:
+      role: "Debate Proponent"
+      goal: "Argue persuasively FOR the proposition using evidence, logic, and rhetorical skill"
+      backstory: >
+        You are a champion debater who always argues in favor of the given proposition.
+        You build on previous points and directly rebut your opponent's arguments.
+        You use data, examples, and logical reasoning. Keep each argument to 150-250 words.
+      temperature: 0.7
+      permissionMode: READ_ONLY
+
+    opponent:
+      role: "Debate Opponent"
+      goal: "Argue persuasively AGAINST the proposition using evidence, logic, and rhetorical skill"
+      backstory: >
+        You are a champion debater who always argues against the given proposition.
+        You systematically dismantle your opponent's arguments and present counter-evidence.
+        You use data, examples, and logical reasoning. Keep each argument to 150-250 words.
+      temperature: 0.7
+      permissionMode: READ_ONLY
+
+    judge:
+      role: "Debate Judge"
+      goal: "Evaluate debate arguments impartially and declare a winner with clear reasoning"
+      backstory: >
+        You are a distinguished debate judge with decades of experience in competitive debate.
+        You evaluate arguments on the basis of evidence quality, logical coherence,
+        rebuttal effectiveness, and rhetorical persuasion. You are strictly neutral.
+      temperature: 0.3
+      permissionMode: READ_ONLY
+
+  graph:
+    nodes:
+      proponent:
+        agent: proponent
+        task: "Present your argument FOR the proposition. Build on prior debate context if available."
+        expectedOutput: "A persuasive 150-250 word argument"
+      opponent:
+        agent: opponent
+        task: "Present your argument AGAINST the proposition. Rebut the proponent's points."
+        expectedOutput: "A counter-argument with rebuttals"
+      judge:
+        agent: judge
+        task: "Evaluate all arguments from the debate log. Declare a winner with detailed reasoning."
+        expectedOutput: "Final verdict with scoring breakdown"
+
+    edges:
+      - from: START
+        to: proponent
+      - from: proponent
+        to: opponent
+      - from: opponent
+        conditional:
+          - when: "round < 3"
+            to: proponent
+          - default: judge
+      - from: judge
+        to: END
+
+  hooks:
+    - point: BEFORE_WORKFLOW
+      type: log
+      message: "Debate starting"
+    - point: AFTER_TASK
+      type: log
+      message: "Debate round completed"

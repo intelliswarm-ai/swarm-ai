@@ -1,0 +1,111 @@
+##
+# Governed Enterprise Workflow — YAML DSL
+#
+# Showcases SwarmAI's enterprise features:
+#   1. MULTI-TENANCY — Isolated tenant context with resource quotas
+#   2. BUDGET TRACKING — Real-time token and cost tracking with thresholds
+#   3. GOVERNANCE GATES — Human-in-the-loop approval checkpoints
+#
+# Pipeline (SEQUENTIAL):
+#   [Research Analyst] -> APPROVAL GATE -> [Report Writer]
+#
+# NOTE: In production, the governance gate would pause for human review
+# via REST API or Studio UI. Here it auto-approves on timeout for demo purposes.
+#
+# Equivalent Java class: GovernedEnterpriseWorkflow.java
+# Template variables: {{topic}}
+##
+
+swarm:
+  name: "Governed Enterprise Workflow"
+  process: SEQUENTIAL
+  verbose: true
+  tenantId: "acme-research"
+
+  budget:
+    maxTokens: 500000
+    maxCostUsd: 5.0
+    onExceeded: WARN
+    warningThresholdPercent: 80.0
+
+  agents:
+    researcher:
+      role: "Senior Research Analyst"
+      goal: >
+        Produce a data-driven research brief on: {{topic}}.
+        Focus on market size, key players, adoption trends, and risks.
+        Every claim must be grounded — if data is unavailable, state so explicitly.
+      backstory: >
+        You are a research analyst at a top management consulting firm.
+        Your briefs are used by partners to advise Fortune 500 clients.
+        You never fabricate data — your reputation depends on accuracy.
+      temperature: 0.2
+      memory: true
+
+    writer:
+      role: "Executive Report Writer"
+      goal: >
+        Transform the research brief into a polished executive report on: {{topic}}.
+        Structure it for C-suite readers: lead with the conclusion,
+        support with data, close with actionable recommendations.
+      backstory: >
+        You write executive reports for a Big 4 consulting firm.
+        Your reports are known for being concise yet comprehensive.
+        Partners trust you to make complex topics accessible to executives.
+      temperature: 0.3
+      memory: true
+
+  tasks:
+    research:
+      description: |
+        Research '{{topic}}' and produce a structured brief.
+
+        REQUIRED SECTIONS:
+        1. MARKET OVERVIEW — Size, growth rate, key segments
+        2. KEY PLAYERS — Top 5 companies with market positioning
+        3. ADOPTION TRENDS — Enterprise adoption drivers and barriers
+        4. RISK FACTORS — Top 5 risks for enterprises adopting this
+        5. DATA GAPS — What you couldn't find and why it matters
+
+        Mark all data as [CONFIRMED] or [ESTIMATE].
+      expectedOutput: "A 3-5 paragraph research brief with all 5 sections"
+      agent: researcher
+      outputFormat: MARKDOWN
+
+    report:
+      description: |
+        Write an executive report on '{{topic}}' using the research brief.
+
+        STRUCTURE:
+        1. EXECUTIVE SUMMARY (100 words max) — Key finding + recommendation
+        2. MARKET LANDSCAPE — Data from the brief, formatted for executives
+        3. STRATEGIC IMPLICATIONS — What this means for our organization
+        4. RECOMMENDATIONS — 3 concrete, prioritized next steps
+        5. APPENDIX — Data sources and confidence levels
+      expectedOutput: "A polished executive report with clear recommendations"
+      agent: writer
+      outputFormat: MARKDOWN
+      outputFile: "output/enterprise_report.md"
+      dependsOn:
+        - research
+
+  governance:
+    approvalGates:
+      - name: "Research Review Gate"
+        description: "Requires human review of research findings before report writing begins"
+        trigger: AFTER_TASK
+        timeoutMinutes: 1
+        policy:
+          requiredApprovals: 1
+          autoApproveOnTimeout: true
+
+  hooks:
+    - point: BEFORE_WORKFLOW
+      type: log
+      message: "Enterprise workflow started"
+    - point: AFTER_WORKFLOW
+      type: log
+      message: "Enterprise workflow completed"
+    - point: ON_ERROR
+      type: log
+      message: "Enterprise workflow error"

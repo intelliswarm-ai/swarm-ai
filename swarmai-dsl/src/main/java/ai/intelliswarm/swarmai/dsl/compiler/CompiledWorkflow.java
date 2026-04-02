@@ -9,8 +9,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * A compiled workflow that can be executed. Wraps either a standard {@link Swarm}
- * or a {@link CompositeProcess} pipeline for COMPOSITE workflows.
+ * A compiled workflow that can be executed. Wraps either a standard {@link Swarm},
+ * a {@link CompositeProcess} pipeline, or a {@link GraphExecutor} for graph-based workflows.
  *
  * <pre>{@code
  * CompiledWorkflow workflow = compiler.compileWorkflow(definition);
@@ -21,12 +21,14 @@ public class CompiledWorkflow {
 
     private final Swarm swarm;
     private final CompositeProcess compositeProcess;
+    private final GraphExecutor graphExecutor;
     private final List<Task> tasks;
     private final String swarmId;
 
     private CompiledWorkflow(Swarm swarm) {
         this.swarm = swarm;
         this.compositeProcess = null;
+        this.graphExecutor = null;
         this.tasks = null;
         this.swarmId = null;
     }
@@ -34,8 +36,17 @@ public class CompiledWorkflow {
     private CompiledWorkflow(CompositeProcess compositeProcess, List<Task> tasks, String swarmId) {
         this.swarm = null;
         this.compositeProcess = compositeProcess;
+        this.graphExecutor = null;
         this.tasks = tasks;
         this.swarmId = swarmId;
+    }
+
+    private CompiledWorkflow(GraphExecutor graphExecutor) {
+        this.swarm = null;
+        this.compositeProcess = null;
+        this.graphExecutor = graphExecutor;
+        this.tasks = null;
+        this.swarmId = null;
     }
 
     static CompiledWorkflow fromSwarm(Swarm swarm) {
@@ -46,12 +57,19 @@ public class CompiledWorkflow {
         return new CompiledWorkflow(process, tasks, swarmId);
     }
 
+    static CompiledWorkflow fromGraph(GraphExecutor executor) {
+        return new CompiledWorkflow(executor);
+    }
+
     /**
      * Executes the compiled workflow.
      */
     public SwarmOutput kickoff(Map<String, Object> inputs) {
         if (swarm != null) {
             return swarm.kickoff(inputs);
+        }
+        if (graphExecutor != null) {
+            return graphExecutor.execute(inputs);
         }
         tasks.forEach(Task::reset);
         return compositeProcess.execute(tasks, inputs, swarmId);
@@ -65,7 +83,14 @@ public class CompiledWorkflow {
     }
 
     /**
-     * Returns the underlying Swarm, or null if this is a COMPOSITE workflow.
+     * Returns true if this is a graph-based workflow.
+     */
+    public boolean isGraph() {
+        return graphExecutor != null;
+    }
+
+    /**
+     * Returns the underlying Swarm, or null if this is a COMPOSITE or GRAPH workflow.
      */
     public Swarm getSwarm() { return swarm; }
 

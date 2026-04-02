@@ -1,0 +1,44 @@
+##
+# Metrics Workflow — YAML DSL
+#
+# A budget-constrained research workflow that demonstrates token and cost
+# tracking. A single research worker operates within defined budget limits,
+# with warnings triggered at a configurable threshold.
+#
+# Pipeline (SEQUENTIAL):
+#   1. Research Worker — researches the topic within budget constraints
+#
+# Features demonstrated:
+#   - Budget tracking with maxTokens and maxCostUsd limits
+#   - Warning threshold at 75% of budget
+#   - WARN policy on budget exceeded (continues but logs warnings)
+#
+# Equivalent Java class: MetricsWorkflow.java
+# Template variables: {{topic}}
+##
+
+swarm:
+  name: "MetricsWorkflow"
+  process: SEQUENTIAL
+
+  budget:
+    maxTokens: 100000
+    maxCostUsd: 2.0
+    onExceeded: WARN
+    warningThresholdPercent: 75.0
+
+  agents:
+    worker:
+      role: "Research Worker"
+      goal: "Research {{topic}} efficiently within budget constraints"
+      backstory: >
+        You are an efficient researcher who produces quality output while
+        respecting resource constraints.
+      temperature: 0.3
+
+  tasks:
+    research:
+      description: "Research {{topic}} and produce a concise summary. Be efficient with token usage."
+      expectedOutput: "Concise research summary"
+      agent: worker
+      outputFormat: MARKDOWN

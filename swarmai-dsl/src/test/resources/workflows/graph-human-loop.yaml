@@ -1,0 +1,88 @@
+##
+# Human-in-the-Loop — Graph Workflow Example
+#
+# Demonstrates a quality-gated feedback loop:
+# Draft → Review → (score >= 70 → publish | score < 70 → revise → draft)
+# Max 2 revisions before forced approval.
+##
+
+swarm:
+  name: "Human in the Loop"
+
+  state:
+    channels:
+      draft:
+        type: lastWriteWins
+      feedback:
+        type: stringAppender
+      quality_score:
+        type: lastWriteWins
+      approved:
+        type: lastWriteWins
+      iteration:
+        type: counter
+
+  agents:
+    writer:
+      role: "Content Writer"
+      goal: "Write a well-structured article on the given topic. If revision feedback is provided, address every point."
+      backstory: "You are a skilled content writer who takes editorial feedback seriously and improves with each revision."
+      temperature: 0.7
+      permissionMode: READ_ONLY
+
+    reviewer:
+      role: "Quality Reviewer"
+      goal: "Score the article 0-100 on quality, accuracy, and completeness. Provide specific feedback for improvement."
+      backstory: "You are a senior editorial reviewer who scores content objectively. You provide constructive, actionable feedback."
+      temperature: 0.2
+      permissionMode: READ_ONLY
+
+    publisher:
+      role: "Content Publisher"
+      goal: "Format the approved article for publication with proper headers and structure"
+      backstory: "You are a content publisher who polishes approved articles for final publication."
+      temperature: 0.1
+      permissionMode: WORKSPACE_WRITE
+
+  graph:
+    nodes:
+      draft:
+        agent: writer
+        task: "Write an article on the given topic. Address any prior feedback if available."
+        expectedOutput: "A well-structured article"
+      review:
+        agent: reviewer
+        task: "Review the article and score it 0-100. Provide specific improvement suggestions."
+        expectedOutput: "Quality score and feedback"
+      publish:
+        agent: publisher
+        task: "Format the approved article for publication"
+        expectedOutput: "Publication-ready article"
+
+    edges:
+      - from: START
+        to: draft
+      - from: draft
+        to: review
+      - from: review
+        conditional:
+          - when: "quality_score >= 70"
+            to: publish
+          - when: "iteration >= 2"
+            to: publish
+          - default: draft
+      - from: publish
+        to: END
+
+  hooks:
+    - point: BEFORE_WORKFLOW
+      type: log
+      message: "Content pipeline started"
+    - point: AFTER_TASK
+      type: log
+      message: "Pipeline step completed"
+    - point: AFTER_TASK
+      type: checkpoint
+
+  checkpoint:
+    enabled: true

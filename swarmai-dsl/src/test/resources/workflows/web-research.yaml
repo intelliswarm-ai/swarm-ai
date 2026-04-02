@@ -1,0 +1,202 @@
+##
+# Web Research Workflow — YAML DSL
+#
+# A HIERARCHICAL workflow coordinated by a research director that performs
+# comprehensive web research with fact-checking. A researcher gathers data
+# from the web, an analyst extracts insights, a fact-checker verifies claims,
+# and a writer produces the final executive report.
+#
+# Pipeline (HIERARCHICAL, managerAgent: director):
+#   1. researcher  — gathers raw data via web scraping, HTTP, and search
+#   2. analyst     — analyzes and structures findings (depends on research)
+#   3. factchecker — verifies claims independently (depends on research)
+#   4. writer      — synthesizes verified analysis into final report
+#                    (depends on analysis + factcheck)
+#
+# Equivalent Java class: WebResearchWorkflow.java
+# Template variables: {{topic}}, {{depth}}
+##
+
+swarm:
+  name: "Web Research"
+  process: HIERARCHICAL
+  managerAgent: director
+  verbose: true
+
+  agents:
+    director:
+      role: "Senior Research Program Director"
+      goal: >
+        Coordinate the web research workflow to produce a comprehensive, accurate,
+        and well-verified report on the given topic. Delegate research tasks to
+        specialists, ensure fact-checking is thorough, and maintain quality standards
+        throughout the pipeline.
+      backstory: >
+        You are a senior research program director who has coordinated cross-functional
+        research teams at leading think tanks and consulting firms. You excel at
+        breaking complex research questions into manageable sub-tasks, assigning them
+        to the right specialists, and synthesizing diverse inputs into coherent
+        deliverables. You insist on independent verification of all key claims before
+        any report is finalized.
+      temperature: 0.2
+      permissionMode: READ_ONLY
+
+    researcher:
+      role: "Senior Web Research Specialist"
+      goal: >
+        Conduct thorough web research on the assigned topic. Use multiple search
+        strategies, scrape relevant pages, and compile raw findings with full source
+        URLs. Prioritize primary sources, official publications, and reputable outlets.
+        Capture direct quotes and data points that can be independently verified.
+      backstory: >
+        You are a senior web research specialist with expertise in open-source
+        intelligence (OSINT) and investigative research. You know how to navigate
+        paywalls, find cached content, and cross-reference multiple sources. You
+        document every source URL meticulously because you know downstream fact-checkers
+        will need to verify your findings.
+      maxTurns: 3
+      temperature: 0.2
+      permissionMode: READ_ONLY
+      compaction:
+        enabled: true
+        preserveRecentTurns: 3
+        thresholdTokens: 4000
+      tools:
+        - web-scrape
+        - http-request
+        - web-search
+
+    analyst:
+      role: "Senior Data Analyst"
+      goal: >
+        Analyze the raw research findings and extract structured insights. Identify
+        patterns, trends, contradictions, and gaps in the data. Produce a ranked list
+        of key findings with confidence levels and supporting evidence.
+      backstory: >
+        You are a senior data analyst with a background in quantitative research and
+        competitive intelligence. You are skilled at turning unstructured web data
+        into actionable insights. You assign confidence levels to every finding based
+        on the quality and consistency of the underlying sources.
+      temperature: 0.1
+      permissionMode: READ_ONLY
+
+    factchecker:
+      role: "Senior Fact Checker & Verification Specialist"
+      goal: >
+        Independently verify the key claims and data points from the research findings.
+        For each claim, attempt to find a corroborating source. Flag any claims that
+        cannot be verified, are contradicted by other sources, or appear to be outdated.
+        Produce a verification report with a status for each claim: VERIFIED,
+        UNVERIFIED, CONTRADICTED, or OUTDATED.
+      backstory: >
+        You are a senior fact-checker who previously worked at a major news organization.
+        You have a systematic approach to verification: you never accept a single source
+        as sufficient, you check publication dates, you trace claims back to their
+        original source, and you flag statistical claims that seem implausible. Your
+        verification reports are trusted by editors and executives alike.
+      maxTurns: 2
+      temperature: 0.1
+      permissionMode: READ_ONLY
+      tools:
+        - web-search
+        - http-request
+
+    writer:
+      role: "Senior Executive Report Writer"
+      goal: >
+        Produce a polished, executive-quality report that synthesizes the verified
+        analysis into a clear narrative. Incorporate fact-check results by noting
+        confidence levels. Structure the report for a senior leadership audience
+        with an executive summary, detailed findings, and actionable recommendations.
+      backstory: >
+        You are a senior executive report writer who has produced research deliverables
+        for C-suite audiences at Fortune 500 companies. You excel at distilling complex
+        research into clear, concise prose. You always distinguish between verified
+        facts and analyst interpretation. Your reports are known for their logical
+        structure, visual clarity, and actionable recommendations.
+      temperature: 0.3
+      permissionMode: WORKSPACE_WRITE
+
+  tasks:
+    research:
+      description: |
+        Conduct comprehensive web research on: {{topic}}
+
+        Research strategy:
+        1. Perform broad web searches to identify key sources and recent developments
+        2. Scrape the most relevant pages for detailed data extraction
+        3. Compile findings into a structured research dossier
+
+        For each finding, record:
+        - The data point or claim
+        - The source URL
+        - The publication date (if available)
+        - A direct quote or data excerpt
+
+        Aim for breadth first, then depth on the most important sub-topics.
+      expectedOutput: "A comprehensive research dossier with sourced findings, URLs, and direct quotes"
+      outputFormat: MARKDOWN
+      maxExecutionTime: 180
+      agent: researcher
+
+    analysis:
+      description: |
+        Analyze the research findings and produce a structured analysis:
+
+        1. **Key Findings** — Top 10 findings ranked by significance, each with:
+           - Finding summary
+           - Confidence level (HIGH / MEDIUM / LOW)
+           - Supporting evidence references
+        2. **Trend Analysis** — Emerging patterns and their implications
+        3. **Contradictions** — Any conflicting data points and possible explanations
+        4. **Data Gaps** — Areas where research was insufficient
+        5. **Preliminary Insights** — Initial conclusions with caveats
+      expectedOutput: "A structured analysis with ranked findings, trend analysis, and identified gaps"
+      outputFormat: MARKDOWN
+      agent: analyst
+      dependsOn:
+        - research
+
+    factcheck:
+      description: |
+        Verify the key claims from the research findings:
+
+        For each major claim or data point:
+        1. Attempt to find an independent corroborating source
+        2. Check the publication date — flag anything older than 12 months
+        3. Verify statistical claims against official data sources where possible
+        4. Check for retractions, corrections, or updates
+
+        Produce a verification table with columns:
+        | Claim | Status | Corroborating Source | Notes |
+
+        Status values: VERIFIED, UNVERIFIED, CONTRADICTED, OUTDATED
+      expectedOutput: "A fact-check verification report with status for each major claim"
+      outputFormat: MARKDOWN
+      agent: factchecker
+      dependsOn:
+        - research
+
+    report:
+      description: |
+        Write a comprehensive executive report on: {{topic}}
+
+        Synthesize the analysis and fact-check results into a polished report:
+
+        1. **Executive Summary** — 3-5 sentence overview of key findings
+        2. **Methodology** — Brief description of research and verification approach
+        3. **Key Findings** — Detailed findings with confidence levels from fact-checking
+        4. **Analysis & Implications** — What the findings mean, trends, and outlook
+        5. **Risks & Uncertainties** — Unverified claims, data gaps, contradictions
+        6. **Recommendations** — Actionable next steps based on verified findings
+        7. **Sources** — Bibliography of all sources used
+
+        Mark each finding with its verification status (VERIFIED / UNVERIFIED / etc.)
+        from the fact-check report.
+      expectedOutput: "A polished executive report with verified findings, analysis, and recommendations"
+      outputFile: "output/web_research_report.md"
+      outputFormat: MARKDOWN
+      agent: writer
+      dependsOn:
+        - analysis
+        - factcheck

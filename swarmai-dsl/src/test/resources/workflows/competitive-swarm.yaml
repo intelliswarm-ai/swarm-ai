@@ -1,0 +1,136 @@
+##
+# Competitive Research Swarm — YAML DSL
+#
+# A SWARM workflow that dynamically discovers competitors and spawns parallel
+# analysis tasks. A reviewer/manager identifies competitors (prefixed with
+# "COMPETITOR:"), an analyst agent is cloned per competitor for deep research,
+# and a synthesizer produces the final competitive landscape report.
+#
+# Pipeline (SWARM, managerAgent: reviewer):
+#   1. discover    — reviewer identifies competitors as COMPETITOR:<name>
+#   2. (dynamic)   — analyst clones run in parallel per discovered competitor
+#   3. synthesize  — synthesizer merges all analyses into a landscape report
+#
+# Config: maxIterations 5, maxParallelAgents 5, targetPrefix "COMPETITOR:"
+#
+# Equivalent Java class: CompetitiveResearchSwarm.java
+# Template variables: {{company}}, {{industry}}
+##
+
+swarm:
+  name: "Competitive Research Swarm"
+  process: SWARM
+  managerAgent: reviewer
+  verbose: true
+
+  config:
+    maxIterations: 5
+    maxParallelAgents: 5
+    targetPrefix: "COMPETITOR:"
+    qualityCriteria: |
+      1. Each company has real financial data (revenue, market cap) with sources cited
+      2. Product comparison includes specific features and pricing tiers
+      3. SWOT analysis is company-specific, not generic
+      4. Recommendations are actionable and backed by the analysis
+      5. All data from API calls, not LLM knowledge
+
+  agents:
+    analyst:
+      role: "Senior Market Research Analyst"
+      goal: >
+        Conduct deep competitive analysis on the assigned company. Gather real
+        financial data (revenue, market cap, growth rate), product details
+        (features, pricing tiers), and strategic positioning. Produce a structured
+        company profile with SWOT analysis. Every data point must come from tool
+        calls — never rely on training data for financial figures.
+      backstory: >
+        You are a senior market research analyst at a leading strategy consulting
+        firm. You specialize in competitive intelligence and have produced hundreds
+        of company profiles used by Fortune 500 clients for strategic planning.
+        You insist on primary data sources and never include a number without
+        verifying it through an API call or official filing.
+      maxTurns: 3
+      temperature: 0.2
+      permissionMode: READ_ONLY
+      compaction:
+        enabled: true
+        preserveRecentTurns: 3
+        thresholdTokens: 4000
+      tools:
+        - http-request
+        - calculator
+        - file-write
+        - file-read
+
+    synthesizer:
+      role: "Chief Strategy Officer"
+      goal: >
+        Write a comprehensive competitive landscape report combining analyses of
+        ALL companies. Create comparison matrices, identify market dynamics, and
+        provide strategic recommendations. The report should be actionable for
+        executive decision-making.
+      backstory: >
+        You are a Chief Strategy Officer with 20 years of experience in competitive
+        strategy. You have advised boards of directors at publicly traded companies
+        on market positioning, M&A targets, and competitive threats. You excel at
+        synthesizing diverse company profiles into a unified strategic narrative
+        with clear, data-backed recommendations.
+      temperature: 0.3
+      permissionMode: WORKSPACE_WRITE
+
+    reviewer:
+      role: "Research Quality Director"
+      goal: >
+        Ensure all competitive analyses meet quality standards. Verify that data
+        is sourced from tool calls rather than LLM knowledge, that SWOT analyses
+        are company-specific, and that the final report provides actionable
+        insights. Identify competitors to analyze and coordinate the research
+        workflow.
+      backstory: >
+        You are a Research Quality Director who has built and led competitive
+        intelligence teams at top-tier consulting firms. You know the difference
+        between rigorous, data-backed analysis and superficial summaries. You
+        reject work that relies on generic statements or unsourced figures.
+      temperature: 0.1
+      permissionMode: READ_ONLY
+
+  tasks:
+    discover:
+      description: |
+        Identify the main competitors of {{company}} in the {{industry}} industry.
+
+        For each competitor found, output a line in the following format:
+          COMPETITOR: <company name>
+
+        Guidelines:
+        - Include 3-7 direct competitors based on market overlap
+        - Prioritize companies that compete in the same market segments
+        - Include both established players and notable emerging challengers
+        - Briefly justify why each company is a relevant competitor (one sentence)
+      expectedOutput: "A list of competitors, each prefixed with COMPETITOR:, with brief justification"
+      agent: reviewer
+
+    synthesize:
+      description: |
+        Write a comprehensive competitive landscape report combining analyses of
+        ALL companies researched in the previous step.
+
+        Report structure:
+        1. **Executive Summary** — Market overview and key competitive dynamics
+        2. **Company Profiles** — Summary of each competitor's position
+        3. **Comparison Matrix** — Table comparing revenue, market cap, key products,
+           pricing, and growth rates across all competitors
+        4. **Feature Comparison** — Product/service feature matrix
+        5. **SWOT Summary** — Consolidated SWOT highlights across competitors
+        6. **Market Dynamics** — Trends, threats, and opportunities in {{industry}}
+        7. **Strategic Recommendations** — Actionable recommendations for {{company}}
+           based on competitive positioning
+        8. **Data Sources** — List of all sources and API endpoints used
+
+        Every data point must be traced to a source.
+      expectedOutput: "A comprehensive competitive landscape report with comparison matrices and strategic recommendations"
+      agent: synthesizer
+      dependsOn:
+        - discover
+      outputFile: "output/competitive_analysis.md"
+      outputFormat: MARKDOWN

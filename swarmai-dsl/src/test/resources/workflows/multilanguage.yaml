@@ -1,0 +1,54 @@
+##
+# Multilanguage Workflow — YAML DSL
+#
+# Produces analysis and reports in a user-specified language. A multilingual
+# analyst performs the analysis, and a multilingual writer produces a polished
+# report — both in the requested language.
+#
+# Pipeline (SEQUENTIAL):
+#   1. Multilingual Analyst       — analyzes the topic in the target language
+#   2. Multilingual Report Writer — writes a final report in the target language
+#
+# Features demonstrated:
+#   - Workflow-level language parameter for multilingual output
+#   - Template variable {{language}} for dynamic language selection
+#
+# Equivalent Java class: MultilanguageWorkflow.java
+# Template variables: {{topic}}, {{language}}
+##
+
+swarm:
+  name: "MultilanguageWorkflow"
+  process: SEQUENTIAL
+  language: "{{language}}"
+
+  agents:
+    analyst:
+      role: "Multilingual Analyst"
+      goal: "Analyze {{topic}} and produce findings in {{language}}"
+      backstory: >
+        You are a multilingual analyst fluent in multiple languages. You produce
+        analysis in the requested language while maintaining analytical rigor.
+      temperature: 0.3
+
+    writer:
+      role: "Multilingual Report Writer"
+      goal: "Write a comprehensive report in {{language}} based on the analysis findings"
+      backstory: >
+        You are a multilingual writer who produces polished reports in any
+        requested language.
+      temperature: 0.4
+
+  tasks:
+    analyze:
+      description: "Analyze {{topic}} in {{language}}"
+      expectedOutput: "Detailed analysis in {{language}}"
+      agent: analyst
+
+    report:
+      description: "Write a final report in {{language}} based on the analysis"
+      agent: writer
+      dependsOn:
+        - analyze
+      outputFile: "output/multilanguage_report.md"
+      outputFormat: MARKDOWN

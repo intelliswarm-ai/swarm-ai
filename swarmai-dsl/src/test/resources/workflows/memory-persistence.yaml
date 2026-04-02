@@ -1,0 +1,54 @@
+##
+# Memory Persistence Workflow — YAML DSL
+#
+# Demonstrates cross-session memory persistence. A research analyst stores
+# key findings in memory, and a knowledge synthesizer retrieves stored
+# memories to produce a comprehensive summary.
+#
+# Pipeline (SEQUENTIAL):
+#   1. Research Analyst    — researches the topic and stores findings in memory
+#   2. Knowledge Synthesizer — retrieves stored memories and synthesizes a summary
+#
+# Features demonstrated:
+#   - Agent-level memory enabled for cross-session recall
+#   - Sequential handoff from researcher to synthesizer
+#
+# Equivalent Java class: MemoryPersistenceWorkflow.java
+# Template variables: {{topic}}
+##
+
+swarm:
+  name: "MemoryPersistenceWorkflow"
+  process: SEQUENTIAL
+
+  agents:
+    researcher:
+      role: "Research Analyst"
+      goal: "Research {{topic}} and store key findings in memory for future reference"
+      backstory: >
+        You are a research analyst who methodically stores important findings
+        for cross-session recall.
+      temperature: 0.3
+      memory: true
+
+    synthesizer:
+      role: "Knowledge Synthesizer"
+      goal: "Retrieve stored memories and synthesize them into a comprehensive summary"
+      backstory: >
+        You synthesize stored knowledge into actionable summaries, drawing
+        connections between findings.
+      temperature: 0.3
+      memory: true
+
+  tasks:
+    research:
+      description: "Research {{topic}} thoroughly and note key findings"
+      agent: researcher
+
+    synthesize:
+      description: "Synthesize all research findings into a comprehensive summary"
+      agent: synthesizer
+      dependsOn:
+        - research
+      outputFile: "output/memory_persistence_report.md"
+      outputFormat: MARKDOWN

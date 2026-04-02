@@ -1,0 +1,159 @@
+##
+# Iterative Investment Memo Workflow — YAML DSL
+#
+# An ITERATIVE workflow that produces an institutional-quality investment memo.
+# A researcher gathers data, a writer drafts the memo, and a managing-director
+# reviewer iterates on quality until all criteria are met (up to 3 iterations).
+#
+# Pipeline (ITERATIVE, managerAgent: reviewer, maxIterations: 3):
+#   1. researcher — produces a comprehensive, data-grounded research brief
+#   2. writer     — drafts a structured investment memo with BUY/HOLD/SELL thesis
+#   3. reviewer   — reviews against institutional-quality rubric, requests revisions
+#
+# Equivalent Java class: IterativeInvestmentMemoWorkflow.java
+# Template variables: {{ticker}}
+##
+
+swarm:
+  name: "Iterative Investment Memo"
+  process: ITERATIVE
+  managerAgent: reviewer
+  verbose: true
+
+  config:
+    maxIterations: 3
+    qualityCriteria: |
+      1. THESIS CLARITY — Clear BUY/HOLD/SELL thesis
+      2. DATA GROUNDING — Every claim backed by data
+      3. PEER COMPARISON — Competitive positioning
+      4. RISK ANALYSIS — Risk identification and mitigation
+      5. CATALYST IDENTIFICATION — Near-term catalysts
+      6. CROSS-REFERENCING — Data consistency
+      7. COMPLETENESS — All required sections present
+
+  agents:
+    researcher:
+      role: "Senior Equity Research Analyst"
+      goal: >
+        Produce a comprehensive, data-grounded research brief on {{ticker}}.
+        Extract every available financial metric, news event, and filing insight
+        from the provided tool evidence. Organize findings into a structured brief
+        that a memo writer can directly reference. When data is unavailable, state
+        'DATA NOT AVAILABLE' rather than estimating.
+      backstory: >
+        You are a research analyst with 10 years at a top-tier investment bank.
+        You are meticulous about data extraction: every number has a source citation,
+        every claim is marked [CONFIRMED] or [ESTIMATE]. You produce research briefs
+        that portfolio managers trust because they never contain fabricated data.
+        You organize findings for maximum usability by downstream analysts.
+      maxTurns: 3
+      temperature: 0.1
+      maxRpm: 12
+      permissionMode: READ_ONLY
+      compaction:
+        enabled: true
+        preserveRecentTurns: 3
+        thresholdTokens: 4000
+      tools:
+        - calculator
+        - web-search
+        - sec-filings
+
+    writer:
+      role: "Senior Investment Analyst & Memo Author"
+      goal: >
+        Write an institutional-quality investment memo on {{ticker}} that would pass
+        review at a top-tier investment bank. Synthesize all research findings into a
+        structured, data-backed memo with a clear BUY/HOLD/SELL thesis. When receiving
+        reviewer feedback, address EVERY point raised — do not skip any. Each revision
+        should show measurable improvement over the previous draft.
+      backstory: >
+        You are a VP-level investment analyst who writes memos for the investment
+        committee at a $50B AUM fund. Your memos have a reputation for rigorous
+        analysis and clear writing. You take editorial feedback seriously: when the MD
+        sends a memo back, you address every single point and produce a substantially
+        better draft. You never repeat the same mistake across revisions. You cite
+        specific data from the research brief for every quantitative claim.
+      maxTurns: 2
+      temperature: 0.3
+      maxRpm: 10
+      permissionMode: WORKSPACE_WRITE
+      compaction:
+        enabled: true
+        preserveRecentTurns: 3
+        thresholdTokens: 4000
+      tools:
+        - calculator
+
+    reviewer:
+      role: "Managing Director — Investment Committee Chair"
+      goal: >
+        Review investment memos against institutional-quality standards. Provide
+        specific, actionable feedback that enables the analyst to improve. Only
+        approve memos that meet ALL quality criteria. You are protecting the fund's
+        reputation — every approved memo must be defensible to LPs and regulators.
+      backstory: >
+        You are the MD chairing the investment committee at a top-5 hedge fund.
+        You have rejected more memos than you have approved. Your standards are
+        legendary: every claim needs a source, every number needs a calculation,
+        every risk needs a mitigation plan. But your feedback is always constructive —
+        you tell analysts exactly what to fix, not just that something is wrong.
+        You grade on a rubric and only approve when all criteria score 4+ out of 5.
+      temperature: 0.2
+      permissionMode: READ_ONLY
+
+  tasks:
+    research:
+      description: |
+        Produce a comprehensive research brief on {{ticker}} covering:
+
+        ## Financial Overview
+        - Latest reported revenue, EPS, EBITDA, and margins
+        - Year-over-year and quarter-over-quarter growth rates
+        - Balance sheet highlights (cash, debt, equity)
+
+        ## Valuation Metrics
+        - P/E, EV/EBITDA, P/S, PEG ratio
+        - Comparison to sector median
+
+        ## Recent Developments
+        - Last 3 earnings call key takeaways
+        - Recent SEC filings (10-K, 10-Q, 8-K highlights)
+        - Material news events in the past 90 days
+
+        ## Competitive Landscape
+        - Top 3-5 direct competitors
+        - Relative market position and share
+
+        ## Risks and Catalysts
+        - Key risk factors from filings
+        - Upcoming catalysts (earnings dates, product launches, regulatory events)
+
+        Mark every data point as [CONFIRMED] (from tool evidence) or
+        [DATA NOT AVAILABLE]. Do NOT estimate or fabricate numbers.
+      expectedOutput: "A structured, sourced research brief with all available financial data on {{ticker}}"
+      outputFormat: MARKDOWN
+      maxExecutionTime: 180
+      agent: researcher
+
+    memo:
+      description: |
+        Write an institutional-quality investment memo on {{ticker}} with these sections:
+
+        1. **Executive Summary** — Ticker, sector, market cap, and one-line thesis
+        2. **Investment Thesis** — Clear BUY / HOLD / SELL recommendation with 3 supporting arguments
+        3. **Financial Analysis** — Key metrics, trends, and peer comparison table
+        4. **Valuation Assessment** — Current valuation vs. intrinsic value estimate, methodology used
+        5. **Risk Factors & Mitigants** — Top 5 risks, each with a specific mitigation strategy
+        6. **Catalysts & Timeline** — Near-term (0-6 months) and medium-term (6-18 months) catalysts
+        7. **Conclusion & Price Target** — Reiterate thesis, provide price target range with bull/base/bear scenarios
+
+        Every quantitative claim must cite data from the research brief.
+        Use markdown tables where appropriate.
+      expectedOutput: "A complete investment memo with all 7 sections, data citations, and a clear recommendation"
+      outputFile: "output/investment_memo.md"
+      outputFormat: MARKDOWN
+      maxExecutionTime: 240
+      agent: writer
+      dependsOn:
+        - research
