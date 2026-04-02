@@ -1,0 +1,69 @@
+swarm:
+  name: "Enterprise Pipeline"
+  process: HIERARCHICAL
+  verbose: true
+  language: en
+  maxRpm: 30
+  tenantId: "tenant-acme"
+  managerAgent: manager
+
+  budget:
+    maxTokens: 200000
+    maxCostUsd: 10.0
+    onExceeded: HARD_STOP
+    warningThresholdPercent: 75.0
+
+  agents:
+    manager:
+      role: "Project Manager"
+      goal: "Coordinate the research team and ensure quality"
+      backstory: "Experienced project manager with expertise in research coordination"
+      maxTurns: 5
+      temperature: 0.3
+
+    researcher:
+      role: "Senior Researcher"
+      goal: "Gather comprehensive data"
+      backstory: "Expert researcher with 20 years of experience"
+      maxTurns: 3
+      tools:
+        - web-search
+
+    analyst:
+      role: "Data Analyst"
+      goal: "Analyze data and extract insights"
+      backstory: "Skilled data analyst with statistical expertise"
+      permissionMode: READ_ONLY
+
+  tasks:
+    gather:
+      description: "Gather data on the research topic"
+      expectedOutput: "Raw data collection"
+      agent: researcher
+
+    analyze:
+      description: "Analyze the gathered data"
+      expectedOutput: "Statistical analysis and insights"
+      agent: analyst
+      dependsOn:
+        - gather
+
+    synthesize:
+      description: "Synthesize findings into a final report"
+      expectedOutput: "Comprehensive final report"
+      agent: manager
+      dependsOn:
+        - analyze
+      outputFormat: MARKDOWN
+      outputFile: "output/report.md"
+
+  governance:
+    approvalGates:
+      - name: "Quality Review"
+        description: "Review analysis before final synthesis"
+        trigger: AFTER_TASK
+        timeoutMinutes: 15
+
+  config:
+    maxIterations: 5
+    qualityCriteria: "Report must include data sources and methodology"

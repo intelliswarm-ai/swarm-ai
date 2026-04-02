@@ -1,0 +1,20 @@
+swarm:
+  name: "{{workflowName}}"
+  process: SEQUENTIAL
+
+  budget:
+    maxTokens: {{maxTokens}}
+    maxCostUsd: 5.0
+    onExceeded: WARN
+
+  agents:
+    analyst:
+      role: "{{role}}"
+      goal: "Analyze {{topic}} in depth"
+      backstory: "Expert analyst specializing in {{topic}}"
+
+  tasks:
+    analyze:
+      description: "Analyze {{topic}} and produce insights"
+      expectedOutput: "Analysis report on {{topic}}"
+      agent: analyst

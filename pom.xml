@@ -40,6 +40,7 @@
         <module>swarmai-core</module>
         <module>swarmai-tools</module>
         <module>swarmai-studio</module>
+        <module>swarmai-dsl</module>
     </modules>
 
     <properties>

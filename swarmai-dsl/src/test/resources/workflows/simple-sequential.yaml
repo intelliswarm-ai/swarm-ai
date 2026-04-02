@@ -1,0 +1,29 @@
+swarm:
+  name: "Simple Research"
+  process: SEQUENTIAL
+  verbose: true
+
+  agents:
+    researcher:
+      role: "Senior Researcher"
+      goal: "Find comprehensive information"
+      backstory: "You are an expert researcher with deep analytical skills"
+
+    writer:
+      role: "Technical Writer"
+      goal: "Create clear, well-structured reports"
+      backstory: "You are a skilled writer who transforms research into readable content"
+
+  tasks:
+    research:
+      description: "Research the topic thoroughly"
+      expectedOutput: "A detailed research summary"
+      agent: researcher
+
+    report:
+      description: "Write a final report based on the research"
+      expectedOutput: "A well-formatted report"
+      agent: writer
+      dependsOn:
+        - research
+      outputFormat: MARKDOWN

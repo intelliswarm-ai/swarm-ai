@@ -1,0 +1,9 @@
+swarm:
+  name: "Invalid Workflow"
+  process: SEQUENTIAL
+
+  agents: {}
+
+  tasks:
+    task1:
+      description: "This should fail"

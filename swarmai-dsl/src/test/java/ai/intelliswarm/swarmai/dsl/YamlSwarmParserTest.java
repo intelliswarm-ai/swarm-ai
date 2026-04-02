@@ -1,0 +1,212 @@
+package ai.intelliswarm.swarmai.dsl;
+
+import ai.intelliswarm.swarmai.dsl.model.SwarmDefinition;
+import ai.intelliswarm.swarmai.dsl.parser.SwarmParseException;
+import ai.intelliswarm.swarmai.dsl.parser.YamlSwarmParser;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import java.io.IOException;
+import java.util.Map;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+class YamlSwarmParserTest {
+
+    private YamlSwarmParser parser;
+
+    @BeforeEach
+    void setUp() {
+        parser = new YamlSwarmParser();
+    }
+
+    @Test
+    void parseSimpleSequentialWorkflow() throws IOException {
+        SwarmDefinition def = parser.parseResource("workflows/simple-sequential.yaml");
+
+        assertEquals("Simple Research", def.getName());
+        assertEquals("SEQUENTIAL", def.getProcess());
+        assertTrue(def.isVerbose());
+        assertEquals(2, def.getAgents().size());
+        assertEquals(2, def.getTasks().size());
+
+        // Verify agent details
+        var researcher = def.getAgents().get("researcher");
+        assertNotNull(researcher);
+        assertEquals("Senior Researcher", researcher.getRole());
+        assertEquals("Find comprehensive information", researcher.getGoal());
+
+        var writer = def.getAgents().get("writer");
+        assertNotNull(writer);
+        assertEquals("Technical Writer", writer.getRole());
+
+        // Verify task details
+        var researchTask = def.getTasks().get("research");
+        assertNotNull(researchTask);
+        assertEquals("researcher", researchTask.getAgent());
+        assertTrue(researchTask.getDependsOn().isEmpty());
+
+        var reportTask = def.getTasks().get("report");
+        assertNotNull(reportTask);
+        assertEquals("writer", reportTask.getAgent());
+        assertEquals(1, reportTask.getDependsOn().size());
+        assertEquals("research", reportTask.getDependsOn().get(0));
+        assertEquals("MARKDOWN", reportTask.getOutputFormat());
+    }
+
+    @Test
+    void parseTemplateVariableSubstitution() throws IOException {
+        SwarmDefinition def = parser.parseResource("workflows/template-workflow.yaml",
+                Map.of(
+                        "workflowName", "AI Safety Analysis",
+                        "maxTokens", 50000,
+                        "role", "AI Safety Analyst",
+                        "topic", "AI alignment"
+                ));
+
+        assertEquals("AI Safety Analysis", def.getName());
+        assertEquals(50000L, def.getBudget().getMaxTokens());
+
+        var analyst = def.getAgents().get("analyst");
+        assertEquals("AI Safety Analyst", analyst.getRole());
+        assertEquals("Analyze AI alignment in depth", analyst.getGoal());
+        assertTrue(analyst.getBackstory().contains("AI alignment"));
+
+        var task = def.getTasks().get("analyze");
+        assertTrue(task.getDescription().contains("AI alignment"));
+    }
+
+    @Test
+    void parseFullFeaturedWorkflow() throws IOException {
+        SwarmDefinition def = parser.parseResource("workflows/full-featured.yaml");
+
+        assertEquals("Enterprise Pipeline", def.getName());
+        assertEquals("HIERARCHICAL", def.getProcess());
+        assertEquals("en", def.getLanguage());
+        assertEquals(30, def.getMaxRpm());
+        assertEquals("tenant-acme", def.getTenantId());
+        assertEquals("manager", def.getManagerAgent());
+
+        // Budget
+        assertNotNull(def.getBudget());
+        assertEquals(200000L, def.getBudget().getMaxTokens());
+        assertEquals(10.0, def.getBudget().getMaxCostUsd());
+        assertEquals("HARD_STOP", def.getBudget().getOnExceeded());
+        assertEquals(75.0, def.getBudget().getWarningThresholdPercent());
+
+        // Agents
+        assertEquals(3, def.getAgents().size());
+        var manager = def.getAgents().get("manager");
+        assertEquals(5, manager.getMaxTurns());
+        assertEquals(0.3, manager.getTemperature());
+
+        var researcher = def.getAgents().get("researcher");
+        assertEquals(1, researcher.getTools().size());
+        assertEquals("web-search", researcher.getTools().get(0));
+
+        var analyst = def.getAgents().get("analyst");
+        assertEquals("READ_ONLY", analyst.getPermissionMode());
+
+        // Tasks with dependencies
+        var analyzeTask = def.getTasks().get("analyze");
+        assertEquals(1, analyzeTask.getDependsOn().size());
+        assertEquals("gather", analyzeTask.getDependsOn().get(0));
+
+        var synthesizeTask = def.getTasks().get("synthesize");
+        assertEquals("output/report.md", synthesizeTask.getOutputFile());
+        assertEquals("MARKDOWN", synthesizeTask.getOutputFormat());
+
+        // Governance
+        assertNotNull(def.getGovernance());
+        assertEquals(1, def.getGovernance().getApprovalGates().size());
+        var gate = def.getGovernance().getApprovalGates().get(0);
+        assertEquals("Quality Review", gate.getName());
+        assertEquals("AFTER_TASK", gate.getTrigger());
+        assertEquals(15, gate.getTimeoutMinutes());
+
+        // Config
+        assertEquals(5, def.getConfig().get("maxIterations"));
+    }
+
+    @Test
+    void parseInlineYaml() throws IOException {
+        String yaml = """
+                swarm:
+                  process: PARALLEL
+                  agents:
+                    worker:
+                      role: "Worker"
+                      goal: "Do work"
+                      backstory: "A capable worker"
+                  tasks:
+                    task1:
+                      description: "First task"
+                      agent: worker
+                """;
+
+        SwarmDefinition def = parser.parseString(yaml);
+        assertEquals("PARALLEL", def.getProcess());
+        assertEquals(1, def.getAgents().size());
+        assertEquals(1, def.getTasks().size());
+    }
+
+    @Test
+    void failOnMissingSwarmRoot() {
+        String yaml = """
+                agents:
+                  worker:
+                    role: "Worker"
+                """;
+
+        assertThrows(SwarmParseException.class, () -> parser.parseString(yaml));
+    }
+
+    @Test
+    void failOnMissingAgents() {
+        assertThrows(SwarmParseException.class,
+                () -> parser.parseResource("workflows/invalid-missing-agents.yaml"));
+    }
+
+    @Test
+    void failOnBadAgentReference() {
+        assertThrows(SwarmParseException.class,
+                () -> parser.parseResource("workflows/invalid-bad-reference.yaml"));
+    }
+
+    @Test
+    void failOnInvalidProcessType() {
+        String yaml = """
+                swarm:
+                  process: NONEXISTENT
+                  agents:
+                    worker:
+                      role: "Worker"
+                      goal: "Work"
+                      backstory: "Worker"
+                  tasks:
+                    task1:
+                      description: "Do"
+                      agent: worker
+                """;
+
+        assertThrows(SwarmParseException.class, () -> parser.parseString(yaml));
+    }
+
+    @Test
+    void unresolvedTemplateVariablesAreLeftAsIs() throws IOException {
+        SwarmDefinition def = parser.parseResource("workflows/template-workflow.yaml",
+                Map.of("workflowName", "Test", "maxTokens", 1000, "role", "Tester"));
+        // {{topic}} was not provided — should remain as literal text
+        var task = def.getTasks().get("analyze");
+        assertTrue(task.getDescription().contains("{{topic}}"));
+    }
+
+    @Test
+    void preservesTaskOrdering() throws IOException {
+        SwarmDefinition def = parser.parseResource("workflows/full-featured.yaml");
+        var taskIds = def.getTasks().keySet().stream().toList();
+        assertEquals("gather", taskIds.get(0));
+        assertEquals("analyze", taskIds.get(1));
+        assertEquals("synthesize", taskIds.get(2));
+    }
+}

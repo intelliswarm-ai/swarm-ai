@@ -1,0 +1,14 @@
+swarm:
+  name: "Bad Reference"
+  process: SEQUENTIAL
+
+  agents:
+    worker:
+      role: "Worker"
+      goal: "Do work"
+      backstory: "A worker"
+
+  tasks:
+    task1:
+      description: "This task references a non-existent agent"
+      agent: nonexistent
