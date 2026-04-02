@@ -99,7 +99,12 @@ public class SwarmEvent extends ApplicationEvent {
 
         // Knowledge Events
         KNOWLEDGE_QUERIED,
-        KNOWLEDGE_SOURCE_ADDED
+        KNOWLEDGE_SOURCE_ADDED,
+
+        // Reinforcement Learning Events
+        RL_DECISION_MADE,
+        RL_REWARD_RECEIVED,
+        RL_POLICY_UPDATED
     }
 
     // Getters

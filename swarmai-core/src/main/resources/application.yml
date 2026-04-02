@@ -94,6 +94,15 @@ swarmai:
       requires-approval: false
       required-approvals: 1
 
+  # Reinforcement learning for self-improving workflow optimization
+  # When enabled, decisions (skill generation, convergence, skill selection)
+  # are made by learned policies instead of hardcoded heuristics.
+  rl:
+    enabled: false                   # opt-in (default: heuristic policy)
+    linucb-alpha: 1.0                # exploration parameter (higher = more exploration)
+    experience-buffer-capacity: 10000  # max (state, action, reward) tuples stored
+    cold-start-decisions: 50         # delegate to heuristic for first N decisions
+
   # Studio Web UI for runtime inspection of workflow processes
   studio:
     enabled: ${SWARMAI_STUDIO_ENABLED:true}  # Enable the Studio UI at /studio

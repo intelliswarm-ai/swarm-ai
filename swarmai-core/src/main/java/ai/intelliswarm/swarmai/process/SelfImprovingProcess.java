@@ -58,6 +58,7 @@ public class SelfImprovingProcess implements Process {
     private final SkillValidator skillValidator;
     private final SkillGapAnalyzer gapAnalyzer;
     private final Memory memory;
+    private final ai.intelliswarm.swarmai.rl.PolicyEngine policyEngine;
     private List<Agent> currentAgents;
     private int skillsReused = 0;
     private ScanResultCache scanCache;
@@ -72,12 +73,24 @@ public class SelfImprovingProcess implements Process {
                                  ApplicationEventPublisher eventPublisher,
                                  int maxIterations, String qualityCriteria,
                                  Memory memory) {
+        this(agents, reviewerAgent, eventPublisher, maxIterations, qualityCriteria, memory, null);
+    }
+
+    /**
+     * Full constructor with PolicyEngine for RL-driven decision making.
+     */
+    public SelfImprovingProcess(List<Agent> agents, Agent reviewerAgent,
+                                 ApplicationEventPublisher eventPublisher,
+                                 int maxIterations, String qualityCriteria,
+                                 Memory memory,
+                                 ai.intelliswarm.swarmai.rl.PolicyEngine policyEngine) {
         this.originalAgents = new ArrayList<>(agents);
         this.reviewerAgent = reviewerAgent;
         this.eventPublisher = eventPublisher;
         this.maxIterations = maxIterations;
         this.qualityCriteria = qualityCriteria;
         this.memory = memory;
+        this.policyEngine = policyEngine;
         this.skillRegistry = new SkillRegistry();
         this.skillValidator = new SkillValidator();
         this.gapAnalyzer = new SkillGapAnalyzer();
@@ -106,6 +119,7 @@ public class SelfImprovingProcess implements Process {
         this.skillValidator = new SkillValidator();
         this.gapAnalyzer = new SkillGapAnalyzer();
         this.memory = null;
+        this.policyEngine = null;
         // Do NOT call loadPersistedSkills() — shared registry is already populated
     }
 
@@ -551,8 +565,24 @@ public class SelfImprovingProcess implements Process {
             // --- Gap Quality Analysis: should we generate a skill at all? ---
             List<BaseTool> allExistingTools = existingToolsMap.values().stream()
                 .collect(java.util.stream.Collectors.toList());
-            SkillGapAnalyzer.GapAnalysis gapAnalysis = gapAnalyzer.analyze(
-                gap, allExistingTools, skillRegistry);
+
+            // Use PolicyEngine if available, otherwise fall back to SkillGapAnalyzer directly
+            SkillGapAnalyzer.GapAnalysis gapAnalysis;
+            if (policyEngine != null) {
+                ai.intelliswarm.swarmai.rl.SkillGenerationContext genCtx =
+                    gapAnalyzer.buildContext(gap, allExistingTools, skillRegistry);
+                ai.intelliswarm.swarmai.rl.SkillDecision decision =
+                    policyEngine.shouldGenerateSkill(genCtx);
+
+                // Convert SkillDecision back to GapAnalysis for downstream compatibility
+                gapAnalysis = new SkillGapAnalyzer.GapAnalysis(
+                    gap, decision.recommendation(), decision.confidence(),
+                    List.of(decision.reasoning()),
+                    new SkillGapAnalyzer.CoverageResult(1.0 - genCtx.noveltyScore(), List.of()),
+                    genCtx.recommendedType());
+            } else {
+                gapAnalysis = gapAnalyzer.analyze(gap, allExistingTools, skillRegistry);
+            }
 
             if (!gapAnalysis.shouldGenerate()) {
                 logger.info("Gap analysis REJECTED skill generation for: {} (recommendation={}, score={:.2f}, reasons={})",
@@ -735,42 +765,69 @@ public class SelfImprovingProcess implements Process {
      * Updates staleIterations counter in-place via the passed array (single-element carrier).
      * Returns true if the process should stop due to convergence.
      */
+    private ai.intelliswarm.swarmai.rl.PolicyEngine getEffectivePolicy() {
+        return policyEngine != null ? policyEngine : new ai.intelliswarm.swarmai.rl.HeuristicPolicy();
+    }
+
     private boolean detectConvergence(List<TaskOutput> allOutputs, ReviewResult review,
                                        String toolErrorSummary, int[] previousOutputLengthRef,
                                        Set<String> previousGaps, int[] staleIterationsRef) {
-        // Check output growth: if output length didn't grow by >10%, we're stalling
+        // Compute convergence signals
         int currentOutputLength = allOutputs.stream()
             .mapToInt(o -> o.getRawOutput() != null ? o.getRawOutput().length() : 0).sum();
-        boolean outputGrew = previousOutputLengthRef[0] == 0 ||
-            currentOutputLength > previousOutputLengthRef[0] * 1.1;
 
-        // Check gap repetition: if same gaps keep appearing, we're stuck
+        double outputGrowthRate = previousOutputLengthRef[0] > 0
+            ? (double) currentOutputLength / previousOutputLengthRef[0]
+            : 2.0; // first iteration always counts as growth
+
         Set<String> currentGaps = new HashSet<>();
         if (review != null && review.hasCapabilityGaps()) {
             currentGaps.addAll(review.capabilityGaps());
         }
-        boolean sameGaps = !currentGaps.isEmpty() && currentGaps.equals(previousGaps);
 
-        // Check if agent adapted (tool errors changed) — if so, don't count as stale
+        double gapRepetitionRate = (!currentGaps.isEmpty() && !previousGaps.isEmpty())
+            ? (double) countIntersection(currentGaps, previousGaps) / currentGaps.size()
+            : 0.0;
+
+        int newSkillsThisIteration = 0; // will be set by caller context if available
         boolean agentAdapted = toolErrorSummary != null &&
-            (previousOutputLengthRef[0] > 0 && !sameGaps);
+            (previousOutputLengthRef[0] > 0 && !currentGaps.equals(previousGaps));
+        if (agentAdapted) newSkillsThisIteration = 1; // approximate
 
+        // Delegate to PolicyEngine
+        ai.intelliswarm.swarmai.rl.ConvergenceContext ctx = new ai.intelliswarm.swarmai.rl.ConvergenceContext(
+                outputGrowthRate, gapRepetitionRate, newSkillsThisIteration,
+                skillsReused > 0 ? 1.0 : 0.0, // approximate reuse rate
+                staleIterationsRef[0] + 1, // current iteration
+                1.0 // no budget info available here
+        );
+
+        boolean shouldStop = getEffectivePolicy().shouldStopIteration(ctx);
+
+        // Update tracking state for next call
+        previousOutputLengthRef[0] = currentOutputLength;
+        previousGaps.clear();
+        previousGaps.addAll(currentGaps);
+
+        // Update stale counter (for logging and metadata)
+        boolean outputGrew = outputGrowthRate > 1.1;
+        boolean sameGaps = !currentGaps.isEmpty() && currentGaps.equals(previousGaps);
         if ((!outputGrew && sameGaps) && !agentAdapted) {
             staleIterationsRef[0]++;
         } else {
             staleIterationsRef[0] = 0;
         }
 
-        previousOutputLengthRef[0] = currentOutputLength;
-        previousGaps.clear();
-        previousGaps.addAll(currentGaps);
-
-        if (staleIterationsRef[0] >= 3) {
-            logger.info("Self-Improving Process: Auto-stopping — no meaningful progress for {} iterations " +
-                "(output growth stalled: {}, repeated gaps: {})", staleIterationsRef[0], !outputGrew, sameGaps);
-            return true;
+        if (shouldStop) {
+            logger.info("Self-Improving Process: Auto-stopping — PolicyEngine recommends stop " +
+                "(outputGrowth={:.2f}, gapRepetition={:.2f})", outputGrowthRate, gapRepetitionRate);
         }
-        return false;
+
+        return shouldStop;
+    }
+
+    private int countIntersection(Set<String> a, Set<String> b) {
+        return (int) a.stream().filter(b::contains).count();
     }
 
     /**

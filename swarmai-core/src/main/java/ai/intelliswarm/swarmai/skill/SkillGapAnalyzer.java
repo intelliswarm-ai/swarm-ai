@@ -1,5 +1,6 @@
 package ai.intelliswarm.swarmai.skill;
 
+import ai.intelliswarm.swarmai.rl.SkillGenerationContext;
 import ai.intelliswarm.swarmai.tool.base.BaseTool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,6 +32,42 @@ public class SkillGapAnalyzer {
 
     private static final double COVERAGE_THRESHOLD = 0.45;
     private static final int MIN_GAP_DESCRIPTION_LENGTH = 20;
+
+    /**
+     * Extracts sub-scores from a gap description into a {@link SkillGenerationContext}
+     * for use by the {@link ai.intelliswarm.swarmai.rl.PolicyEngine}.
+     */
+    public SkillGenerationContext buildContext(String gapDescription,
+                                               List<BaseTool> existingTools,
+                                               SkillRegistry skillRegistry) {
+        double clarityScore = assessClarity(gapDescription);
+        CoverageResult coverage = assessCoverage(gapDescription, existingTools);
+        double noveltyScore = 1.0 - coverage.coverageLevel();
+
+        double skillNoveltyScore = 1.0;
+        if (skillRegistry != null) {
+            List<SkillRegistry.SimilarSkill> similar = skillRegistry.findSimilar(gapDescription, 0.3);
+            if (!similar.isEmpty()) {
+                skillNoveltyScore = 1.0 - similar.get(0).similarity();
+            }
+        }
+
+        ComplexityAssessment complexity = assessComplexity(gapDescription);
+        double reuseScore = assessReusability(gapDescription);
+
+        return new SkillGenerationContext(
+                gapDescription,
+                clarityScore,
+                noveltyScore,
+                skillNoveltyScore,
+                complexity.justifiesSkill(),
+                reuseScore,
+                gapDescription.length(),
+                existingTools != null ? existingTools.size() : 0,
+                skillRegistry != null ? skillRegistry.getActiveSkillCount() : 0,
+                complexity.recommendedType()
+        );
+    }
 
     /**
      * Analyze a capability gap and recommend whether to generate a skill.

@@ -181,6 +181,46 @@ public class SkillRegistry {
     }
 
     /**
+     * Select the most relevant skills using custom weights from the PolicyEngine.
+     * Weights correspond to [relevance, effectiveness, quality] and should sum to ~1.0.
+     */
+    public List<GeneratedSkill> selectRelevant(String taskDescription, int maxSkills, double[] weights) {
+        if (weights == null || weights.length < 3) {
+            return selectRelevant(taskDescription, maxSkills);
+        }
+
+        if (taskDescription == null || taskDescription.isBlank() || maxSkills <= 0) {
+            return getActiveSkills().stream().limit(maxSkills).collect(Collectors.toList());
+        }
+
+        Set<String> taskTokens = tokenize(taskDescription);
+
+        return skills.values().stream()
+            .filter(s -> s.getStatus() != SkillStatus.CANDIDATE)
+            .map(skill -> {
+                Set<String> skillTokens = new HashSet<>();
+                skillTokens.addAll(tokenize(skill.getName()));
+                skillTokens.addAll(tokenize(skill.getDescription()));
+                skill.getTags().forEach(t -> skillTokens.addAll(tokenize(t)));
+                skillTokens.addAll(tokenize(skill.getCategory()));
+
+                double relevance = jaccardSimilarity(taskTokens, skillTokens);
+                double effectiveness = skill.getEffectiveness();
+                double qualityBonus = 0.0;
+                if (skill.getQualityScore() != null) {
+                    qualityBonus = skill.getQualityScore().totalScore() / 500.0;
+                }
+
+                double score = (relevance * weights[0]) + (effectiveness * weights[1]) + (qualityBonus * weights[2]);
+                return Map.entry(skill, score);
+            })
+            .sorted(Map.Entry.<GeneratedSkill, Double>comparingByValue().reversed())
+            .limit(maxSkills)
+            .map(Map.Entry::getKey)
+            .collect(Collectors.toList());
+    }
+
+    /**
      * Tokenize a string into lowercase keywords, filtering stop words and short tokens.
      */
     private Set<String> tokenize(String text) {
@@ -220,6 +260,15 @@ public class SkillRegistry {
         return skills.values().stream()
             .filter(s -> s.getStatus() != SkillStatus.CANDIDATE)
             .collect(Collectors.toList());
+    }
+
+    /**
+     * Returns the count of active (non-candidate) skills.
+     */
+    public int getActiveSkillCount() {
+        return (int) skills.values().stream()
+            .filter(s -> s.getStatus() != SkillStatus.CANDIDATE)
+            .count();
     }
 
     /**
