@@ -209,4 +209,88 @@ class YamlSwarmParserTest {
         assertEquals("analyze", taskIds.get(1));
         assertEquals("synthesize", taskIds.get(2));
     }
+
+    @Test
+    void parseCompositePipeline() throws IOException {
+        SwarmDefinition def = parser.parseResource("workflows/composite-pipeline.yaml");
+
+        assertEquals("COMPOSITE", def.getProcess());
+        assertEquals(3, def.getStages().size());
+
+        assertEquals("PARALLEL", def.getStages().get(0).getProcess());
+        assertNull(def.getStages().get(0).getManagerAgent());
+
+        assertEquals("HIERARCHICAL", def.getStages().get(1).getProcess());
+        assertEquals("manager", def.getStages().get(1).getManagerAgent());
+
+        assertEquals("ITERATIVE", def.getStages().get(2).getProcess());
+        assertEquals(3, def.getStages().get(2).getMaxIterations());
+        assertEquals("Report must be comprehensive", def.getStages().get(2).getQualityCriteria());
+    }
+
+    @Test
+    void parseCompactionConfig() throws IOException {
+        SwarmDefinition def = parser.parseResource("workflows/composite-pipeline.yaml");
+
+        var researcher = def.getAgents().get("researcher");
+        assertNotNull(researcher.getCompaction());
+        assertTrue(researcher.getCompaction().isEnabled());
+        assertEquals(6, researcher.getCompaction().getPreserveRecentTurns());
+        assertEquals(50000L, researcher.getCompaction().getThresholdTokens());
+    }
+
+    @Test
+    void parseApprovalPolicy() throws IOException {
+        SwarmDefinition def = parser.parseResource("workflows/composite-pipeline.yaml");
+
+        var gate = def.getGovernance().getApprovalGates().get(0);
+        assertNotNull(gate.getPolicy());
+        assertEquals(2, gate.getPolicy().getRequiredApprovals());
+        assertEquals(2, gate.getPolicy().getApproverRoles().size());
+        assertTrue(gate.getPolicy().getApproverRoles().contains("security-lead"));
+        assertTrue(gate.getPolicy().getApproverRoles().contains("tech-lead"));
+        assertFalse(gate.getPolicy().getAutoApproveOnTimeout());
+    }
+
+    @Test
+    void failOnCompositeWithoutStages() {
+        String yaml = """
+                swarm:
+                  process: COMPOSITE
+                  agents:
+                    worker:
+                      role: "Worker"
+                      goal: "Work"
+                      backstory: "Worker"
+                  tasks:
+                    task1:
+                      description: "Do"
+                      agent: worker
+                """;
+
+        SwarmParseException ex = assertThrows(SwarmParseException.class, () -> parser.parseString(yaml));
+        assertTrue(ex.getMessage().contains("stages"));
+    }
+
+    @Test
+    void failOnNestedCompositeStage() {
+        String yaml = """
+                swarm:
+                  process: COMPOSITE
+                  agents:
+                    worker:
+                      role: "Worker"
+                      goal: "Work"
+                      backstory: "Worker"
+                  tasks:
+                    task1:
+                      description: "Do"
+                      agent: worker
+                  stages:
+                    - process: COMPOSITE
+                """;
+
+        SwarmParseException ex = assertThrows(SwarmParseException.class, () -> parser.parseString(yaml));
+        assertTrue(ex.getMessage().contains("COMPOSITE"));
+    }
 }

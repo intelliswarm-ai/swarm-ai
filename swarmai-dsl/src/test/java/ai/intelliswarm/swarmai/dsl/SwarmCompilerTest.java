@@ -1,5 +1,6 @@
 package ai.intelliswarm.swarmai.dsl;
 
+import ai.intelliswarm.swarmai.dsl.compiler.CompiledWorkflow;
 import ai.intelliswarm.swarmai.dsl.compiler.SwarmCompileException;
 import ai.intelliswarm.swarmai.dsl.compiler.SwarmCompiler;
 import ai.intelliswarm.swarmai.dsl.model.SwarmDefinition;
@@ -183,6 +184,166 @@ class SwarmCompilerTest {
         SwarmCompileException ex = assertThrows(SwarmCompileException.class,
                 () -> compiler.compile(def));
         assertTrue(ex.getMessage().contains("web-search"));
+    }
+
+    @Test
+    void compileCompositePipeline() throws IOException {
+        SwarmDefinition def = parser.parseResource("workflows/composite-pipeline.yaml");
+
+        SwarmCompiler compiler = SwarmCompiler.builder()
+                .chatClient(mockChatClient)
+                .eventPublisher(mockEventPublisher)
+                .build();
+
+        CompiledWorkflow workflow = compiler.compileWorkflow(def);
+
+        assertTrue(workflow.isComposite());
+        assertEquals(3, workflow.getStageCount());
+        assertNull(workflow.getSwarm());
+    }
+
+    @Test
+    void compileWorkflowForNonComposite() throws IOException {
+        SwarmDefinition def = parser.parseResource("workflows/simple-sequential.yaml");
+
+        SwarmCompiler compiler = SwarmCompiler.builder()
+                .chatClient(mockChatClient)
+                .eventPublisher(mockEventPublisher)
+                .build();
+
+        CompiledWorkflow workflow = compiler.compileWorkflow(def);
+
+        assertFalse(workflow.isComposite());
+        assertEquals(1, workflow.getStageCount());
+        assertNotNull(workflow.getSwarm());
+        assertEquals("Simple Research", workflow.getSwarm().getId());
+    }
+
+    @Test
+    void compileThrowsOnCompositeWithPlainCompile() throws IOException {
+        SwarmDefinition def = parser.parseResource("workflows/composite-pipeline.yaml");
+
+        SwarmCompiler compiler = SwarmCompiler.builder()
+                .chatClient(mockChatClient)
+                .eventPublisher(mockEventPublisher)
+                .build();
+
+        SwarmCompileException ex = assertThrows(SwarmCompileException.class,
+                () -> compiler.compile(def));
+        assertTrue(ex.getMessage().contains("compileWorkflow"));
+    }
+
+    @Test
+    void compileCompactionConfig() throws IOException {
+        SwarmDefinition def = parser.parseResource("workflows/composite-pipeline.yaml");
+
+        SwarmCompiler compiler = SwarmCompiler.builder()
+                .chatClient(mockChatClient)
+                .eventPublisher(mockEventPublisher)
+                .build();
+
+        CompiledWorkflow workflow = compiler.compileWorkflow(def);
+        // compileWorkflow uses the same agent compilation, so we test via parser + compile
+        // The composite workflow won't have a Swarm, but the agents are built correctly.
+        // Let's test via a non-composite workflow with compaction.
+
+        String yaml = """
+                swarm:
+                  process: SEQUENTIAL
+                  agents:
+                    worker:
+                      role: "Worker"
+                      goal: "Work"
+                      backstory: "Worker"
+                      compaction:
+                        enabled: true
+                        preserveRecentTurns: 8
+                        thresholdTokens: 200000
+                  tasks:
+                    task1:
+                      description: "Do work"
+                      agent: worker
+                """;
+
+        SwarmDefinition def2 = parser.parseString(yaml);
+        Swarm swarm = compiler.compile(def2);
+
+        var agent = swarm.getAgents().get(0);
+        assertNotNull(agent.getCompactionConfig());
+        assertTrue(agent.getCompactionConfig().enabled());
+        assertEquals(8, agent.getCompactionConfig().preserveRecentTurns());
+        assertEquals(200_000L, agent.getCompactionConfig().compactionThresholdTokens());
+    }
+
+    @Test
+    void compileDisabledCompaction() throws IOException {
+        String yaml = """
+                swarm:
+                  process: SEQUENTIAL
+                  agents:
+                    worker:
+                      role: "Worker"
+                      goal: "Work"
+                      backstory: "Worker"
+                      compaction:
+                        enabled: false
+                  tasks:
+                    task1:
+                      description: "Do work"
+                      agent: worker
+                """;
+
+        SwarmDefinition def = parser.parseString(yaml);
+        SwarmCompiler compiler = SwarmCompiler.builder()
+                .chatClient(mockChatClient)
+                .eventPublisher(mockEventPublisher)
+                .build();
+
+        Swarm swarm = compiler.compile(def);
+        var agent = swarm.getAgents().get(0);
+        assertNotNull(agent.getCompactionConfig());
+        assertFalse(agent.getCompactionConfig().enabled());
+    }
+
+    @Test
+    void compileApprovalPolicy() throws IOException {
+        SwarmDefinition def = parser.parseResource("workflows/composite-pipeline.yaml");
+
+        SwarmCompiler compiler = SwarmCompiler.builder()
+                .chatClient(mockChatClient)
+                .eventPublisher(mockEventPublisher)
+                .build();
+
+        // Use compileWorkflow to compile the composite; the governance is still parsed
+        CompiledWorkflow workflow = compiler.compileWorkflow(def);
+        // We can't inspect gates from CompiledWorkflow directly, so test via a non-composite
+        String yaml = """
+                swarm:
+                  process: SEQUENTIAL
+                  agents:
+                    worker:
+                      role: "Worker"
+                      goal: "Work"
+                      backstory: "Worker"
+                  tasks:
+                    task1:
+                      description: "Do work"
+                      agent: worker
+                  governance:
+                    approvalGates:
+                      - name: "Deploy Gate"
+                        trigger: AFTER_TASK
+                        policy:
+                          requiredApprovals: 3
+                          approverRoles:
+                            - admin
+                          autoApproveOnTimeout: true
+                """;
+
+        SwarmDefinition def2 = parser.parseString(yaml);
+        Swarm swarm = compiler.compile(def2);
+        // Swarm doesn't expose approval gates directly, but compilation should succeed
+        assertNotNull(swarm);
     }
 
     @Test

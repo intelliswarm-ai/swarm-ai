@@ -162,10 +162,32 @@ public class YamlSwarmParser {
         }
 
         // Validate process type
+        ai.intelliswarm.swarmai.process.ProcessType processType;
         try {
-            ai.intelliswarm.swarmai.process.ProcessType.valueOf(definition.getProcess());
+            processType = ai.intelliswarm.swarmai.process.ProcessType.valueOf(definition.getProcess());
         } catch (IllegalArgumentException e) {
             throw new SwarmParseException("Unknown process type: '" + definition.getProcess() + "'");
+        }
+
+        // COMPOSITE requires stages
+        if (processType == ai.intelliswarm.swarmai.process.ProcessType.COMPOSITE) {
+            if (definition.getStages() == null || definition.getStages().isEmpty()) {
+                throw new SwarmParseException("COMPOSITE process requires at least one stage in 'stages:'");
+            }
+            for (int i = 0; i < definition.getStages().size(); i++) {
+                var stage = definition.getStages().get(i);
+                if (stage.getProcess() == null) {
+                    throw new SwarmParseException("Stage " + i + " must specify a 'process' type");
+                }
+                try {
+                    var stageType = ai.intelliswarm.swarmai.process.ProcessType.valueOf(stage.getProcess());
+                    if (stageType == ai.intelliswarm.swarmai.process.ProcessType.COMPOSITE) {
+                        throw new SwarmParseException("Stage " + i + " cannot be COMPOSITE (no nested composites)");
+                    }
+                } catch (IllegalArgumentException e) {
+                    throw new SwarmParseException("Stage " + i + " has unknown process type: '" + stage.getProcess() + "'");
+                }
+            }
         }
     }
 }

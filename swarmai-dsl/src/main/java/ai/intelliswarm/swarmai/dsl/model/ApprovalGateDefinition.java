@@ -21,6 +21,8 @@ public class ApprovalGateDefinition {
     @JsonProperty("timeoutMinutes")
     private Integer timeoutMinutes;
 
+    private ApprovalPolicyDefinition policy;
+
     // --- Getters & Setters ---
 
     public String getName() { return name; }
@@ -34,4 +36,7 @@ public class ApprovalGateDefinition {
 
     public Integer getTimeoutMinutes() { return timeoutMinutes; }
     public void setTimeoutMinutes(Integer timeoutMinutes) { this.timeoutMinutes = timeoutMinutes; }
+
+    public ApprovalPolicyDefinition getPolicy() { return policy; }
+    public void setPolicy(ApprovalPolicyDefinition policy) { this.policy = policy; }
 }

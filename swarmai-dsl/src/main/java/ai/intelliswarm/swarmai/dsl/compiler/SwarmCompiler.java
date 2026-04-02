@@ -1,15 +1,24 @@
 package ai.intelliswarm.swarmai.dsl.compiler;
 
 import ai.intelliswarm.swarmai.agent.Agent;
+import ai.intelliswarm.swarmai.agent.CompactionConfig;
 import ai.intelliswarm.swarmai.budget.BudgetPolicy;
 import ai.intelliswarm.swarmai.budget.BudgetTracker;
 import ai.intelliswarm.swarmai.budget.InMemoryBudgetTracker;
 import ai.intelliswarm.swarmai.dsl.model.*;
 import ai.intelliswarm.swarmai.governance.ApprovalGate;
+import ai.intelliswarm.swarmai.governance.ApprovalPolicy;
 import ai.intelliswarm.swarmai.governance.GateTrigger;
 import ai.intelliswarm.swarmai.knowledge.Knowledge;
 import ai.intelliswarm.swarmai.memory.Memory;
+import ai.intelliswarm.swarmai.process.CompositeProcess;
+import ai.intelliswarm.swarmai.process.HierarchicalProcess;
+import ai.intelliswarm.swarmai.process.IterativeProcess;
+import ai.intelliswarm.swarmai.process.ParallelProcess;
 import ai.intelliswarm.swarmai.process.ProcessType;
+import ai.intelliswarm.swarmai.process.SelfImprovingProcess;
+import ai.intelliswarm.swarmai.process.SequentialProcess;
+import ai.intelliswarm.swarmai.process.SwarmCoordinator;
 import ai.intelliswarm.swarmai.swarm.Swarm;
 import ai.intelliswarm.swarmai.task.Task;
 import ai.intelliswarm.swarmai.task.output.OutputFormat;
@@ -65,28 +74,72 @@ public class SwarmCompiler {
 
     /**
      * Compiles a SwarmDefinition into a ready-to-execute Swarm.
+     * For COMPOSITE process types, use {@link #compileWorkflow(SwarmDefinition)} instead.
+     *
+     * @throws SwarmCompileException if the process type is COMPOSITE
      */
     public Swarm compile(SwarmDefinition definition) {
-        // 1. Build agents
+        ProcessType processType = ProcessType.valueOf(definition.getProcess());
+        if (processType == ProcessType.COMPOSITE) {
+            throw new SwarmCompileException(
+                    "COMPOSITE process cannot be compiled to a plain Swarm. " +
+                    "Use compileWorkflow() instead, which returns a CompiledWorkflow.");
+        }
+
+        CompilationContext ctx = buildContext(definition);
+        return buildSwarm(definition, ctx);
+    }
+
+    /**
+     * Compiles a SwarmDefinition into a {@link CompiledWorkflow} that supports all
+     * process types, including COMPOSITE with multi-stage pipelines.
+     */
+    public CompiledWorkflow compileWorkflow(SwarmDefinition definition) {
+        CompilationContext ctx = buildContext(definition);
+        ProcessType processType = ProcessType.valueOf(definition.getProcess());
+
+        if (processType == ProcessType.COMPOSITE) {
+            return compileCompositeWorkflow(definition, ctx);
+        }
+
+        Swarm swarm = buildSwarm(definition, ctx);
+        return CompiledWorkflow.fromSwarm(swarm);
+    }
+
+    private CompilationContext buildContext(SwarmDefinition definition) {
+        // Load knowledge sources if defined
+        Knowledge effectiveKnowledge = this.knowledge;
+        if (definition.getKnowledgeSources() != null && !definition.getKnowledgeSources().isEmpty()) {
+            ai.intelliswarm.swarmai.knowledge.InMemoryKnowledge kb =
+                    new ai.intelliswarm.swarmai.knowledge.InMemoryKnowledge();
+            for (KnowledgeSourceDefinition src : definition.getKnowledgeSources()) {
+                kb.addSource(src.getId(), src.getContent(), null);
+            }
+            effectiveKnowledge = kb;
+        }
+
         Map<String, Agent> agentMap = new LinkedHashMap<>();
+        Knowledge finalKnowledge = effectiveKnowledge;
         definition.getAgents().forEach((agentId, agentDef) -> {
-            Agent agent = compileAgent(agentId, agentDef);
+            Agent agent = compileAgent(agentId, agentDef, finalKnowledge);
             agentMap.put(agentId, agent);
         });
 
-        // 2. Build tasks
         List<Task> tasks = new ArrayList<>();
         definition.getTasks().forEach((taskId, taskDef) -> {
             Task task = compileTask(taskId, taskDef, agentMap);
             tasks.add(task);
         });
 
-        // 3. Build swarm
+        return new CompilationContext(agentMap, tasks, effectiveKnowledge);
+    }
+
+    private Swarm buildSwarm(SwarmDefinition definition, CompilationContext ctx) {
         ProcessType processType = ProcessType.valueOf(definition.getProcess());
 
         Swarm.Builder swarmBuilder = Swarm.builder()
-                .agents(new ArrayList<>(agentMap.values()))
-                .tasks(tasks)
+                .agents(new ArrayList<>(ctx.agentMap.values()))
+                .tasks(ctx.tasks)
                 .process(processType)
                 .verbose(definition.isVerbose())
                 .language(definition.getLanguage());
@@ -101,7 +154,7 @@ public class SwarmCompiler {
             swarmBuilder.tenantId(definition.getTenantId());
         }
         if (definition.getManagerAgent() != null) {
-            Agent manager = agentMap.get(definition.getManagerAgent());
+            Agent manager = ctx.agentMap.get(definition.getManagerAgent());
             if (manager == null) {
                 throw new SwarmCompileException(
                         "Manager agent '" + definition.getManagerAgent() + "' not found");
@@ -109,36 +162,30 @@ public class SwarmCompiler {
             swarmBuilder.managerAgent(manager);
         }
 
-        // 4. Config map
         if (definition.getConfig() != null) {
             definition.getConfig().forEach(swarmBuilder::config);
         }
-
-        // 5. Budget
         if (definition.getBudget() != null) {
             BudgetPolicy policy = compileBudget(definition.getBudget());
             BudgetTracker tracker = new InMemoryBudgetTracker(policy);
             swarmBuilder.budgetPolicy(policy);
             swarmBuilder.budgetTracker(tracker);
         }
-
-        // 6. Governance
         if (definition.getGovernance() != null && definition.getGovernance().getApprovalGates() != null) {
             List<ApprovalGate> gates = definition.getGovernance().getApprovalGates().stream()
                     .map(this::compileApprovalGate)
                     .toList();
             swarmBuilder.approvalGates(gates);
         }
-
-        // 7. Infrastructure
         if (eventPublisher != null) {
             swarmBuilder.eventPublisher(eventPublisher);
         }
         if (memory != null) {
             swarmBuilder.memory(memory);
         }
-        if (knowledge != null) {
-            swarmBuilder.knowledge(knowledge);
+        Knowledge effectiveKnowledge = ctx.knowledge != null ? ctx.knowledge : knowledge;
+        if (effectiveKnowledge != null) {
+            swarmBuilder.knowledge(effectiveKnowledge);
         }
 
         Swarm swarm = swarmBuilder.build();
@@ -149,7 +196,76 @@ public class SwarmCompiler {
         return swarm;
     }
 
-    private Agent compileAgent(String agentId, AgentDefinition def) {
+    private CompiledWorkflow compileCompositeWorkflow(SwarmDefinition definition, CompilationContext ctx) {
+        List<Agent> agents = new ArrayList<>(ctx.agentMap.values());
+
+        List<ai.intelliswarm.swarmai.process.Process> stages = new ArrayList<>();
+        for (int i = 0; i < definition.getStages().size(); i++) {
+            StageDefinition stageDef = definition.getStages().get(i);
+            ai.intelliswarm.swarmai.process.Process stage = compileStage(stageDef, agents, ctx.agentMap, i);
+            stages.add(stage);
+        }
+
+        CompositeProcess composite = CompositeProcess.of(stages);
+        String swarmId = definition.getName() != null ? definition.getName() : UUID.randomUUID().toString();
+
+        logger.info("Compiled composite workflow: id={}, stages={}, agents={}, tasks={}",
+                swarmId, stages.size(), agents.size(), ctx.tasks.size());
+
+        return CompiledWorkflow.fromComposite(composite, ctx.tasks, swarmId);
+    }
+
+    private ai.intelliswarm.swarmai.process.Process compileStage(StageDefinition stageDef, List<Agent> agents,
+                                 Map<String, Agent> agentMap, int stageIndex) {
+        ProcessType stageType = ProcessType.valueOf(stageDef.getProcess());
+
+        Agent managerAgent = null;
+        if (stageDef.getManagerAgent() != null) {
+            managerAgent = agentMap.get(stageDef.getManagerAgent());
+            if (managerAgent == null) {
+                throw new SwarmCompileException(
+                        "Stage " + stageIndex + " references unknown manager agent '" + stageDef.getManagerAgent() + "'");
+            }
+        }
+
+        int maxIter = stageDef.getMaxIterations() != null ? stageDef.getMaxIterations() : 3;
+        String criteria = stageDef.getQualityCriteria();
+
+        return switch (stageType) {
+            case SEQUENTIAL -> new SequentialProcess(agents, eventPublisher);
+            case PARALLEL -> new ParallelProcess(agents, eventPublisher);
+            case HIERARCHICAL -> {
+                if (managerAgent == null) {
+                    throw new SwarmCompileException("Stage " + stageIndex + " (HIERARCHICAL) requires a managerAgent");
+                }
+                yield new HierarchicalProcess(agents, managerAgent, eventPublisher);
+            }
+            case ITERATIVE -> {
+                if (managerAgent == null) {
+                    throw new SwarmCompileException("Stage " + stageIndex + " (ITERATIVE) requires a managerAgent");
+                }
+                yield new IterativeProcess(agents, managerAgent, eventPublisher, maxIter, criteria);
+            }
+            case SELF_IMPROVING -> {
+                if (managerAgent == null) {
+                    throw new SwarmCompileException("Stage " + stageIndex + " (SELF_IMPROVING) requires a managerAgent");
+                }
+                yield new SelfImprovingProcess(agents, managerAgent, eventPublisher, maxIter, criteria);
+            }
+            case SWARM -> {
+                if (managerAgent == null) {
+                    throw new SwarmCompileException("Stage " + stageIndex + " (SWARM) requires a managerAgent");
+                }
+                int maxParallel = stageDef.getMaxParallelAgents() != null ? stageDef.getMaxParallelAgents() : 5;
+                yield new SwarmCoordinator(agents, managerAgent, eventPublisher, maxIter, maxParallel, criteria);
+            }
+            case COMPOSITE -> throw new SwarmCompileException("Stage " + stageIndex + " cannot be COMPOSITE (no nesting)");
+        };
+    }
+
+    private record CompilationContext(Map<String, Agent> agentMap, List<Task> tasks, Knowledge knowledge) {}
+
+    private Agent compileAgent(String agentId, AgentDefinition def, Knowledge effectiveKnowledge) {
         ChatClient chatClient = resolveChatClient(def.getModel());
 
         Agent.Builder builder = Agent.builder()
@@ -181,6 +297,28 @@ public class SwarmCompiler {
         }
         if (def.getPermissionMode() != null) {
             builder.permissionMode(PermissionLevel.valueOf(def.getPermissionMode()));
+        }
+
+        // Compaction config
+        if (def.getCompaction() != null) {
+            CompactionConfigDefinition cc = def.getCompaction();
+            if (!cc.isEnabled()) {
+                builder.compactionConfig(CompactionConfig.disabled());
+            } else {
+                int preserve = cc.getPreserveRecentTurns() != null ? cc.getPreserveRecentTurns() : 4;
+                long threshold = cc.getThresholdTokens() != null ? cc.getThresholdTokens() : 100_000L;
+                builder.compactionConfig(CompactionConfig.of(preserve, threshold));
+            }
+        }
+
+        // Agent-level memory
+        if (def.isMemory()) {
+            builder.memory(memory != null ? memory : new ai.intelliswarm.swarmai.memory.InMemoryMemory());
+        }
+
+        // Agent-level knowledge
+        if (def.isKnowledge() && effectiveKnowledge != null) {
+            builder.knowledge(effectiveKnowledge);
         }
 
         // Resolve tools by name
@@ -258,6 +396,15 @@ public class SwarmCompiler {
         }
         if (def.getTimeoutMinutes() != null) {
             builder.timeout(Duration.ofMinutes(def.getTimeoutMinutes()));
+        }
+
+        // Approval policy
+        if (def.getPolicy() != null) {
+            ApprovalPolicyDefinition pd = def.getPolicy();
+            int required = pd.getRequiredApprovals() != null ? pd.getRequiredApprovals() : 1;
+            List<String> roles = pd.getApproverRoles() != null ? pd.getApproverRoles() : List.of();
+            boolean autoApprove = pd.getAutoApproveOnTimeout() != null && pd.getAutoApproveOnTimeout();
+            builder.policy(new ApprovalPolicy(required, roles, autoApprove));
         }
 
         return builder.build();

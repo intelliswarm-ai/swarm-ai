@@ -2,7 +2,9 @@ package ai.intelliswarm.swarmai.dsl.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -68,6 +70,10 @@ public class SwarmDefinition {
 
     private GovernanceDefinition governance;
 
+    private List<KnowledgeSourceDefinition> knowledgeSources = new ArrayList<>();
+
+    private List<StageDefinition> stages = new ArrayList<>();
+
     private Map<String, Object> config = new LinkedHashMap<>();
 
     // --- Getters & Setters ---
@@ -104,6 +110,12 @@ public class SwarmDefinition {
 
     public GovernanceDefinition getGovernance() { return governance; }
     public void setGovernance(GovernanceDefinition governance) { this.governance = governance; }
+
+    public List<KnowledgeSourceDefinition> getKnowledgeSources() { return knowledgeSources; }
+    public void setKnowledgeSources(List<KnowledgeSourceDefinition> knowledgeSources) { this.knowledgeSources = knowledgeSources; }
+
+    public List<StageDefinition> getStages() { return stages; }
+    public void setStages(List<StageDefinition> stages) { this.stages = stages; }
 
     public Map<String, Object> getConfig() { return config; }
     public void setConfig(Map<String, Object> config) { this.config = config; }

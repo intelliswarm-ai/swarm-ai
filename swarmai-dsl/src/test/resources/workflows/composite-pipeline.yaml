@@ -1,0 +1,64 @@
+swarm:
+  name: "Composite Pipeline"
+  process: COMPOSITE
+  verbose: true
+
+  agents:
+    manager:
+      role: "Project Manager"
+      goal: "Coordinate the team"
+      backstory: "Experienced project manager"
+      maxTurns: 5
+
+    researcher:
+      role: "Researcher"
+      goal: "Gather information"
+      backstory: "Expert researcher"
+      compaction:
+        enabled: true
+        preserveRecentTurns: 6
+        thresholdTokens: 50000
+
+    analyst:
+      role: "Analyst"
+      goal: "Analyze data"
+      backstory: "Data analyst"
+
+  tasks:
+    gather:
+      description: "Gather data"
+      agent: researcher
+
+    analyze:
+      description: "Analyze the data"
+      agent: analyst
+      dependsOn:
+        - gather
+
+    report:
+      description: "Write final report"
+      agent: manager
+      dependsOn:
+        - analyze
+
+  stages:
+    - process: PARALLEL
+    - process: HIERARCHICAL
+      managerAgent: manager
+    - process: ITERATIVE
+      managerAgent: manager
+      maxIterations: 3
+      qualityCriteria: "Report must be comprehensive"
+
+  governance:
+    approvalGates:
+      - name: "Security Review"
+        description: "Security team must approve"
+        trigger: AFTER_TASK
+        timeoutMinutes: 60
+        policy:
+          requiredApprovals: 2
+          approverRoles:
+            - security-lead
+            - tech-lead
+          autoApproveOnTimeout: false

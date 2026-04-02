@@ -53,6 +53,12 @@ public class AgentDefinition {
     @JsonProperty("permissionMode")
     private String permissionMode;
 
+    private CompactionConfigDefinition compaction;
+
+    private boolean memory = false;
+
+    private boolean knowledge = false;
+
     private List<String> tools = new ArrayList<>();
 
     // --- Getters & Setters ---
@@ -92,6 +98,15 @@ public class AgentDefinition {
 
     public String getPermissionMode() { return permissionMode; }
     public void setPermissionMode(String permissionMode) { this.permissionMode = permissionMode; }
+
+    public CompactionConfigDefinition getCompaction() { return compaction; }
+    public void setCompaction(CompactionConfigDefinition compaction) { this.compaction = compaction; }
+
+    public boolean isMemory() { return memory; }
+    public void setMemory(boolean memory) { this.memory = memory; }
+
+    public boolean isKnowledge() { return knowledge; }
+    public void setKnowledge(boolean knowledge) { this.knowledge = knowledge; }
 
     public List<String> getTools() { return tools; }
     public void setTools(List<String> tools) { this.tools = tools; }

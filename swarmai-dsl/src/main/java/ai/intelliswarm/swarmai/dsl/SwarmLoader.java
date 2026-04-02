@@ -1,5 +1,6 @@
 package ai.intelliswarm.swarmai.dsl;
 
+import ai.intelliswarm.swarmai.dsl.compiler.CompiledWorkflow;
 import ai.intelliswarm.swarmai.dsl.compiler.SwarmCompiler;
 import ai.intelliswarm.swarmai.dsl.model.SwarmDefinition;
 import ai.intelliswarm.swarmai.dsl.parser.YamlSwarmParser;
@@ -75,6 +76,22 @@ public class SwarmLoader {
     public Swarm fromYaml(String yaml, Map<String, Object> variables) throws IOException {
         SwarmDefinition definition = parser.parseString(yaml, variables);
         return compiler.compile(definition);
+    }
+
+    /**
+     * Loads a YAML workflow as a CompiledWorkflow — supports all process types including COMPOSITE.
+     */
+    public CompiledWorkflow loadWorkflow(String classpathResource) throws IOException {
+        SwarmDefinition definition = parser.parseResource(classpathResource);
+        return compiler.compileWorkflow(definition);
+    }
+
+    /**
+     * Loads a YAML workflow as a CompiledWorkflow with template variables.
+     */
+    public CompiledWorkflow loadWorkflow(String classpathResource, Map<String, Object> variables) throws IOException {
+        SwarmDefinition definition = parser.parseResource(classpathResource, variables);
+        return compiler.compileWorkflow(definition);
     }
 
     public YamlSwarmParser getParser() { return parser; }
