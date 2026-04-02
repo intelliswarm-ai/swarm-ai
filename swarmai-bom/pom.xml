@@ -35,6 +35,11 @@
                 <artifactId>swarmai-dsl</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <dependency>
+                <groupId>ai.intelliswarm</groupId>
+                <artifactId>swarmai-rl</artifactId>
+                <version>${project.version}</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 </project>
