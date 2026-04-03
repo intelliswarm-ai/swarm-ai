@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Tests](https://img.shields.io/badge/tests-925%20passing-brightgreen.svg)](#)
 
-Java multi-agent framework with type-safe state management, self-improving skills, runtime CODE tool generation, and enterprise governance. Built on Spring AI 1.0.4 GA and Spring Boot 3.4.
+Java multi-agent framework with type-safe state management, self-improving skills, runtime CODE tool generation, and enterprise governance. Built on Spring AI and Spring Boot.
 
 ## Quick Start
 
