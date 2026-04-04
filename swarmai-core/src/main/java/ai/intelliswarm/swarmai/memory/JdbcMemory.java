@@ -1,5 +1,7 @@
 package ai.intelliswarm.swarmai.memory;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -33,13 +35,26 @@ public class JdbcMemory implements Memory {
 
     private static final Logger logger = LoggerFactory.getLogger(JdbcMemory.class);
     private static final String TABLE_NAME = "swarmai_memory";
+    private static final ObjectMapper objectMapper = new ObjectMapper();
 
     private final JdbcTemplate jdbcTemplate;
+    private final boolean autoCreateTable;
 
+    /**
+     * Creates JdbcMemory with automatic table creation.
+     * For production, use Flyway migrations and set autoCreateTable=false.
+     */
     public JdbcMemory(JdbcTemplate jdbcTemplate) {
+        this(jdbcTemplate, true);
+    }
+
+    public JdbcMemory(JdbcTemplate jdbcTemplate, boolean autoCreateTable) {
         this.jdbcTemplate = Objects.requireNonNull(jdbcTemplate, "JdbcTemplate cannot be null");
-        initializeTable();
-        logger.info("JdbcMemory initialized");
+        this.autoCreateTable = autoCreateTable;
+        if (autoCreateTable) {
+            initializeTable();
+        }
+        logger.info("JdbcMemory initialized (autoCreateTable={})", autoCreateTable);
     }
 
     private void initializeTable() {
@@ -48,11 +63,10 @@ public class JdbcMemory implements Memory {
                 "id BIGSERIAL PRIMARY KEY, " +
                 "agent_id VARCHAR(255), " +
                 "content TEXT NOT NULL, " +
-                "metadata TEXT, " +
+                "metadata JSONB, " +
                 "created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP" +
                 ")");
 
-        // Create indexes if they don't exist (PostgreSQL syntax, other DBs may vary)
         try {
             jdbcTemplate.execute(
                     "CREATE INDEX IF NOT EXISTS idx_swarmai_memory_agent ON " + TABLE_NAME + "(agent_id)");
@@ -65,11 +79,18 @@ public class JdbcMemory implements Memory {
 
     @Override
     public void save(String agentId, String content, Map<String, Object> metadata) {
-        String metadataStr = metadata != null ? metadata.toString() : null;
+        String metadataJson = null;
+        if (metadata != null && !metadata.isEmpty()) {
+            try {
+                metadataJson = objectMapper.writeValueAsString(metadata);
+            } catch (JsonProcessingException e) {
+                logger.warn("Failed to serialize metadata as JSON, storing as null: {}", e.getMessage());
+            }
+        }
 
         jdbcTemplate.update(
-                "INSERT INTO " + TABLE_NAME + " (agent_id, content, metadata, created_at) VALUES (?, ?, ?, ?)",
-                agentId, content, metadataStr, Timestamp.from(Instant.now()));
+                "INSERT INTO " + TABLE_NAME + " (agent_id, content, metadata, created_at) VALUES (?, ?, ?::jsonb, ?)",
+                agentId, content, metadataJson, Timestamp.from(Instant.now()));
 
         logger.debug("Saved memory for agent {}: {} chars", agentId, content.length());
     }

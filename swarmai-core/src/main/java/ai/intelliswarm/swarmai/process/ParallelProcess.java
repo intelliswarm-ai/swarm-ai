@@ -11,6 +11,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 
+import ai.intelliswarm.swarmai.exception.ProcessExecutionException;
+
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.*;
@@ -95,31 +97,41 @@ public class ParallelProcess implements Process {
                         // Run all tasks in this layer concurrently
                         List<CompletableFuture<TaskOutput>> futures = new ArrayList<>();
 
+                        // Snapshot the parent thread's ObservabilityContext for propagation
+                        ObservabilityContext.Snapshot parentSnapshot = ObservabilityContext.snapshot();
+
                         for (Task task : layer) {
                             List<TaskOutput> context = taskContexts.get(task.getId());
                             CompletableFuture<TaskOutput> future = CompletableFuture.supplyAsync(() -> {
-                                publishEvent(SwarmEvent.Type.TASK_STARTED,
-                                        "Starting parallel task: " + task.getId(), swarmId);
+                                // Propagate observability context into this child thread
+                                ObservabilityContext.Snapshot threadSnapshot = parentSnapshot;
+                                threadSnapshot.restore();
+                                try {
+                                    publishEvent(SwarmEvent.Type.TASK_STARTED,
+                                            "Starting parallel task: " + task.getId(), swarmId);
 
-                                logger.info("[PARALLEL] Starting: {} -> agent: {}",
-                                        truncate(task.getDescription(), 60),
-                                        task.getAgent() != null ? task.getAgent().getRole() : "unassigned");
+                                    logger.info("[PARALLEL] Starting: {} -> agent: {}",
+                                            truncate(task.getDescription(), 60),
+                                            task.getAgent() != null ? task.getAgent().getRole() : "unassigned");
 
-                                TaskOutput output = task.execute(context);
+                                    TaskOutput output = task.execute(context);
 
-                                logger.info("[PARALLEL] Completed: {} ({} chars, {} ms)",
-                                        truncate(task.getDescription(), 40),
-                                        output.getRawOutput() != null ? output.getRawOutput().length() : 0,
-                                        output.getExecutionTimeMs());
+                                    logger.info("[PARALLEL] Completed: {} ({} chars, {} ms)",
+                                            truncate(task.getDescription(), 40),
+                                            output.getRawOutput() != null ? output.getRawOutput().length() : 0,
+                                            output.getExecutionTimeMs());
 
-                                // Record budget usage (thread-safe via AtomicLong in tracker)
-                                BudgetTracker pbt = inputs.get("__budgetTracker") instanceof BudgetTracker b ? b : null;
-                                String pbsId = inputs.get("__budgetSwarmId") instanceof String s ? s : swarmId;
-                                recordBudgetUsage(pbt, pbsId, output, task.getAgent() != null ? task.getAgent().getModelName() : null);
+                                    // Record budget usage (thread-safe via AtomicLong in tracker)
+                                    BudgetTracker pbt = inputs.get("__budgetTracker") instanceof BudgetTracker b ? b : null;
+                                    String pbsId = inputs.get("__budgetSwarmId") instanceof String s ? s : swarmId;
+                                    recordBudgetUsage(pbt, pbsId, output, task.getAgent() != null ? task.getAgent().getModelName() : null);
 
-                                publishEvent(SwarmEvent.Type.TASK_COMPLETED,
-                                        "Completed parallel task: " + task.getId(), swarmId);
-                                return output;
+                                    publishEvent(SwarmEvent.Type.TASK_COMPLETED,
+                                            "Completed parallel task: " + task.getId(), swarmId);
+                                    return output;
+                                } finally {
+                                    ObservabilityContext.clear();
+                                }
                             }, executor);
 
                             futures.add(future);
@@ -132,7 +144,8 @@ public class ParallelProcess implements Process {
                         try {
                             allDone.get(600, TimeUnit.SECONDS); // 10 min max per layer
                         } catch (TimeoutException e) {
-                            throw new RuntimeException("Parallel layer " + layerIdx + " timed out", e);
+                            throw new ProcessExecutionException(
+                                    "Parallel layer " + layerIdx + " timed out", e, ProcessType.PARALLEL, swarmId, null);
                         }
 
                         // Collect results in order
@@ -191,10 +204,14 @@ public class ParallelProcess implements Process {
             aggregateReactiveMetrics(outputBuilder, allOutputs);
             return outputBuilder.build();
 
+        } catch (ProcessExecutionException e) {
+            publishEvent(SwarmEvent.Type.PROCESS_FAILED,
+                    "Parallel process failed: " + e.getMessage(), swarmId);
+            throw e;
         } catch (Exception e) {
             publishEvent(SwarmEvent.Type.PROCESS_FAILED,
                     "Parallel process failed: " + e.getMessage(), swarmId);
-            throw new RuntimeException("Parallel process execution failed", e);
+            throw new ProcessExecutionException("Parallel process execution failed", e, ProcessType.PARALLEL, swarmId, null);
         }
     }
 

@@ -39,9 +39,11 @@
         <module>swarmai-bom</module>
         <module>swarmai-core</module>
         <module>swarmai-tools</module>
-        <module>swarmai-studio</module>
         <module>swarmai-dsl</module>
         <module>swarmai-rl</module>
+        <module>swarmai-enterprise</module>
+        <module>swarmai-studio</module>
+        <module>swarmai-eval</module>
     </modules>
 
     <properties>
@@ -119,6 +121,16 @@
                 <groupId>org.apache.groovy</groupId>
                 <artifactId>groovy</artifactId>
                 <version>4.0.24</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.resilience4j</groupId>
+                <artifactId>resilience4j-circuitbreaker</artifactId>
+                <version>2.2.0</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.resilience4j</groupId>
+                <artifactId>resilience4j-retry</artifactId>
+                <version>2.2.0</version>
             </dependency>
             <dependency>
                 <groupId>ai.djl</groupId>

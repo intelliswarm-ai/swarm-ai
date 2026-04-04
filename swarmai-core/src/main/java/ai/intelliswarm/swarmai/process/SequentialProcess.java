@@ -2,6 +2,7 @@ package ai.intelliswarm.swarmai.process;
 
 import ai.intelliswarm.swarmai.agent.Agent;
 import ai.intelliswarm.swarmai.budget.BudgetTracker;
+import ai.intelliswarm.swarmai.exception.ProcessExecutionException;
 import ai.intelliswarm.swarmai.swarm.SwarmOutput;
 import ai.intelliswarm.swarmai.event.SwarmEvent;
 import ai.intelliswarm.swarmai.task.Task;
@@ -114,7 +115,7 @@ public class SequentialProcess implements Process {
 
         } catch (Exception e) {
             publishEvent(SwarmEvent.Type.PROCESS_FAILED, "Sequential process failed: " + e.getMessage(), swarmId);
-            throw new RuntimeException("Sequential process execution failed", e);
+            throw new ProcessExecutionException("Sequential process execution failed", e, ProcessType.SEQUENTIAL);
         }
     }
 
@@ -179,7 +180,7 @@ public class SequentialProcess implements Process {
             CompletableFuture<TaskOutput> future = task.executeAsync(contextOutputs);
             return future.get();
         } catch (Exception e) {
-            throw new RuntimeException("Async task execution failed: " + task.getId(), e);
+            throw new ProcessExecutionException("Async task execution failed: " + task.getId(), e, ProcessType.SEQUENTIAL);
         }
     }
 

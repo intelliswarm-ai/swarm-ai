@@ -109,6 +109,55 @@ public class ObservabilityContext {
         }
     }
 
+    /**
+     * Takes a snapshot of the current thread's context for propagation to child threads.
+     * The snapshot is an immutable reference to the current context that can be
+     * installed in another thread via {@link Snapshot#restore()}.
+     *
+     * @return a snapshot of the current context, or an empty snapshot if none exists
+     */
+    public static Snapshot snapshot() {
+        return new Snapshot(CONTEXT.get());
+    }
+
+    /**
+     * Immutable snapshot of an ObservabilityContext for cross-thread propagation.
+     * Call {@link #restore()} in the target thread to install the captured context,
+     * and {@link #close()} (or use try-with-resources) to restore the previous context.
+     */
+    public static final class Snapshot implements AutoCloseable {
+        private final ObservabilityContext captured;
+        private ObservabilityContext previous;
+
+        private Snapshot(ObservabilityContext captured) {
+            this.captured = captured;
+        }
+
+        /**
+         * Installs the captured context in the current thread, creating a child span.
+         * Saves the thread's previous context for restoration on {@link #close()}.
+         */
+        public void restore() {
+            this.previous = CONTEXT.get();
+            if (captured != null) {
+                ObservabilityContext child = new ObservabilityContext(captured);
+                CONTEXT.set(child);
+            }
+        }
+
+        /**
+         * Restores the previous context that was active before {@link #restore()}.
+         */
+        @Override
+        public void close() {
+            if (previous != null) {
+                CONTEXT.set(previous);
+            } else {
+                CONTEXT.remove();
+            }
+        }
+    }
+
     // Fluent setters
 
     public ObservabilityContext withSwarmId(String swarmId) {

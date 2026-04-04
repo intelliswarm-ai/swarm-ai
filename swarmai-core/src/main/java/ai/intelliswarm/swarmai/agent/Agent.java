@@ -21,6 +21,8 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.util.StringUtils;
 
+import ai.intelliswarm.swarmai.exception.AgentExecutionException;
+
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -217,10 +219,12 @@ public class Agent {
 
             return outputBuilder.build();
 
+        } catch (AgentExecutionException e) {
+            throw e;
         } catch (Exception e) {
             long executionTimeMs = System.currentTimeMillis() - startTime;
             logger.error("Agent [{}] reactive execution failed after {} ms: {}", role, executionTimeMs, e.getMessage());
-            throw new RuntimeException("Failed to execute task: " + task.getId(), e);
+            throw new AgentExecutionException("Failed to execute task: " + task.getId(), e, id, task.getId());
         }
     }
 
@@ -276,10 +280,12 @@ public class Agent {
                 .totalTokens(totalTokens)
                 .build();
 
+        } catch (AgentExecutionException e) {
+            throw e;
         } catch (Exception e) {
             long executionTimeMs = System.currentTimeMillis() - startTime;
             logger.error("Agent [{}] failed task after {} ms: {}", role, executionTimeMs, e.getMessage());
-            throw new RuntimeException("Failed to execute task: " + task.getId(), e);
+            throw new AgentExecutionException("Failed to execute task: " + task.getId(), e, id, task.getId());
         }
     }
 
@@ -426,6 +432,7 @@ public class Agent {
     /**
      * Returns tools filtered by this agent's permission mode.
      * If no permission mode is set, all tools are returned.
+     * Denied tools are logged at WARN level for auditing.
      */
     private List<BaseTool> getPermittedTools() {
         if (permissionMode == null) {
@@ -435,10 +442,14 @@ public class Agent {
         for (BaseTool tool : tools) {
             if (tool.getPermissionLevel().isPermittedBy(permissionMode)) {
                 permitted.add(tool);
-            } else if (verbose) {
-                logger.info("Agent [{}] tool {} filtered out (requires {}, agent mode is {})",
+            } else {
+                logger.warn("[PERMISSION] Agent [{}] denied tool '{}' (requires {}, agent has {})",
                         role, tool.getFunctionName(), tool.getPermissionLevel(), permissionMode);
             }
+        }
+        if (permitted.size() < tools.size()) {
+            logger.info("[PERMISSION] Agent [{}]: {}/{} tools permitted (mode={})",
+                    role, permitted.size(), tools.size(), permissionMode);
         }
         return permitted;
     }
@@ -450,14 +461,14 @@ public class Agent {
                 CompletableFuture<T> future = CompletableFuture.supplyAsync(llmCall::get);
                 return future.get(timeoutMs, TimeUnit.MILLISECONDS);
             } catch (TimeoutException e) {
-                throw new RuntimeException("LLM call timed out after " + timeoutMs + "ms", e);
+                throw new AgentExecutionException("LLM call timed out after " + timeoutMs + "ms", e, id, null);
             } catch (Exception e) {
                 lastException = e;
                 Throwable cause = e.getCause() != null ? e.getCause() : e;
                 String msg = cause.getMessage() != null ? cause.getMessage() : "";
                 if (msg.contains("400") || msg.contains("401") || msg.contains("403")
                         || msg.contains("context_length_exceeded") || msg.contains("NonTransient")) {
-                    throw new RuntimeException("LLM call failed (non-retryable): " + msg, e);
+                    throw new AgentExecutionException("LLM call failed (non-retryable): " + msg, e, id, null);
                 }
                 if (attempt < maxRetries) {
                     long backoffMs = (long) Math.pow(2, attempt) * 1000;
@@ -467,12 +478,12 @@ public class Agent {
                         Thread.sleep(backoffMs);
                     } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
-                        throw new RuntimeException("Interrupted during retry backoff", ie);
+                        throw new AgentExecutionException("Interrupted during retry backoff", ie, id, null);
                     }
                 }
             }
         }
-        throw new RuntimeException("LLM call failed after " + maxRetries + " attempts", lastException);
+        throw new AgentExecutionException("LLM call failed after " + maxRetries + " attempts", lastException, id, null);
     }
 
     // ==================== Prompt Building ====================

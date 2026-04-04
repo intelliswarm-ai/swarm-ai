@@ -189,11 +189,27 @@ public class Swarm {
     }
 
     public CompletableFuture<SwarmOutput> kickoffAsync(Map<String, Object> inputs) {
-        return CompletableFuture.supplyAsync(() -> kickoff(inputs));
+        ObservabilityContext.Snapshot snapshot = ObservabilityContext.snapshot();
+        return CompletableFuture.supplyAsync(() -> {
+            snapshot.restore();
+            try {
+                return kickoff(inputs);
+            } finally {
+                ObservabilityContext.clear();
+            }
+        });
     }
 
     public CompletableFuture<SwarmOutput> kickoffAsync(AgentState state) {
-        return CompletableFuture.supplyAsync(() -> kickoff(state));
+        ObservabilityContext.Snapshot snapshot = ObservabilityContext.snapshot();
+        return CompletableFuture.supplyAsync(() -> {
+            snapshot.restore();
+            try {
+                return kickoff(state);
+            } finally {
+                ObservabilityContext.clear();
+            }
+        });
     }
 
     public List<SwarmOutput> kickoffForEach(List<Map<String, Object>> inputsList) {

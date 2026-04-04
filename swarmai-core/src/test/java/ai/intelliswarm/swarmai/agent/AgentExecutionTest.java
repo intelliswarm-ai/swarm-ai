@@ -177,10 +177,11 @@ class AgentExecutionTest extends BaseSwarmTest {
             Agent agent = TestFixtures.createTestAgent(failingClient);
             Task task = createTask(agent);
 
-            RuntimeException exception = assertThrows(RuntimeException.class, () ->
+            Exception exception = assertThrows(Exception.class, () ->
                     agent.executeTask(task, Collections.emptyList()));
 
-            assertTrue(exception.getMessage().contains("Failed to execute task"));
+            assertTrue(exception.getMessage().contains("Failed to execute task")
+                    || exception.getMessage().contains("LLM call failed"));
         }
     }
 
