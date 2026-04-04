@@ -1,5 +1,7 @@
 package ai.intelliswarm.swarmai.spi;
 
+import ai.intelliswarm.swarmai.api.PublicApi;
+
 import java.time.Instant;
 import java.util.Map;
 
@@ -8,6 +10,7 @@ import java.util.Map;
  * Enterprise implementations write to JDBC, Elasticsearch, or other durable stores.
  * Community edition provides a no-op default.
  */
+@PublicApi(since = "1.0")
 public interface AuditSink {
 
     void record(AuditEntry entry);

@@ -1,5 +1,6 @@
 package ai.intelliswarm.swarmai.swarm;
 
+import ai.intelliswarm.swarmai.api.PublicApi;
 import ai.intelliswarm.swarmai.task.output.TaskOutput;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -8,6 +9,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
 
+@PublicApi(since = "1.0")
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class SwarmOutput {
 

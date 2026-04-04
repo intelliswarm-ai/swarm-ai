@@ -52,7 +52,6 @@ public class LlmCircuitBreaker {
 
         RetryConfig retryConfig = RetryConfig.custom()
                 .maxAttempts(config.maxRetryAttempts)
-                .waitDuration(Duration.ofMillis(config.retryInitialIntervalMs))
                 .intervalFunction(attempt ->
                         config.retryInitialIntervalMs * (long) Math.pow(config.retryMultiplier, attempt - 1))
                 .retryOnException(e -> isRetryable(e))
