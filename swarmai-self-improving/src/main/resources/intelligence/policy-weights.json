@@ -1,0 +1,11 @@
+{
+  "_meta": {
+    "description": "Learned PolicyEngine weights — updated by the 10% self-improvement phase",
+    "version": "1.0.0-baseline",
+    "last_updated": "2026-04-04T00:00:00Z",
+    "source": "hardcoded baseline — will be replaced by learned values from real decisions"
+  },
+  "skill_generation": {},
+  "convergence": {},
+  "selection": {}
+}

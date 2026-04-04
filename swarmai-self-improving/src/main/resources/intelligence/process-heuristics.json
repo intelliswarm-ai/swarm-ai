@@ -1,0 +1,9 @@
+{
+  "_meta": {
+    "description": "Process selection heuristics — updated by the 10% self-improvement phase",
+    "version": "1.0.0-baseline",
+    "last_updated": "2026-04-04T00:00:00Z",
+    "source": "empty baseline — heuristics will be learned from task graph shapes and outcomes"
+  },
+  "rules": []
+}
