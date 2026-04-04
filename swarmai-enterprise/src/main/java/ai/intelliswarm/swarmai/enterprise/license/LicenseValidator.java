@@ -3,10 +3,16 @@ package ai.intelliswarm.swarmai.enterprise.license;
 import ai.intelliswarm.swarmai.spi.LicenseProvider.Edition;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
+import java.security.KeyFactory;
+import java.security.PublicKey;
+import java.security.Signature;
+import java.security.spec.X509EncodedKeySpec;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.HashSet;
@@ -15,12 +21,23 @@ import java.util.Set;
 /**
  * Validates enterprise license keys.
  * License keys are Base64-encoded JSON payloads with a signature field.
- * Production deployments should use RSA signature verification.
  */
 public class LicenseValidator {
 
     private static final Logger logger = LoggerFactory.getLogger(LicenseValidator.class);
+    private static final String PUBLIC_KEY_PROPERTY = "swarmai.enterprise.license.public-key";
+    private static final String PUBLIC_KEY_ENV = "SWARMAI_ENTERPRISE_LICENSE_PUBLIC_KEY";
+
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final PublicKey verificationKey;
+
+    public LicenseValidator() {
+        this(loadVerificationKey());
+    }
+
+    LicenseValidator(PublicKey verificationKey) {
+        this.verificationKey = verificationKey;
+    }
 
     /**
      * Decodes and validates a license key string.
@@ -39,6 +56,9 @@ public class LicenseValidator {
             String json = new String(decoded, StandardCharsets.UTF_8);
             JsonNode node = objectMapper.readTree(json);
 
+            String signature = requireField(node, "signature");
+            verifySignature(node, signature);
+
             String licenseId = requireField(node, "licenseId");
             String tenantId = requireField(node, "tenantId");
             Edition edition = Edition.valueOf(requireField(node, "edition").toUpperCase());
@@ -55,8 +75,6 @@ public class LicenseValidator {
                 features.addAll(getDefaultFeatures(edition));
             }
 
-            String signature = node.has("signature") ? node.get("signature").asText() : "";
-
             LicenseKey key = new LicenseKey(licenseId, tenantId, edition, issuedAt, expiresAt, maxAgents, features, signature);
 
             if (key.isExpired()) {
@@ -72,6 +90,62 @@ public class LicenseValidator {
             throw e;
         } catch (Exception e) {
             throw new LicenseValidationException("Failed to decode license key: " + e.getMessage(), e);
+        }
+    }
+
+    private void verifySignature(JsonNode licenseNode, String signatureB64) {
+        try {
+            Signature verifier = Signature.getInstance("SHA256withRSA");
+            verifier.initVerify(verificationKey);
+            verifier.update(canonicalPayload(licenseNode));
+            boolean verified = verifier.verify(Base64.getDecoder().decode(signatureB64));
+            if (!verified) {
+                throw new LicenseValidationException("License signature verification failed");
+            }
+        } catch (LicenseValidationException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new LicenseValidationException("License signature verification failed", e);
+        }
+    }
+
+    private byte[] canonicalPayload(JsonNode licenseNode) {
+        if (!licenseNode.isObject()) {
+            throw new LicenseValidationException("License payload must be a JSON object");
+        }
+
+        ObjectNode payload = ((ObjectNode) licenseNode).deepCopy();
+        payload.remove("signature");
+        try {
+            return objectMapper.writeValueAsBytes(payload);
+        } catch (Exception e) {
+            throw new LicenseValidationException("Failed to canonicalize license payload", e);
+        }
+    }
+
+    private static PublicKey loadVerificationKey() {
+        String keyMaterial = System.getProperty(PUBLIC_KEY_PROPERTY);
+        if (keyMaterial == null || keyMaterial.isBlank()) {
+            keyMaterial = System.getenv(PUBLIC_KEY_ENV);
+        }
+
+        if (keyMaterial == null || keyMaterial.isBlank()) {
+            throw new LicenseValidationException(
+                    "No license verification public key configured. Set system property '"
+                            + PUBLIC_KEY_PROPERTY + "' or env '" + PUBLIC_KEY_ENV + "'."
+            );
+        }
+
+        try {
+            String normalized = keyMaterial
+                    .replace("-----BEGIN PUBLIC KEY-----", "")
+                    .replace("-----END PUBLIC KEY-----", "")
+                    .replaceAll("\\s", "");
+            byte[] der = Base64.getDecoder().decode(normalized);
+            KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+            return keyFactory.generatePublic(new X509EncodedKeySpec(der));
+        } catch (GeneralSecurityException | IllegalArgumentException e) {
+            throw new LicenseValidationException("Invalid license verification public key", e);
         }
     }
 
