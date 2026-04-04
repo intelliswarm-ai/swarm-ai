@@ -137,6 +137,13 @@
             <artifactId>groovy</artifactId>
         </dependency>
 
+        <!-- Prometheus metrics registry (optional) -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+            <optional>true</optional>
+        </dependency>
+
         <!-- Resilience (circuit breaker + retry for LLM calls) -->
         <dependency>
             <groupId>io.github.resilience4j</groupId>
