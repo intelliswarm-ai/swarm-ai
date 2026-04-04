@@ -1,0 +1,18 @@
+apiVersion: v2
+name: swarmai
+description: Enterprise-grade AI agent orchestration framework for Java
+type: application
+version: 0.1.0
+appVersion: "1.0.0-SNAPSHOT"
+keywords:
+  - ai
+  - agents
+  - multi-agent
+  - spring-boot
+  - java
+  - orchestration
+home: https://intelliswarm.ai
+sources:
+  - https://github.com/intelliswarm-ai/swarm-ai
+maintainers:
+  - name: IntelliSwarm.ai Team

@@ -1,0 +1,57 @@
+# SwarmAI Community Edition
+# Includes: core, tools, dsl, rl
+# Does NOT include: enterprise, studio
+
+FROM eclipse-temurin:21-jdk-alpine AS builder
+WORKDIR /build
+
+RUN apk add --no-cache maven
+
+# Copy POMs first for dependency caching
+COPY pom.xml .
+COPY swarmai-bom/pom.xml swarmai-bom/
+COPY swarmai-core/pom.xml swarmai-core/
+COPY swarmai-tools/pom.xml swarmai-tools/
+COPY swarmai-dsl/pom.xml swarmai-dsl/
+COPY swarmai-rl/pom.xml swarmai-rl/
+
+# Download dependencies (cached layer)
+RUN mvn dependency:go-offline -B -pl swarmai-core,swarmai-tools,swarmai-dsl,swarmai-rl -am || true
+
+# Copy source
+COPY swarmai-bom/ swarmai-bom/
+COPY swarmai-core/ swarmai-core/
+COPY swarmai-tools/ swarmai-tools/
+COPY swarmai-dsl/ swarmai-dsl/
+COPY swarmai-rl/ swarmai-rl/
+
+# Build community modules
+RUN mvn clean package -DskipTests -B \
+    -pl swarmai-core,swarmai-tools,swarmai-dsl,swarmai-rl -am
+
+# Runtime
+FROM eclipse-temurin:21-jre-alpine
+
+RUN addgroup -g 1001 swarmai && \
+    adduser -u 1001 -G swarmai -D swarmai
+
+WORKDIR /app
+
+COPY --from=builder /build/swarmai-core/target/swarmai-core-*.jar lib/
+COPY --from=builder /build/swarmai-tools/target/swarmai-tools-*.jar lib/
+COPY --from=builder /build/swarmai-dsl/target/swarmai-dsl-*.jar lib/
+COPY --from=builder /build/swarmai-rl/target/swarmai-rl-*.jar lib/
+
+USER swarmai
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+  CMD wget -qO- http://localhost:8080/actuator/health || exit 1
+
+LABEL org.opencontainers.image.title="SwarmAI Community" \
+      org.opencontainers.image.description="Multi-agent orchestration framework for Java" \
+      org.opencontainers.image.vendor="IntelliSwarm.ai" \
+      org.opencontainers.image.licenses="MIT"
+
+ENTRYPOINT ["java", "-jar", "lib/swarmai-core-1.0.0-SNAPSHOT.jar"]
