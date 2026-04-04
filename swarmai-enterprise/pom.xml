@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>ai.intelliswarm</groupId>
+        <artifactId>swarmai-parent</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>swarmai-enterprise</artifactId>
+    <packaging>jar</packaging>
+
+    <name>SwarmAI Enterprise</name>
+    <description>Commercial enterprise features: multi-tenancy, advanced governance, deep RL, RBAC, audit, and license management</description>
+
+    <dependencies>
+        <!-- SwarmAI Core (provides SPI interfaces, agent/process framework) -->
+        <dependency>
+            <groupId>ai.intelliswarm</groupId>
+            <artifactId>swarmai-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- SwarmAI RL (provides PolicyEngine, context records, HeuristicPolicy) -->
+        <dependency>
+            <groupId>ai.intelliswarm</groupId>
+            <artifactId>swarmai-rl</artifactId>
+            <version>${project.version}</version>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- Spring Boot -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-autoconfigure</artifactId>
+        </dependency>
+
+        <!-- DJL (Deep Java Library) for deep RL — optional -->
+        <dependency>
+            <groupId>ai.djl</groupId>
+            <artifactId>api</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>ai.djl.pytorch</groupId>
+            <artifactId>pytorch-engine</artifactId>
+            <scope>runtime</scope>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- JSON (license key parsing) -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+
+        <!-- Testing -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>
