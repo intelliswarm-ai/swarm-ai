@@ -1,0 +1,56 @@
+replicaCount: 1
+
+image:
+  repository: intelliswarm/swarmai
+  tag: "1.0.0-SNAPSHOT"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: swarmai.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: 2000m
+    memory: 4Gi
+
+# Spring Boot application config
+config:
+  spring:
+    ai:
+      ollama:
+        base-url: http://ollama:11434
+  swarmai:
+    budget:
+      enabled: true
+    observability:
+      enabled: true
+
+# Enterprise license key (leave empty for community edition)
+enterprise:
+  licenseKey: ""
+
+# Liveness and readiness probes
+probes:
+  liveness:
+    path: /actuator/health/liveness
+    initialDelaySeconds: 60
+    periodSeconds: 15
+  readiness:
+    path: /actuator/health/readiness
+    initialDelaySeconds: 30
+    periodSeconds: 10

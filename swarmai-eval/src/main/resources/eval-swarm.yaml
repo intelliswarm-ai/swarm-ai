@@ -1,0 +1,34 @@
+# SwarmAI Self-Evaluation Swarm Definition
+#
+# This workflow uses SwarmAI's own capabilities to evaluate the framework.
+# Run via: EvalSwarmRunner.main() or mvn exec:java -pl swarmai-eval
+#
+# The eval swarm:
+#   1. Executes all registered scenarios (core, enterprise, resilience, DSL)
+#   2. Computes a Framework Value Score (0-100)
+#   3. Detects regressions against previous runs
+#   4. Generates JSON + HTML reports
+#   5. Score >= 70 = release gate PASSED
+#
+# Categories and weights:
+#   CORE:          25% - Agent, Task, Memory, Observability, Budget, Exceptions
+#   ORCHESTRATION: 25% - Sequential, Parallel, Self-Improving, Composite
+#   ENTERPRISE:    20% - Tenancy, Governance, SPI defaults, License
+#   RESILIENCE:    15% - Circuit breaker, Health checks, Config validation
+#   DSL:           15% - YAML parser, Compiler, Process types
+
+swarm:
+  name: "SwarmAI Self-Evaluation"
+  process: SEQUENTIAL
+
+  agents:
+    evaluator:
+      role: "Framework Evaluator"
+      goal: "Execute all eval scenarios and score the framework"
+      backstory: "Quality engineer who runs automated verification suites"
+
+  tasks:
+    evaluate:
+      description: "Run all SwarmAI eval scenarios and compute the Framework Value Score"
+      expectedOutput: "Value score, regression report, and detailed scenario results"
+      agent: evaluator

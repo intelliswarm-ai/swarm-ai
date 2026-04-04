@@ -1,5 +1,6 @@
 package ai.intelliswarm.swarmai.process;
 
+import ai.intelliswarm.swarmai.api.PublicApi;
 import ai.intelliswarm.swarmai.budget.BudgetTracker;
 import ai.intelliswarm.swarmai.state.AgentState;
 import ai.intelliswarm.swarmai.task.Task;
@@ -9,6 +10,7 @@ import ai.intelliswarm.swarmai.swarm.SwarmOutput;
 import java.util.List;
 import java.util.Map;
 
+@PublicApi(since = "1.0")
 public interface Process {
 
     SwarmOutput execute(List<Task> tasks, Map<String, Object> inputs, String swarmId);

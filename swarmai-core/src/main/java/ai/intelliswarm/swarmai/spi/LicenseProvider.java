@@ -1,5 +1,7 @@
 package ai.intelliswarm.swarmai.spi;
 
+import ai.intelliswarm.swarmai.api.PublicApi;
+
 import java.time.Instant;
 import java.util.Set;
 
@@ -8,6 +10,7 @@ import java.util.Set;
  * Enterprise module provides the real implementation with JWT/RSA validation.
  * Community edition provides an always-valid community license.
  */
+@PublicApi(since = "1.0")
 public interface LicenseProvider {
 
     LicenseInfo getLicense();

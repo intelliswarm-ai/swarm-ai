@@ -1,6 +1,7 @@
 package ai.intelliswarm.swarmai.swarm;
 
 import ai.intelliswarm.swarmai.agent.Agent;
+import ai.intelliswarm.swarmai.api.PublicApi;
 import ai.intelliswarm.swarmai.budget.BudgetExceededException;
 import ai.intelliswarm.swarmai.budget.BudgetPolicy;
 import ai.intelliswarm.swarmai.budget.BudgetSnapshot;
@@ -33,6 +34,7 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
+@PublicApi(since = "1.0")
 public class Swarm {
 
     private static final Logger logger = LoggerFactory.getLogger(Swarm.class);

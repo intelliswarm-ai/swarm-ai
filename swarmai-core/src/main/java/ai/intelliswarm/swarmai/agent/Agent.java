@@ -1,5 +1,6 @@
 package ai.intelliswarm.swarmai.agent;
 
+import ai.intelliswarm.swarmai.api.PublicApi;
 import ai.intelliswarm.swarmai.config.ModelContextConfig;
 import ai.intelliswarm.swarmai.memory.Memory;
 import ai.intelliswarm.swarmai.knowledge.Knowledge;
@@ -30,6 +31,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
 
+@PublicApi(since = "1.0")
 public class Agent {
 
     private static final Logger logger = LoggerFactory.getLogger(Agent.class);

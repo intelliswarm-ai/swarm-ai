@@ -1,5 +1,7 @@
 package ai.intelliswarm.swarmai.rl;
 
+import ai.intelliswarm.swarmai.api.PublicApi;
+
 /**
  * Central decision interface for the self-improving workflow loop.
  * Replaces hardcoded thresholds with pluggable policies that can learn from experience.
@@ -24,6 +26,7 @@ package ai.intelliswarm.swarmai.rl;
  * double[] weights = policy.getSelectionWeights(selectionContext);
  * }</pre>
  */
+@PublicApi(since = "1.0")
 public interface PolicyEngine {
 
     /**

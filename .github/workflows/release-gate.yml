@@ -1,0 +1,108 @@
+name: Release Gate
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * *'  # Nightly at 3 AM UTC
+
+jobs:
+  unit-tests:
+    name: Unit Tests (All Modules)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+      - name: Run unit tests
+        run: ./mvnw clean test -B -q
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: '**/target/surefire-reports/*.xml'
+
+  static-analysis:
+    name: Static Analysis & Security
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+      - name: SpotBugs + Enforcer + OWASP
+        run: ./mvnw verify -Prelease-gate -DskipTests -B
+      - name: Upload SpotBugs reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spotbugs-reports
+          path: '**/target/spotbugsXml.xml'
+
+  coverage:
+    name: Coverage Check
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+      - name: Run tests with coverage
+        run: ./mvnw clean verify -Prelease-gate -B
+      - name: Upload JaCoCo reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: '**/target/site/jacoco/'
+
+  cross-jdk:
+    name: Cross-JDK Compatibility
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    strategy:
+      matrix:
+        java: ['21', '22', '23']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: 'temurin'
+          cache: 'maven'
+      - name: Test on Java ${{ matrix.java }}
+        run: ./mvnw clean test -B -q
+
+  release-summary:
+    name: Release Gate Summary
+    runs-on: ubuntu-latest
+    needs: [unit-tests, static-analysis, coverage, cross-jdk]
+    if: always()
+    steps:
+      - name: Check gate results
+        run: |
+          echo "=== RELEASE GATE RESULTS ==="
+          echo "Unit Tests:      ${{ needs.unit-tests.result }}"
+          echo "Static Analysis: ${{ needs.static-analysis.result }}"
+          echo "Coverage:        ${{ needs.coverage.result }}"
+          echo "Cross-JDK:       ${{ needs.cross-jdk.result }}"
+          echo "============================"
+          if [ "${{ needs.unit-tests.result }}" != "success" ] || \
+             [ "${{ needs.static-analysis.result }}" != "success" ] || \
+             [ "${{ needs.coverage.result }}" != "success" ] || \
+             [ "${{ needs.cross-jdk.result }}" != "success" ]; then
+            echo "RELEASE GATE: FAILED"
+            exit 1
+          fi
+          echo "RELEASE GATE: PASSED"

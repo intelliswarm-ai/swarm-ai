@@ -1,5 +1,7 @@
 package ai.intelliswarm.swarmai.spi;
 
+import ai.intelliswarm.swarmai.api.PublicApi;
+
 import java.time.Instant;
 
 /**
@@ -7,6 +9,7 @@ import java.time.Instant;
  * Enterprise implementations record usage for billing systems (Stripe, custom).
  * Community edition provides a no-op default.
  */
+@PublicApi(since = "1.0")
 public interface MeteringSink {
 
     void recordWorkflowUsage(WorkflowUsageRecord record);

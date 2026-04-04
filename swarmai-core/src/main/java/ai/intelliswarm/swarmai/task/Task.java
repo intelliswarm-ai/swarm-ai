@@ -1,6 +1,7 @@
 package ai.intelliswarm.swarmai.task;
 
 import ai.intelliswarm.swarmai.agent.Agent;
+import ai.intelliswarm.swarmai.api.PublicApi;
 import ai.intelliswarm.swarmai.task.output.TaskOutput;
 import ai.intelliswarm.swarmai.task.output.OutputFormat;
 import ai.intelliswarm.swarmai.tool.base.BaseTool;
@@ -19,6 +20,7 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Predicate;
 
+@PublicApi(since = "1.0")
 public class Task {
 
     private static final Logger logger = LoggerFactory.getLogger(Task.class);

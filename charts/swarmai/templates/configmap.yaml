@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-config
+  labels:
+    app: swarmai
+    release: {{ .Release.Name }}
+data:
+  application.yml: |
+    spring:
+      ai:
+        ollama:
+          base-url: {{ .Values.config.spring.ai.ollama.base_url | default "http://ollama:11434" | quote }}
+    swarmai:
+      budget:
+        enabled: {{ .Values.config.swarmai.budget.enabled }}
+      observability:
+        enabled: {{ .Values.config.swarmai.observability.enabled }}
+    management:
+      endpoints:
+        web:
+          exposure:
+            include: health,info,prometheus,metrics
+      endpoint:
+        health:
+          probes:
+            enabled: true
+          show-details: always

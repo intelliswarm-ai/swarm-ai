@@ -1,8 +1,11 @@
 package ai.intelliswarm.swarmai.tool.base;
 
+import ai.intelliswarm.swarmai.api.PublicApi;
+
 import java.util.List;
 import java.util.Map;
 
+@PublicApi(since = "1.0")
 public interface BaseTool {
 
     String getFunctionName();

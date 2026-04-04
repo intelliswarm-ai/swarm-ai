@@ -1,5 +1,7 @@
 package ai.intelliswarm.swarmai.budget;
 
+import ai.intelliswarm.swarmai.api.PublicApi;
+
 /**
  * Tracks token usage and estimated cost across workflow executions.
  * Implementations must be thread-safe.
@@ -7,6 +9,7 @@ package ai.intelliswarm.swarmai.budget;
  * A null BudgetTracker reference in consuming code means budget enforcement
  * is disabled -- callers should null-check before invoking methods.
  */
+@PublicApi(since = "1.0")
 public interface BudgetTracker {
 
     /**
