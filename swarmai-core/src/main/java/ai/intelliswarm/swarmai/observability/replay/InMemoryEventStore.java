@@ -6,6 +6,7 @@ import ai.intelliswarm.swarmai.observability.event.EnrichedSwarmEvent;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
@@ -22,6 +23,9 @@ public class InMemoryEventStore implements EventStore {
 
     // Index: swarmId -> correlationIds
     private final Map<String, Set<String>> correlationsBySwarm;
+
+    // O(1) event counter — avoids iterating all values on every store()
+    private final AtomicInteger totalEventCount = new AtomicInteger(0);
 
     public InMemoryEventStore(ObservabilityProperties properties) {
         this.properties = properties;
@@ -46,6 +50,7 @@ public class InMemoryEventStore implements EventStore {
 
         eventsByCorrelation.computeIfAbsent(correlationId, k -> Collections.synchronizedList(new ArrayList<>()))
                 .add(event);
+        totalEventCount.incrementAndGet();
 
         String swarmId = event.getSwarmId();
         if (swarmId != null) {
@@ -124,9 +129,7 @@ public class InMemoryEventStore implements EventStore {
 
     @Override
     public int getTotalEventCount() {
-        return eventsByCorrelation.values().stream()
-                .mapToInt(List::size)
-                .sum();
+        return totalEventCount.get();
     }
 
     @Override
@@ -142,10 +145,13 @@ public class InMemoryEventStore implements EventStore {
             return 0;
         }
 
+        int count = removed.size();
+        totalEventCount.addAndGet(-count);
+
         // Clean up swarm index
         correlationsBySwarm.values().forEach(set -> set.remove(correlationId));
 
-        return removed.size();
+        return count;
     }
 
     @Override
@@ -168,9 +174,11 @@ public class InMemoryEventStore implements EventStore {
                     .allMatch(e -> e.getEventInstant() != null && e.getEventInstant().isBefore(before));
 
             if (allOlder) {
+                int evtCount = events.size();
                 iterator.remove();
+                totalEventCount.addAndGet(-evtCount);
                 correlationsBySwarm.values().forEach(set -> set.remove(entry.getKey()));
-                deleted += events.size();
+                deleted += evtCount;
             }
         }
 
@@ -191,6 +199,7 @@ public class InMemoryEventStore implements EventStore {
     public void clear() {
         eventsByCorrelation.clear();
         correlationsBySwarm.clear();
+        totalEventCount.set(0);
     }
 
     /**

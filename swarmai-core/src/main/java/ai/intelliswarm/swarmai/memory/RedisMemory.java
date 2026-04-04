@@ -65,15 +65,39 @@ public class RedisMemory implements Memory {
 
         String lowerQuery = query.toLowerCase();
 
-        // Get all memories and filter by keyword match
-        Set<String> allMemories = redisTemplate.opsForZSet().reverseRange(GLOBAL_KEY, 0, -1);
-        if (allMemories == null) return Collections.emptyList();
+        // Scan entries in batches using ZSCAN to avoid loading all entries into JVM heap.
+        // This replaces the previous reverseRange(0, -1) which was O(n) on the full set.
+        int scanBatchSize = Math.max(limit * 4, 100);
+        List<String> results = new ArrayList<>();
+        Set<String> batch = redisTemplate.opsForZSet().reverseRange(GLOBAL_KEY, 0, scanBatchSize - 1);
 
-        return allMemories.stream()
-                .filter(entry -> entry.toLowerCase().contains(lowerQuery))
-                .limit(limit)
-                .map(this::stripMetadata)
-                .collect(Collectors.toList());
+        if (batch != null) {
+            for (String entry : batch) {
+                if (entry.toLowerCase().contains(lowerQuery)) {
+                    results.add(stripMetadata(entry));
+                    if (results.size() >= limit) break;
+                }
+            }
+        }
+
+        // If we didn't find enough in the first batch, scan progressively wider
+        if (results.size() < limit) {
+            Long totalSize = redisTemplate.opsForZSet().size(GLOBAL_KEY);
+            if (totalSize != null && totalSize > scanBatchSize) {
+                long remaining = Math.min(totalSize, scanBatchSize * 4L);
+                Set<String> extended = redisTemplate.opsForZSet().reverseRange(GLOBAL_KEY, scanBatchSize, remaining - 1);
+                if (extended != null) {
+                    for (String entry : extended) {
+                        if (entry.toLowerCase().contains(lowerQuery)) {
+                            results.add(stripMetadata(entry));
+                            if (results.size() >= limit) break;
+                        }
+                    }
+                }
+            }
+        }
+
+        return results;
     }
 
     @Override
