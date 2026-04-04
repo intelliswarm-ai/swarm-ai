@@ -10,7 +10,6 @@ import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
-import org.springframework.context.annotation.Conditional;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.annotation.Order;
@@ -30,8 +29,11 @@ public class DeepRLAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean(PolicyEngine.class)
-    @Conditional(OnDeepRlFeatureCondition.class)
-    public PolicyEngine deepRLPolicyEngine(DeepRLProperties props) {
+    public PolicyEngine deepRLPolicyEngine(DeepRLProperties props, LicenseManager licenseManager) {
+        if (!licenseManager.hasFeature("deep-rl")) {
+            logger.info("Deep RL feature not included in license (edition={})", licenseManager.getEdition());
+            return null;
+        }
         logger.info("Initializing enterprise DeepRLPolicy (DQN-based neural network)");
         DeepRLPolicy.DeepRLConfig config = new DeepRLPolicy.DeepRLConfig(
                 props.getLearningRate(),
