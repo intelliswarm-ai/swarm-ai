@@ -5,6 +5,9 @@ import ai.intelliswarm.swarmai.selfimproving.classifier.ImprovementClassifier;
 import ai.intelliswarm.swarmai.selfimproving.collector.ImprovementCollector;
 import ai.intelliswarm.swarmai.selfimproving.extractor.PatternExtractor;
 import ai.intelliswarm.swarmai.selfimproving.phase.ImprovementPhase;
+import ai.intelliswarm.swarmai.selfimproving.reporter.GitHubImprovementReporter;
+import ai.intelliswarm.swarmai.selfimproving.reporter.ImprovementReportingService;
+import ai.intelliswarm.swarmai.selfimproving.reporter.TelemetryReporter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -69,5 +72,44 @@ public class SelfImprovementAutoConfiguration {
                 "{}% of token budget reserved for framework improvement",
                 config.getReservePercent() * 100);
         return new ImprovementPhase(config, collector, extractor, classifier, aggregator);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "swarmai.self-improving", name = "github-token")
+    public GitHubImprovementReporter githubImprovementReporter(SelfImprovementConfig config) {
+        log.info("SwarmAI Self-Improvement: GitHub reporter initialized — " +
+                "PRs will be created on {}/{}", config.getGithubOwner(), config.getGithubRepo());
+        return new GitHubImprovementReporter(
+                config.getGithubOwner(),
+                config.getGithubRepo(),
+                config.getGithubToken(),
+                config.getGithubBaseBranch()
+        );
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public TelemetryReporter telemetryReporter(SelfImprovementConfig config) {
+        if (config.isTelemetryEnabled()) {
+            log.info("SwarmAI Self-Improvement: Telemetry reporter initialized — " +
+                    "anonymized improvement data will be sent to {}", config.getTelemetryEndpoint());
+        }
+        return new TelemetryReporter(config.getTelemetryEndpoint(), config.isTelemetryEnabled());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ImprovementReportingService improvementReportingService(
+            ImprovementAggregator aggregator,
+            org.springframework.beans.factory.ObjectProvider<GitHubImprovementReporter> githubReporter,
+            TelemetryReporter telemetryReporter) {
+        log.info("SwarmAI Self-Improvement: Reporting service initialized — " +
+                "improvements will flow back to the framework repository");
+        return new ImprovementReportingService(
+                aggregator,
+                githubReporter.getIfAvailable(),
+                telemetryReporter
+        );
     }
 }

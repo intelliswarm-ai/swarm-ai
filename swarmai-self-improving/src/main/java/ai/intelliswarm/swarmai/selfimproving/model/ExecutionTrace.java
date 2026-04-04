@@ -1,7 +1,7 @@
 package ai.intelliswarm.swarmai.selfimproving.model;
 
 import ai.intelliswarm.swarmai.swarm.SwarmOutput;
-import ai.intelliswarm.swarmai.task.TaskOutput;
+import ai.intelliswarm.swarmai.task.output.TaskOutput;
 
 import java.time.Duration;
 import java.time.Instant;

@@ -53,6 +53,28 @@ public class SelfImprovementConfig {
     /** Path to store improvement proposals */
     private String proposalPath = "proposals/";
 
+    // --- GitHub reporting ---
+
+    /** GitHub repository owner (e.g., "intelliswarm-ai") */
+    private String githubOwner = "intelliswarm-ai";
+
+    /** GitHub repository name (e.g., "swarm-ai") */
+    private String githubRepo = "swarm-ai";
+
+    /** GitHub API token for creating branches and PRs */
+    private String githubToken;
+
+    /** Base branch for PRs (default: "main") */
+    private String githubBaseBranch = "main";
+
+    // --- Telemetry reporting ---
+
+    /** Enable anonymized telemetry reporting to central endpoint */
+    private boolean telemetryEnabled = true;
+
+    /** Central endpoint for telemetry aggregation */
+    private String telemetryEndpoint = "https://api.intelliswarm.ai";
+
     // --- Priority budget allocation within the 10% ---
 
     /** Budget allocation for Priority 1: Fix failures */
@@ -129,4 +151,22 @@ public class SelfImprovementConfig {
 
     public double getPriority5ExplorePercent() { return priority5ExplorePercent; }
     public void setPriority5ExplorePercent(double v) { this.priority5ExplorePercent = v; }
+
+    public String getGithubOwner() { return githubOwner; }
+    public void setGithubOwner(String githubOwner) { this.githubOwner = githubOwner; }
+
+    public String getGithubRepo() { return githubRepo; }
+    public void setGithubRepo(String githubRepo) { this.githubRepo = githubRepo; }
+
+    public String getGithubToken() { return githubToken; }
+    public void setGithubToken(String githubToken) { this.githubToken = githubToken; }
+
+    public String getGithubBaseBranch() { return githubBaseBranch; }
+    public void setGithubBaseBranch(String githubBaseBranch) { this.githubBaseBranch = githubBaseBranch; }
+
+    public boolean isTelemetryEnabled() { return telemetryEnabled; }
+    public void setTelemetryEnabled(boolean telemetryEnabled) { this.telemetryEnabled = telemetryEnabled; }
+
+    public String getTelemetryEndpoint() { return telemetryEndpoint; }
+    public void setTelemetryEndpoint(String telemetryEndpoint) { this.telemetryEndpoint = telemetryEndpoint; }
 }
