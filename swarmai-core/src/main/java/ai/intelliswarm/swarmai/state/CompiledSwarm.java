@@ -365,6 +365,9 @@ public final class CompiledSwarm implements SwarmDefinition {
                 }
                 yield coordinator;
             }
+            case DISTRIBUTED -> throw new IllegalStateException(
+                    "DISTRIBUTED process type requires swarmai-distributed module. " +
+                    "Use Swarm.builder() with swarmai-distributed on the classpath.");
             case COMPOSITE -> throw new IllegalStateException(
                     "COMPOSITE process type cannot be created via SwarmGraph. " +
                     "Use CompositeProcess.of() directly.");

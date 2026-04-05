@@ -45,6 +45,7 @@
         <module>swarmai-studio</module>
         <module>swarmai-eval</module>
         <module>swarmai-self-improving</module>
+        <module>swarmai-distributed</module>
     </modules>
 
     <properties>
