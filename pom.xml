@@ -44,6 +44,7 @@
         <module>swarmai-enterprise</module>
         <module>swarmai-studio</module>
         <module>swarmai-eval</module>
+        <module>swarmai-self-improving</module>
     </modules>
 
     <properties>

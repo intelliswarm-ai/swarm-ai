@@ -1,0 +1,9 @@
+{
+  "_meta": {
+    "description": "Learned tool routing hints — updated by the 10% self-improvement phase",
+    "version": "1.0.0-baseline",
+    "last_updated": "2026-04-04T00:00:00Z",
+    "source": "hardcoded baseline — will be replaced by learned routing from real tool usage"
+  },
+  "rules": []
+}

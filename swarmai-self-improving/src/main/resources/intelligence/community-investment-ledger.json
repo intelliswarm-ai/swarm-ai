@@ -1,0 +1,17 @@
+{
+  "_meta": {
+    "description": "Community Investment Ledger — tracks the aggregate impact of the 10% self-improvement investment across all SwarmAI users. Designed for public display on intelliswarm.ai",
+    "version": "1.0.0-baseline",
+    "last_updated": "2026-04-04T00:00:00Z"
+  },
+  "totalWorkflowRuns": 0,
+  "totalTokensInvested": 0,
+  "totalProposalsGenerated": 0,
+  "totalImprovementsShipped": 0,
+  "totalSkillsGraduated": 0,
+  "totalAntiPatternsDiscovered": 0,
+  "estimatedTokensSaved": 0,
+  "roi": 0.0,
+  "improvementsByCategory": {},
+  "milestones": []
+}
