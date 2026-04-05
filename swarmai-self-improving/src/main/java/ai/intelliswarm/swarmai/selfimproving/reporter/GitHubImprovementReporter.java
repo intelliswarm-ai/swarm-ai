@@ -313,20 +313,66 @@ public class GitHubImprovementReporter {
                 entry.put("created_at", proposal.createdAt().toString());
 
                 String path = "swarmai-self-improving/src/main/resources/" + targetFile;
-                changes.put(path, objectMapper.writeValueAsString(Map.of(
-                        "_meta", Map.of(
-                                "description", "Updated by self-improvement phase",
-                                "version", "1.0.0-learned",
-                                "last_updated", java.time.Instant.now().toString()
-                        ),
-                        "rules", List.of(entry)
-                )));
+                List<Map<String, Object>> rules = mergeRulesWithExisting(targetFile, entry);
+
+                Map<String, Object> content = new LinkedHashMap<>();
+                content.put("_meta", Map.of(
+                        "description", "Updated by self-improvement phase",
+                        "version", "1.0.0-learned",
+                        "last_updated", java.time.Instant.now().toString()
+                ));
+                content.put("rules", rules);
+
+                changes.put(path, objectMapper.writeValueAsString(content));
             }
         } catch (Exception e) {
             log.warn("Failed to build file changes for proposal {}: {}", proposal.proposalId(), e.getMessage());
         }
 
         return changes;
+    }
+
+
+    List<Map<String, Object>> mergeRulesWithExisting(String targetFile, Map<String, Object> newEntry) {
+        return mergeRules(loadExistingRules(targetFile), newEntry);
+    }
+
+    List<Map<String, Object>> mergeRules(List<Map<String, Object>> existingRules, Map<String, Object> newEntry) {
+        List<Map<String, Object>> mergedRules = new ArrayList<>(existingRules);
+        mergedRules.removeIf(rule -> Objects.equals(rule.get("rule_id"), newEntry.get("rule_id")));
+        mergedRules.add(new LinkedHashMap<>(newEntry));
+        return mergedRules;
+    }
+
+    private List<Map<String, Object>> loadExistingRules(String targetFile) {
+        try (var stream = Thread.currentThread().getContextClassLoader().getResourceAsStream(targetFile)) {
+            if (stream == null) {
+                return List.of();
+            }
+
+            Map<String, Object> existing = objectMapper.readValue(stream, Map.class);
+            Object rulesNode = existing.get("rules");
+            if (!(rulesNode instanceof List<?> rawRules)) {
+                return List.of();
+            }
+
+            List<Map<String, Object>> rules = new ArrayList<>();
+            for (Object rawRule : rawRules) {
+                if (rawRule instanceof Map<?, ?> rawMap) {
+                    Map<String, Object> normalized = new LinkedHashMap<>();
+                    for (Map.Entry<?, ?> field : rawMap.entrySet()) {
+                        if (field.getKey() != null) {
+                            normalized.put(field.getKey().toString(), field.getValue());
+                        }
+                    }
+                    rules.add(normalized);
+                }
+            }
+            return rules;
+        } catch (Exception e) {
+            log.warn("Failed to load existing rules from {}: {}", targetFile, e.getMessage());
+            return List.of();
+        }
     }
 
     private String buildCommitMessage(ImprovementProposal proposal) {

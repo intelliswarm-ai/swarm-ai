@@ -84,6 +84,52 @@ class GitHubImprovementReporterTest {
         assertTrue(body.contains("33,000"));
     }
 
+    @Test
+    void shouldMergeExistingRulesInsteadOfOverwriting() {
+        Map<String, Object> existing = new LinkedHashMap<>();
+        existing.put("rule_id", "existing-rule");
+        existing.put("condition", "already-learned");
+
+        Map<String, Object> incoming = new LinkedHashMap<>();
+        incoming.put("rule_id", "new-rule");
+        incoming.put("condition", "fresh-pattern");
+
+        List<Map<String, Object>> merged = invokeMergeRules(List.of(existing), incoming);
+
+        assertEquals(2, merged.size());
+        assertTrue(merged.stream().anyMatch(rule -> "existing-rule".equals(rule.get("rule_id"))));
+        assertTrue(merged.stream().anyMatch(rule -> "new-rule".equals(rule.get("rule_id"))));
+    }
+
+    @Test
+    void shouldReplaceRuleWhenRuleIdAlreadyExists() {
+        Map<String, Object> existing = new LinkedHashMap<>();
+        existing.put("rule_id", "rule-1");
+        existing.put("condition", "old-condition");
+
+        Map<String, Object> incoming = new LinkedHashMap<>();
+        incoming.put("rule_id", "rule-1");
+        incoming.put("condition", "new-condition");
+
+        List<Map<String, Object>> merged = invokeMergeRules(List.of(existing), incoming);
+
+        assertEquals(1, merged.size());
+        assertEquals("new-condition", merged.get(0).get("condition"));
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> invokeMergeRules(List<Map<String, Object>> existing,
+                                                        Map<String, Object> incoming) {
+        try {
+            var method = GitHubImprovementReporter.class.getDeclaredMethod("mergeRules", List.class, Map.class);
+            method.setAccessible(true);
+            return (List<Map<String, Object>>) method.invoke(reporter, existing, incoming);
+        } catch (Exception e) {
+            fail("Failed to invoke mergeRules: " + e.getMessage());
+            return List.of();
+        }
+    }
+
     private ImprovementProposal buildProposal(ImprovementTier tier) {
         WorkflowShape shape = new WorkflowShape(3, 2, true, false, false,
                 Set.of("WEB"), "SELF_IMPROVING", 2, 1.0, true, false);

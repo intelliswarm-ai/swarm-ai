@@ -77,7 +77,10 @@ public class ImprovementExporter {
 
         ContributionFile contribution = buildContributionFile(allProposals, intelligence);
 
-        Files.createDirectories(outputPath.getParent());
+        Path parent = outputPath.getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
         objectMapper.writeValue(outputPath.toFile(), contribution);
 
         log.info("Exported {} improvements to {}", allProposals.size(), outputPath);
