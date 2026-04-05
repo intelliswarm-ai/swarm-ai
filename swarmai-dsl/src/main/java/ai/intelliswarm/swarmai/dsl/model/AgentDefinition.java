@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * YAML definition for an agent.
@@ -62,6 +63,20 @@ public class AgentDefinition {
 
     private boolean knowledge = false;
 
+    @JsonProperty("memoryProvider")
+    private String memoryProvider;
+
+    @JsonProperty("knowledgeProvider")
+    private String knowledgeProvider;
+
+    @JsonProperty("systemTemplate")
+    private boolean systemTemplate = true;
+
+    @JsonProperty("stepCallback")
+    private boolean stepCallback = false;
+
+    private Map<String, Object> metadata;
+
     private List<String> tools = new ArrayList<>();
 
     // --- Getters & Setters ---
@@ -113,6 +128,21 @@ public class AgentDefinition {
 
     public boolean isKnowledge() { return knowledge; }
     public void setKnowledge(boolean knowledge) { this.knowledge = knowledge; }
+
+    public String getMemoryProvider() { return memoryProvider; }
+    public void setMemoryProvider(String memoryProvider) { this.memoryProvider = memoryProvider; }
+
+    public String getKnowledgeProvider() { return knowledgeProvider; }
+    public void setKnowledgeProvider(String knowledgeProvider) { this.knowledgeProvider = knowledgeProvider; }
+
+    public boolean isSystemTemplate() { return systemTemplate; }
+    public void setSystemTemplate(boolean systemTemplate) { this.systemTemplate = systemTemplate; }
+
+    public boolean isStepCallback() { return stepCallback; }
+    public void setStepCallback(boolean stepCallback) { this.stepCallback = stepCallback; }
+
+    public Map<String, Object> getMetadata() { return metadata; }
+    public void setMetadata(Map<String, Object> metadata) { this.metadata = metadata; }
 
     public List<String> getTools() { return tools; }
     public void setTools(List<String> tools) { this.tools = tools; }

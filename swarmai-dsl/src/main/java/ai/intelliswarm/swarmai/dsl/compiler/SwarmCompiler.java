@@ -285,6 +285,14 @@ public class SwarmCompiler {
                 int maxParallel = stageDef.getMaxParallelAgents() != null ? stageDef.getMaxParallelAgents() : 5;
                 yield new SwarmCoordinator(agents, managerAgent, eventPublisher, maxIter, maxParallel, criteria);
             }
+            case DISTRIBUTED -> {
+                if (managerAgent == null) {
+                    throw new SwarmCompileException("Stage " + stageIndex + " (DISTRIBUTED) requires a managerAgent");
+                }
+                // Delegate to Swarm.builder which handles reflection-based instantiation
+                throw new SwarmCompileException("DISTRIBUTED process in composite stages is not yet supported. " +
+                        "Use process: DISTRIBUTED at the top level.");
+            }
             case COMPOSITE -> throw new SwarmCompileException("Stage " + stageIndex + " cannot be COMPOSITE (no nesting)");
         };
     }

@@ -84,6 +84,25 @@ public class SwarmDefinition {
 
     private Map<String, Object> config = new LinkedHashMap<>();
 
+    // --- New feature definitions ---
+
+    private GoalDefinition goal;
+
+    private ClusterDefinition cluster;
+
+    private PartitioningDefinition partitioning;
+
+    @JsonProperty("selfImproving")
+    private SelfImprovingDefinition selfImproving;
+
+    private ObservabilityDefinition observability;
+
+    private MemoryDefinition memory;
+
+    private KnowledgeDefinition knowledge;
+
+    private TenantDefinition tenant;
+
     // --- Getters & Setters ---
 
     public String getName() { return name; }
@@ -139,4 +158,28 @@ public class SwarmDefinition {
 
     public Map<String, Object> getConfig() { return config; }
     public void setConfig(Map<String, Object> config) { this.config = config; }
+
+    public GoalDefinition getGoal() { return goal; }
+    public void setGoal(GoalDefinition goal) { this.goal = goal; }
+
+    public ClusterDefinition getCluster() { return cluster; }
+    public void setCluster(ClusterDefinition cluster) { this.cluster = cluster; }
+
+    public PartitioningDefinition getPartitioning() { return partitioning; }
+    public void setPartitioning(PartitioningDefinition partitioning) { this.partitioning = partitioning; }
+
+    public SelfImprovingDefinition getSelfImproving() { return selfImproving; }
+    public void setSelfImproving(SelfImprovingDefinition selfImproving) { this.selfImproving = selfImproving; }
+
+    public ObservabilityDefinition getObservability() { return observability; }
+    public void setObservability(ObservabilityDefinition observability) { this.observability = observability; }
+
+    public MemoryDefinition getMemory() { return memory; }
+    public void setMemory(MemoryDefinition memory) { this.memory = memory; }
+
+    public KnowledgeDefinition getKnowledge() { return knowledge; }
+    public void setKnowledge(KnowledgeDefinition knowledge) { this.knowledge = knowledge; }
+
+    public TenantDefinition getTenant() { return tenant; }
+    public void setTenant(TenantDefinition tenant) { this.tenant = tenant; }
 }

@@ -264,10 +264,42 @@ public class Swarm {
                 }
                 yield coordinator;
             }
+            case DISTRIBUTED -> {
+                int maxParallel = config.containsKey("maxParallelPartitions")
+                        ? ((Number) config.get("maxParallelPartitions")).intValue()
+                        : Runtime.getRuntime().availableProcessors();
+                String criteria = config.containsKey("qualityCriteria") ? (String) config.get("qualityCriteria") : null;
+                // DistributedProcess is in swarmai-distributed module — instantiated via reflection
+                // to avoid circular dependency from core → distributed
+                yield createDistributedProcess(maxParallel, criteria);
+            }
             case COMPOSITE -> throw new IllegalStateException(
                     "COMPOSITE process type cannot be created via Swarm.builder(). " +
                     "Use CompositeProcess.of() directly.");
         };
+    }
+
+    private Process createDistributedProcess(int maxParallel, String criteria) {
+        try {
+            Class<?> clazz = Class.forName(
+                    "ai.intelliswarm.swarmai.distributed.execution.DistributedProcess");
+            var constructor = clazz.getConstructor(
+                    java.util.List.class,
+                    ai.intelliswarm.swarmai.agent.Agent.class,
+                    org.springframework.context.ApplicationEventPublisher.class,
+                    int.class, String.class,
+                    Class.forName("ai.intelliswarm.swarmai.distributed.goal.PartitionStrategy"));
+            Object strategy = Class.forName("ai.intelliswarm.swarmai.distributed.goal.PartitionStrategy")
+                    .getEnumConstants()[3]; // ADAPTIVE
+            return (Process) constructor.newInstance(
+                    agents, managerAgent, eventPublisher, maxParallel, criteria, strategy);
+        } catch (ClassNotFoundException e) {
+            throw new IllegalStateException(
+                    "DISTRIBUTED process requires swarmai-distributed module on classpath. " +
+                    "Add dependency: ai.intelliswarm:swarmai-distributed");
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to create DistributedProcess: " + e.getMessage(), e);
+        }
     }
 
     private void validateConfiguration() {
@@ -285,6 +317,10 @@ public class Swarm {
 
         if (processType == ProcessType.SWARM && managerAgent == null) {
             throw new IllegalStateException("Manager agent (reviewer) is required for swarm coordinator process");
+        }
+
+        if (processType == ProcessType.DISTRIBUTED && managerAgent == null) {
+            throw new IllegalStateException("Manager agent (coordinator) is required for distributed process");
         }
 
         if (tasks.isEmpty()) {
