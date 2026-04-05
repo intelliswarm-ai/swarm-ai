@@ -217,7 +217,7 @@ public class GitHubImprovementReporter {
             body.append("- **Observation**: %s\n".formatted(proposal.origin().observation()));
             body.append("- **Occurrences**: %d\n".formatted(proposal.origin().occurrenceCount()));
             if (proposal.origin().tokenSavings() > 0) {
-                body.append("- **Token savings**: %,d per run\n".formatted(proposal.origin().tokenSavings()));
+                body.append(String.format(Locale.US, "- **Token savings**: %,d per run\n", proposal.origin().tokenSavings()));
             }
             if (proposal.origin().qualityDelta() != 0) {
                 body.append("- **Quality delta**: %+.2f\n".formatted(proposal.origin().qualityDelta()));

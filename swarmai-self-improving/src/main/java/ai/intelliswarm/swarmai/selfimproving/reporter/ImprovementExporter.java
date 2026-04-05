@@ -213,7 +213,7 @@ public class ImprovementExporter {
     ) {
         public String toOpsMessage() {
             if (totalPending == 0) return "No pending improvements.";
-            return """
+            return String.format(java.util.Locale.US, """
                     SwarmAI Self-Improvement: %d improvements discovered
                     ├── %d ready to auto-apply (Tier 1)
                     ├── %d ready for review (Tier 2)
@@ -223,7 +223,7 @@ public class ImprovementExporter {
                     Run the export to contribute back:
                       POST /actuator/self-improving/export
                       or programmatically: improvementExporter.exportToDefault()
-                    """.formatted(totalPending, tier1Count, tier2Count, tier3Count, estimatedTokenSavings);
+                    """, totalPending, tier1Count, tier2Count, tier3Count, estimatedTokenSavings);
         }
     }
 
