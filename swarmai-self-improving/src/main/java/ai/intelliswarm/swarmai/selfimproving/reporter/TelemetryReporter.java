@@ -98,7 +98,7 @@ public class TelemetryReporter {
     /**
      * Build an anonymized telemetry report from an improvement result.
      */
-    TelemetryReport buildReport(ImprovementResult result) {
+    public TelemetryReport buildReport(ImprovementResult result) {
         List<AnonymizedProposal> proposals = result.proposals().stream()
                 .map(this::anonymize)
                 .toList();

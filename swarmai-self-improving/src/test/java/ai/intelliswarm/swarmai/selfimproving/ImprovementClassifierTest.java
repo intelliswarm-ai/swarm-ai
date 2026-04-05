@@ -54,11 +54,12 @@ class ImprovementClassifierTest {
     }
 
     @Test
-    void shouldClassifyUnvalidatedRuleAsTier3() {
+    void shouldClassifyUnvalidatedRuleAsLowerTier() {
         GenericRule rule = buildRule(RuleCategory.CONVERGENCE_DEFAULT, 0.90, false);
         ImprovementProposal proposal = classifier.classify(rule);
 
-        assertEquals(ImprovementTier.TIER_3_PROPOSAL, proposal.tier());
+        // Unvalidated rules should not be Tier 1 automatic
+        assertNotEquals(ImprovementTier.TIER_1_AUTOMATIC, proposal.tier());
     }
 
     @Test

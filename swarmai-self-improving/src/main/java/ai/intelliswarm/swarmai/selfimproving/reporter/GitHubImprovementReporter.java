@@ -184,7 +184,7 @@ public class GitHubImprovementReporter {
                 proposals.size(), t1, t2);
     }
 
-    String buildPrBody(ImprovementProposal proposal) {
+    public String buildPrBody(ImprovementProposal proposal) {
         StringBuilder body = new StringBuilder();
 
         body.append("## Self-Improvement: Framework Intelligence Update\n\n");

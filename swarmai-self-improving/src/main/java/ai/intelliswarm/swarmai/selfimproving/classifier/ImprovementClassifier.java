@@ -36,8 +36,8 @@ public class ImprovementClassifier {
         ImprovementProposal.Origin origin = buildOrigin(rule);
 
         ImprovementProposal proposal = ImprovementProposal.builder()
-                .tier(tier)
                 .rule(rule)
+                .tier(tier)  // must be after .rule() to override suggestedTier
                 .improvement(improvement)
                 .origin(origin)
                 .status(tier == ImprovementTier.TIER_1_AUTOMATIC

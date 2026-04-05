@@ -5,16 +5,21 @@ import ai.intelliswarm.swarmai.selfimproving.classifier.ImprovementClassifier;
 import ai.intelliswarm.swarmai.selfimproving.collector.ImprovementCollector;
 import ai.intelliswarm.swarmai.selfimproving.extractor.PatternExtractor;
 import ai.intelliswarm.swarmai.selfimproving.phase.ImprovementPhase;
+import ai.intelliswarm.swarmai.selfimproving.health.ImprovementNudgeScheduler;
+import ai.intelliswarm.swarmai.selfimproving.health.SelfImprovementHealthIndicator;
 import ai.intelliswarm.swarmai.selfimproving.reporter.GitHubImprovementReporter;
+import ai.intelliswarm.swarmai.selfimproving.reporter.ImprovementExporter;
 import ai.intelliswarm.swarmai.selfimproving.reporter.ImprovementReportingService;
 import ai.intelliswarm.swarmai.selfimproving.reporter.TelemetryReporter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * Auto-configuration for the SwarmAI Self-Improvement engine.
@@ -27,6 +32,7 @@ import org.springframework.context.annotation.Configuration;
  */
 @Configuration
 @EnableConfigurationProperties(SelfImprovementConfig.class)
+@EnableScheduling
 @ConditionalOnProperty(prefix = "swarmai.self-improving", name = "enabled", havingValue = "true")
 public class SelfImprovementAutoConfiguration {
 
@@ -111,5 +117,37 @@ public class SelfImprovementAutoConfiguration {
                 githubReporter.getIfAvailable(),
                 telemetryReporter
         );
+    }
+
+    // --- Offline / Firewalled Environment Support ---
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ImprovementExporter improvementExporter(ImprovementAggregator aggregator) {
+        log.info("SwarmAI Self-Improvement: ImprovementExporter initialized — " +
+                "use POST /actuator/self-improving/export for air-gapped environments");
+        return new ImprovementExporter(aggregator);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnClass(name = "org.springframework.boot.actuate.health.HealthIndicator")
+    public SelfImprovementHealthIndicator selfImprovementHealthIndicator(
+            ImprovementExporter exporter, SelfImprovementConfig config) {
+        boolean autoReporting = config.getGithubToken() != null || config.isTelemetryEnabled();
+        return new SelfImprovementHealthIndicator(exporter, autoReporting);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ImprovementNudgeScheduler improvementNudgeScheduler(
+            ImprovementExporter exporter, SelfImprovementConfig config) {
+        boolean autoReporting = config.getGithubToken() != null && !config.getGithubToken().isBlank();
+        ImprovementNudgeScheduler scheduler = new ImprovementNudgeScheduler(exporter, autoReporting);
+        // Nudge on startup if improvements pending and no auto-reporting
+        if (!autoReporting) {
+            scheduler.nudgeOnStartup();
+        }
+        return scheduler;
     }
 }

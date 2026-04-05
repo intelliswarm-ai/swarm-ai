@@ -29,7 +29,7 @@ public record WorkflowShape(
     public static WorkflowShape from(List<Task> tasks, Process process, Map<String, Object> inputs) {
         int taskCount = tasks.size();
         int maxDepth = computeMaxDepth(tasks);
-        boolean parallel = tasks.stream().anyMatch(t -> t.getDependencies() != null && t.getDependencies().isEmpty());
+        boolean parallel = tasks.stream().anyMatch(t -> t.getDependencyTaskIds() != null && t.getDependencyTaskIds().isEmpty());
         boolean skillGen = "SELF_IMPROVING".equals(process.getType().name())
                 || "SWARM".equals(process.getType().name());
 
@@ -113,11 +113,11 @@ public record WorkflowShape(
     }
 
     private static int depth(Task task, Map<String, Task> byId, Set<String> visited) {
-        if (task.getDependencies() == null || task.getDependencies().isEmpty()) return 0;
+        if (task.getDependencyTaskIds() == null || task.getDependencyTaskIds().isEmpty()) return 0;
         if (visited.contains(task.getId())) return 0;
         visited.add(task.getId());
         int max = 0;
-        for (String depId : task.getDependencies()) {
+        for (String depId : task.getDependencyTaskIds()) {
             Task dep = byId.get(depId);
             if (dep != null) {
                 max = Math.max(max, 1 + depth(dep, byId, visited));

@@ -138,16 +138,19 @@ public record ExecutionTrace(
             this.totalCompletionTokens = output.getTotalCompletionTokens();
 
             for (TaskOutput taskOutput : output.getTaskOutputs()) {
+                Long prompt = taskOutput.getPromptTokens() != null ? taskOutput.getPromptTokens() : 0L;
+                Long completion = taskOutput.getCompletionTokens() != null ? taskOutput.getCompletionTokens() : 0L;
                 addTaskTrace(new TaskTrace(
                         taskOutput.getTaskId(),
-                        taskOutput.getAgentRole(),
+                        (String) taskOutput.getMetadata().getOrDefault("agentRole", "unknown"),
                         taskOutput.isSuccessful(),
-                        taskOutput.getPromptTokens(),
-                        taskOutput.getCompletionTokens(),
-                        taskOutput.getTurnCount(),
-                        taskOutput.getToolsUsed() != null ? taskOutput.getToolsUsed() : List.of(),
-                        taskOutput.getFailureReason(),
-                        taskOutput.getDuration()
+                        prompt,
+                        completion,
+                        taskOutput.getMetadata().containsKey("turns")
+                                ? ((Number) taskOutput.getMetadata().get("turns")).intValue() : 1,
+                        List.of(),
+                        taskOutput.isSuccessful() ? null : "Task failed",
+                        Duration.ofMillis(taskOutput.getExecutionTimeMs())
                 ));
             }
             return this;

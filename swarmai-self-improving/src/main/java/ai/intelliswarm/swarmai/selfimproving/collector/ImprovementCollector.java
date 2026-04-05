@@ -52,6 +52,7 @@ public class ImprovementCollector {
     }
 
     private List<SpecificObservation> collectExpensiveTasks(ExecutionTrace trace) {
+        if (trace.taskTraces().size() <= 1) return List.of(); // single task always uses 100%
         // Tasks consuming more than 40% of total tokens are worth investigating
         long threshold = (long) (trace.totalTokens() * 0.40);
         return trace.taskTraces().stream()
@@ -95,7 +96,8 @@ public class ImprovementCollector {
             }
 
             // Did it exhaust all iterations without converging? That's an anti-pattern signal.
-            if (trace.convergedAtIteration() >= trace.iterationCount()) {
+            // Only meaningful for iterative/self-improving processes with more than 1 iteration.
+            if (trace.convergedAtIteration() >= trace.iterationCount() && trace.iterationCount() > 1) {
                 observations.add(SpecificObservation.antiPattern(
                         trace.workflowShape(),
                         "Workflow exhausted max iterations (%d) without converging".formatted(trace.iterationCount()),
