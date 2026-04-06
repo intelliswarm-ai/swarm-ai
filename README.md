@@ -1,13 +1,16 @@
 # SwarmAI Framework
 
+[![Website](https://img.shields.io/badge/website-intelliswarm.ai-blue.svg)](https://www.intelliswarm.ai)
 [![Maven CI](https://github.com/intelliswarm-ai/swarm-ai/actions/workflows/maven-ci.yml/badge.svg)](https://github.com/intelliswarm-ai/swarm-ai/actions/workflows/maven-ci.yml)
 [![Java 21](https://img.shields.io/badge/Java-21-blue.svg)](https://openjdk.org/projects/jdk/21/)
 [![Spring Boot 3.4](https://img.shields.io/badge/Spring%20Boot-3.4.4-brightgreen.svg)](https://spring.io/projects/spring-boot)
 [![Spring AI 1.0](https://img.shields.io/badge/Spring%20AI-1.0.4%20GA-brightgreen.svg)](https://spring.io/projects/spring-ai)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-1004%20passing-brightgreen.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-1128%20passing-brightgreen.svg)](#)
 
 **The enterprise-grade, self-improving multi-agent orchestration framework for Java.** Built on Spring AI 1.0.4 GA and Spring Boot 3.4 with type-safe state management, dynamic skill generation, RL-powered decision making, and production-ready enterprise features.
+
+**[www.intelliswarm.ai](https://www.intelliswarm.ai)** | [Documentation](#documentation) | [Quick Start](#quick-start) | [Migration Guide](docs/MIGRATION_GUIDE.md)
 
 ## The 10% Self-Improvement Investment
 
@@ -142,29 +145,31 @@ SwarmOutput result = swarm.kickoff(Map.of());
 ### Build & Test
 
 ```bash
-./mvnw clean test       # 1004 tests, all passing
+./mvnw clean test       # 1128 tests, all passing
 ./mvnw clean install    # install to local Maven repo
 ```
 
 ## Project Structure
 
 ```
-swarm-ai/                      (parent POM, 9 modules)
-├── swarmai-core/              Core: agents, tasks, processes, state, skills, memory,
-│                              knowledge, budget, governance, observability, resilience
-├── swarmai-tools/             24 built-in tools (web, file, shell, PDF, CSV, etc.)
-├── swarmai-dsl/               YAML DSL parser & compiler
-├── swarmai-rl/                Lightweight RL (contextual bandits, Thompson sampling)
-├── swarmai-enterprise/        Enterprise: multi-tenancy, deep RL (DQN), advanced governance
-├── swarmai-eval/              Self-evaluation swarm & competitive benchmarks
-├── swarmai-studio/            Web dashboard for workflow monitoring
-├── swarmai-bom/               Bill of Materials for version alignment
-└── docker/                    Dockerfiles and docker-compose configs
+swarm-ai/                        (parent POM, 11 modules)
+├── swarmai-core/                Core: agents, tasks, 8 process types, state, skills, memory,
+│                                knowledge, budget, governance, observability, resilience
+├── swarmai-tools/               25 built-in tools (web, file, shell, PDF, CSV, security, etc.)
+├── swarmai-dsl/                 YAML DSL parser & compiler (38 definition types)
+├── swarmai-rl/                  Lightweight RL (contextual bandits, Thompson sampling)
+├── swarmai-enterprise/          Enterprise: multi-tenancy, deep RL (DQN), advanced governance
+├── swarmai-self-improving/      10% token budget self-improvement pipeline & reporting
+├── swarmai-distributed/         RAFT consensus, distributed goals, intelligence mesh
+├── swarmai-eval/                Self-evaluation swarm & competitive benchmarks
+├── swarmai-studio/              Web dashboard for workflow monitoring
+├── swarmai-bom/                 Bill of Materials for version alignment
+└── docker/                      Dockerfiles and docker-compose configs
 ```
 
 ## Key Features
 
-### 7 Process Types
+### 8 Process Types
 
 | Process | Description |
 |---------|-------------|
@@ -174,6 +179,7 @@ swarm-ai/                      (parent POM, 9 modules)
 | `ITERATIVE` | Execute -> review -> refine loop until approved |
 | `SELF_IMPROVING` | Iterative + dynamic skill generation for capability gaps |
 | `SWARM` | Distributed fan-out with parallel self-improving agents |
+| `DISTRIBUTED` | RAFT consensus, declarative goals, work partitioning, fault-tolerant coordination |
 | `COMPOSITE` | Chain processes into pipelines |
 
 ### Enterprise Features
@@ -241,8 +247,8 @@ SwarmException (base, carries swarmId + correlationId)
 | MCP Java SDK | 0.10.0 |
 | DJL (Deep Java Library) | 0.29.0 |
 | Groovy | 4.x (skill sandbox) |
-| Build | Maven (9 modules) |
-| Tests | JUnit 5 + Mockito (1004 tests) |
+| Build | Maven (11 modules) |
+| Tests | JUnit 5 + Mockito (1128 tests) |
 
 ## Documentation
 
