@@ -25,8 +25,7 @@ swarm-ai/
 ├── swarmai-core/          Core framework (agents, tasks, processes, state, skills)
 ├── swarmai-tools/         24 built-in tools (web, file, PDF, CSV, shell)
 ├── swarmai-dsl/           YAML DSL parser & compiler
-├── swarmai-rl/            Lightweight RL (bandits, Thompson sampling)
-├── swarmai-enterprise/    Enterprise features (tenancy, governance, deep RL, RBAC)
+├── swarmai-enterprise/    Enterprise features (tenancy, governance, RBAC, audit)
 ├── swarmai-eval/          Self-evaluation swarm & benchmarks
 ├── swarmai-studio/        Web dashboard
 ├── swarmai-bom/           Bill of Materials

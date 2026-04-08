@@ -36,7 +36,7 @@ Every SwarmAI workflow automatically reserves 10% of its token budget for framew
 ## What's New
 
 - **Self-Improving Module** (`swarmai-self-improving`) -- 10% token budget reserve for automatic framework improvement. Community Investment Ledger for tracking collective impact. Three-tier improvement pipeline: automatic data updates, reviewed PRs, architecture proposals
-- **Enterprise Module** (`swarmai-enterprise`) -- Commercial tier with license-gated multi-tenancy, advanced governance, and deep RL (DQN neural networks)
+- **Enterprise Module** (`swarmai-enterprise`) -- Commercial tier with license-gated multi-tenancy, advanced governance, RBAC, audit, and SSO
 - **Self-Evaluation Module** (`swarmai-eval`) -- Framework for agentic self-evaluation, competitive benchmarks, and continuous quality improvement
 - **Resilience** -- Circuit breaker + exponential backoff retry on LLM calls via resilience4j
 - **Thread-Safe Observability** -- `ObservabilityContext` now propagates across parallel threads via `Snapshot` API
@@ -70,7 +70,7 @@ Every SwarmAI workflow automatically reserves 10% of its token budget for framew
     <version>1.0.0-SNAPSHOT</version>
 </dependency>
 
-<!-- Optional: Enterprise features (multi-tenancy, governance, deep RL) -->
+<!-- Optional: Enterprise features (multi-tenancy, governance, RBAC, audit) -->
 <dependency>
     <groupId>ai.intelliswarm</groupId>
     <artifactId>swarmai-enterprise</artifactId>
@@ -154,11 +154,11 @@ SwarmOutput result = swarm.kickoff(Map.of());
 ```
 swarm-ai/                        (parent POM, 11 modules)
 ├── swarmai-core/                Core: agents, tasks, 8 process types, state, skills, memory,
-│                                knowledge, budget, governance, observability, resilience
+│                                knowledge, budget, governance, observability, resilience,
+│                                RL (LinUCB, NeuralLinUCB, Thompson sampling, Bayesian optimization)
 ├── swarmai-tools/               25 built-in tools (web, file, shell, PDF, CSV, security, etc.)
 ├── swarmai-dsl/                 YAML DSL parser & compiler (38 definition types)
-├── swarmai-rl/                  Lightweight RL (contextual bandits, Thompson sampling)
-├── swarmai-enterprise/          Enterprise: multi-tenancy, deep RL (DQN), advanced governance
+├── swarmai-enterprise/          Enterprise: multi-tenancy, advanced governance, RBAC, audit, SSO
 ├── swarmai-self-improving/      10% token budget self-improvement pipeline & reporting
 ├── swarmai-distributed/         RAFT consensus, distributed goals, intelligence mesh
 ├── swarmai-eval/                Self-evaluation swarm & competitive benchmarks
@@ -189,7 +189,7 @@ swarm-ai/                        (parent POM, 11 modules)
 | **Multi-Tenancy** | enterprise | Tenant-isolated memory, knowledge, quotas, budgets |
 | **Governance Gates** | core + enterprise | Human-in-the-loop approval checkpoints (BEFORE_TASK, AFTER_TASK) |
 | **Budget Tracking** | core | Real-time token/cost tracking with HARD_STOP or WARN enforcement |
-| **Deep RL** | enterprise | DQN neural network policy for self-improving workflow decisions |
+| **RL Policy Engine** | core | LinUCB, NeuralLinUCB, Thompson Sampling — benchmark-validated algorithms |
 | **License Management** | enterprise | JWT/RSA license validation, feature-gated bean activation |
 | **Tool Permissions** | core | READ_ONLY, WORKSPACE_WRITE, DANGEROUS levels with WARN logging |
 | **Tool Hooks** | core | Audit, sanitize, rate-limit, deny interceptors on every tool call |
@@ -245,7 +245,6 @@ SwarmException (base, carries swarmId + correlationId)
 | Spring AI | 1.0.4 (GA) |
 | resilience4j | 2.2.0 |
 | MCP Java SDK | 0.10.0 |
-| DJL (Deep Java Library) | 0.29.0 |
 | Groovy | 4.x (skill sandbox) |
 | Build | Maven (11 modules) |
 | Tests | JUnit 5 + Mockito (1128 tests) |
@@ -256,11 +255,12 @@ SwarmException (base, carries swarmId + correlationId)
 - **[API Keys Setup](docs/API_KEYS_SETUP_GUIDE.md)** -- Configure LLM provider API keys
 - **[Docker Guide](docs/DOCKER_EXAMPLE_GUIDE.md)** -- Run SwarmAI in Docker
 - **[Self-Improving Workflows](docs/SELF_IMPROVING_WORKFLOWS.md)** -- Skill generation deep dive
+- **[RL Benchmarking](docs/benchmarks/BENCHMARKING_METHODOLOGY.md)** -- Algorithm comparison methodology and results
 - **[YAML DSL Guide](GETTING_STARTED.md#yaml-dsl)** -- Define workflows in YAML
 
 ## License
 
-Core modules (swarmai-core, swarmai-tools, swarmai-dsl, swarmai-rl): **MIT License**
+Core modules (swarmai-core, swarmai-tools, swarmai-dsl): **MIT License**
 
 Enterprise module (swarmai-enterprise): **BSL 1.1** (source-available, production use requires commercial license; converts to MIT after 4 years)
 

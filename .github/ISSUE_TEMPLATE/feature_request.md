@@ -22,7 +22,6 @@ Which module would this affect?
 - [ ] swarmai-dsl
 - [ ] swarmai-enterprise
 - [ ] swarmai-eval
-- [ ] swarmai-rl
 - [ ] swarmai-studio
 - [ ] Other
 
