@@ -15,8 +15,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *       default-max-skills: 100
  *     governance:
  *       enabled: true
- *     deep-rl:
- *       enabled: false
  * </pre>
  */
 @ConfigurationProperties(prefix = "swarmai.enterprise")
@@ -25,8 +23,6 @@ public class EnterpriseProperties {
     private String licenseKey;
     private TenantConfig tenant = new TenantConfig();
     private GovernanceConfig governance = new GovernanceConfig();
-    private DeepRlConfig deepRl = new DeepRlConfig();
-
     public String getLicenseKey() {
         return licenseKey;
     }
@@ -49,14 +45,6 @@ public class EnterpriseProperties {
 
     public void setGovernance(GovernanceConfig governance) {
         this.governance = governance;
-    }
-
-    public DeepRlConfig getDeepRl() {
-        return deepRl;
-    }
-
-    public void setDeepRl(DeepRlConfig deepRl) {
-        this.deepRl = deepRl;
     }
 
     public static class TenantConfig {
@@ -85,10 +73,4 @@ public class EnterpriseProperties {
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
     }
 
-    public static class DeepRlConfig {
-        private boolean enabled = false;
-
-        public boolean isEnabled() { return enabled; }
-        public void setEnabled(boolean enabled) { this.enabled = enabled; }
-    }
 }

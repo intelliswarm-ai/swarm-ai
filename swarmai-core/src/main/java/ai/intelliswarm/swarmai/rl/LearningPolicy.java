@@ -2,6 +2,7 @@ package ai.intelliswarm.swarmai.rl;
 
 import ai.intelliswarm.swarmai.rl.bandit.BayesianWeightOptimizer;
 import ai.intelliswarm.swarmai.rl.bandit.LinUCBBandit;
+import ai.intelliswarm.swarmai.rl.bandit.NeuralLinUCBBandit;
 import ai.intelliswarm.swarmai.rl.bandit.ThompsonSampling;
 import ai.intelliswarm.swarmai.skill.SkillGapAnalyzer;
 import org.slf4j.Logger;
@@ -50,6 +51,7 @@ public class LearningPolicy implements PolicyEngine {
 
     private final HeuristicPolicy heuristicFallback;
     private final LinUCBBandit skillGenerationBandit;
+    private final NeuralLinUCBBandit neuralSkillBandit; // null if not enabled
     private final ThompsonSampling convergenceSampler;
     private final BayesianWeightOptimizer selectionOptimizer;
     private final ExperienceBuffer experienceBuffer;
@@ -57,24 +59,39 @@ public class LearningPolicy implements PolicyEngine {
     private final AtomicInteger totalDecisions = new AtomicInteger(0);
 
     /**
-     * Creates a LearningPolicy with default settings.
+     * Creates a LearningPolicy with default settings (LinUCB for skill generation).
      */
     public LearningPolicy() {
         this(50, 1.0, 10000);
     }
 
     /**
-     * Creates a LearningPolicy with custom settings.
+     * Creates a LearningPolicy with custom settings (LinUCB for skill generation).
      *
      * @param coldStartDecisions number of decisions to delegate to heuristic before learning
      * @param linucbAlpha        exploration parameter for LinUCB
      * @param bufferCapacity     experience buffer capacity
      */
     public LearningPolicy(int coldStartDecisions, double linucbAlpha, int bufferCapacity) {
+        this(coldStartDecisions, linucbAlpha, bufferCapacity, null);
+    }
+
+    /**
+     * Creates a LearningPolicy with an optional NeuralLinUCB for skill generation.
+     * When neuralBandit is non-null, it is used instead of LinUCB after cold-start.
+     *
+     * @param coldStartDecisions number of decisions to delegate to heuristic before learning
+     * @param linucbAlpha        exploration parameter for LinUCB (fallback / cold-start training)
+     * @param bufferCapacity     experience buffer capacity
+     * @param neuralBandit       optional NeuralLinUCB bandit (null = use plain LinUCB)
+     */
+    public LearningPolicy(int coldStartDecisions, double linucbAlpha, int bufferCapacity,
+                           NeuralLinUCBBandit neuralBandit) {
         this.coldStartDecisions = coldStartDecisions;
         this.heuristicFallback = new HeuristicPolicy();
         this.skillGenerationBandit = new LinUCBBandit(
                 SKILL_GEN_ACTIONS, SkillGenerationContext.featureDimension(), linucbAlpha);
+        this.neuralSkillBandit = neuralBandit;
         this.convergenceSampler = new ThompsonSampling(CONVERGENCE_ACTIONS);
         this.selectionOptimizer = new BayesianWeightOptimizer(SELECTION_DIMS, 10, 0.1);
         this.experienceBuffer = new ExperienceBuffer(bufferCapacity);
@@ -93,15 +110,26 @@ public class LearningPolicy implements PolicyEngine {
             return heuristic;
         }
 
-        // Use LinUCB bandit
+        // Use learned bandit (NeuralLinUCB if available, otherwise LinUCB)
         double[] state = context.toFeatureVector();
-        int actionIdx = skillGenerationBandit.selectAction(state);
-        double[] scores = skillGenerationBandit.getUCBScores(state);
-        double confidence = scores[actionIdx] / (Math.abs(scores[actionIdx]) + 1.0); // normalize to ~[0,1]
+        int actionIdx;
+        String banditName;
+        double confidence;
+
+        if (neuralSkillBandit != null) {
+            actionIdx = neuralSkillBandit.selectAction(state);
+            banditName = "NeuralLinUCB";
+            confidence = 0.7; // NeuralLinUCB doesn't expose raw UCB scores
+        } else {
+            actionIdx = skillGenerationBandit.selectAction(state);
+            double[] scores = skillGenerationBandit.getUCBScores(state);
+            confidence = scores[actionIdx] / (Math.abs(scores[actionIdx]) + 1.0);
+            banditName = "LinUCB";
+        }
 
         SkillGapAnalyzer.Recommendation recommendation = SKILL_ACTIONS[actionIdx];
-        String reasoning = String.format("LinUCB selected %s (UCB=%.3f, total decisions=%d)",
-                recommendation, scores[actionIdx], count);
+        String reasoning = String.format("%s selected %s (total decisions=%d)",
+                banditName, recommendation, count);
 
         logger.debug("[RL] Skill generation: {} — {}", recommendation, reasoning);
 
@@ -149,6 +177,9 @@ public class LearningPolicy implements PolicyEngine {
         switch (decision.type()) {
             case "skill_generation" -> {
                 skillGenerationBandit.update(decision.stateVector(), decision.actionIndex(), outcome.reward());
+                if (neuralSkillBandit != null) {
+                    neuralSkillBandit.update(decision.stateVector(), decision.actionIndex(), outcome.reward());
+                }
                 experienceBuffer.add("skill_generation", decision.stateVector(),
                         decision.actionIndex(), outcome.reward());
                 logger.debug("[RL] Skill generation reward: action={} reward={:.3f}",

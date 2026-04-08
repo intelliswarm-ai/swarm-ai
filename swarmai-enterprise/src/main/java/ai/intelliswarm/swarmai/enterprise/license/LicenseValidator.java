@@ -170,7 +170,7 @@ public class LicenseValidator {
             case TEAM -> Set.of("governance", "budget-advanced");
             case BUSINESS -> Set.of("governance", "budget-advanced", "multi-tenancy", "audit");
             case ENTERPRISE -> Set.of("governance", "budget-advanced", "multi-tenancy", "audit",
-                    "deep-rl", "rbac", "sso", "secrets-management", "advanced-monitoring");
+                    "rbac", "sso", "secrets-management", "advanced-monitoring");
             case COMMUNITY -> Set.of();
         };
     }

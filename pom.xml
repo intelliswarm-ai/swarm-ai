@@ -12,7 +12,7 @@
 
     <name>SwarmAI Parent</name>
     <description>Java multi-agent framework built on Spring AI</description>
-    <url>https://github.com/intelliswarm/swarmai</url>
+    <url>https://github.com/intelliswarm-ai/swarm-ai</url>
 
     <licenses>
         <license>
@@ -26,13 +26,14 @@
         <developer>
             <name>IntelliSwarm.ai Team</name>
             <organization>IntelliSwarm.ai</organization>
+            <organizationUrl>https://www.intelliswarm.ai</organizationUrl>
         </developer>
     </developers>
 
     <scm>
-        <url>https://github.com/intelliswarm/swarmai</url>
-        <connection>scm:git:git://github.com/intelliswarm/swarmai.git</connection>
-        <developerConnection>scm:git:ssh://git@github.com/intelliswarm/swarmai.git</developerConnection>
+        <url>https://github.com/intelliswarm-ai/swarm-ai</url>
+        <connection>scm:git:git://github.com/intelliswarm-ai/swarm-ai.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/intelliswarm-ai/swarm-ai.git</developerConnection>
     </scm>
 
     <modules>
@@ -257,13 +258,9 @@
 
     <distributionManagement>
         <snapshotRepository>
-            <id>ossrh</id>
-            <url>https://s01.oss.sonatype.org/content/repositories/snapshots</url>
+            <id>central</id>
+            <url>https://central.sonatype.com/repository/maven-snapshots/</url>
         </snapshotRepository>
-        <repository>
-            <id>ossrh</id>
-            <url>https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/</url>
-        </repository>
     </distributionManagement>
 
     <profiles>
@@ -322,14 +319,14 @@
                         </executions>
                     </plugin>
                     <plugin>
-                        <groupId>org.sonatype.plugins</groupId>
-                        <artifactId>nexus-staging-maven-plugin</artifactId>
-                        <version>1.7.0</version>
+                        <groupId>org.sonatype.central</groupId>
+                        <artifactId>central-publishing-maven-plugin</artifactId>
+                        <version>0.9.0</version>
                         <extensions>true</extensions>
                         <configuration>
-                            <serverId>ossrh</serverId>
-                            <nexusUrl>https://s01.oss.sonatype.org/</nexusUrl>
-                            <autoReleaseAfterClose>true</autoReleaseAfterClose>
+                            <publishingServerId>central</publishingServerId>
+                            <autoPublish>true</autoPublish>
+                            <waitUntil>published</waitUntil>
                         </configuration>
                     </plugin>
                 </plugins>

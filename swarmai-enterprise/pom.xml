@@ -15,7 +15,7 @@
     <packaging>jar</packaging>
 
     <name>SwarmAI Enterprise</name>
-    <description>Commercial enterprise features: multi-tenancy, advanced governance, deep RL, RBAC, audit, and license management</description>
+    <description>Commercial enterprise features: multi-tenancy, advanced governance, RBAC, audit, and license management</description>
 
     <dependencies>
         <!-- SwarmAI Core (provides SPI interfaces, agent/process framework) -->
@@ -23,14 +23,6 @@
             <groupId>ai.intelliswarm</groupId>
             <artifactId>swarmai-core</artifactId>
             <version>${project.version}</version>
-        </dependency>
-
-        <!-- SwarmAI RL (provides PolicyEngine, context records, HeuristicPolicy) -->
-        <dependency>
-            <groupId>ai.intelliswarm</groupId>
-            <artifactId>swarmai-rl</artifactId>
-            <version>${project.version}</version>
-            <optional>true</optional>
         </dependency>
 
         <!-- Spring Boot -->
@@ -41,19 +33,6 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-autoconfigure</artifactId>
-        </dependency>
-
-        <!-- DJL (Deep Java Library) for deep RL — optional -->
-        <dependency>
-            <groupId>ai.djl</groupId>
-            <artifactId>api</artifactId>
-            <optional>true</optional>
-        </dependency>
-        <dependency>
-            <groupId>ai.djl.pytorch</groupId>
-            <artifactId>pytorch-engine</artifactId>
-            <scope>runtime</scope>
-            <optional>true</optional>
         </dependency>
 
         <!-- JSON (license key parsing) -->

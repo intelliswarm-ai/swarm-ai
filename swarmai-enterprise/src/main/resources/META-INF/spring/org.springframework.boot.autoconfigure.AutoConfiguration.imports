@@ -1,4 +1,3 @@
 ai.intelliswarm.swarmai.enterprise.config.EnterpriseAutoConfiguration
 ai.intelliswarm.swarmai.enterprise.tenant.TenantAutoConfiguration
 ai.intelliswarm.swarmai.enterprise.governance.GovernanceAutoConfiguration
-ai.intelliswarm.swarmai.enterprise.rl.deep.config.DeepRLAutoConfiguration

@@ -40,6 +40,26 @@
                 <artifactId>swarmai-rl</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <dependency>
+                <groupId>ai.intelliswarm</groupId>
+                <artifactId>swarmai-eval</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>ai.intelliswarm</groupId>
+                <artifactId>swarmai-self-improving</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>ai.intelliswarm</groupId>
+                <artifactId>swarmai-distributed</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>ai.intelliswarm</groupId>
+                <artifactId>swarmai-enterprise</artifactId>
+                <version>${project.version}</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 </project>

@@ -21,6 +21,11 @@ public class RLProperties {
     private double linucbAlpha = 1.0;
     private int experienceBufferCapacity = 10000;
     private int coldStartDecisions = 50;
+    private boolean neuralLinucbEnabled = false;
+    private int neuralLinucbHidden = 32;
+    private int neuralLinucbFeatures = 8;
+    private float neuralLinucbLearningRate = 0.001f;
+    private int neuralLinucbTrainInterval = 20;
 
     // --- Getters & Setters ---
 
@@ -35,4 +40,19 @@ public class RLProperties {
 
     public int getColdStartDecisions() { return coldStartDecisions; }
     public void setColdStartDecisions(int coldStartDecisions) { this.coldStartDecisions = coldStartDecisions; }
+
+    public boolean isNeuralLinucbEnabled() { return neuralLinucbEnabled; }
+    public void setNeuralLinucbEnabled(boolean v) { this.neuralLinucbEnabled = v; }
+
+    public int getNeuralLinucbHidden() { return neuralLinucbHidden; }
+    public void setNeuralLinucbHidden(int v) { this.neuralLinucbHidden = v; }
+
+    public int getNeuralLinucbFeatures() { return neuralLinucbFeatures; }
+    public void setNeuralLinucbFeatures(int v) { this.neuralLinucbFeatures = v; }
+
+    public float getNeuralLinucbLearningRate() { return neuralLinucbLearningRate; }
+    public void setNeuralLinucbLearningRate(float v) { this.neuralLinucbLearningRate = v; }
+
+    public int getNeuralLinucbTrainInterval() { return neuralLinucbTrainInterval; }
+    public void setNeuralLinucbTrainInterval(int v) { this.neuralLinucbTrainInterval = v; }
 }
