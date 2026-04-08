@@ -5,10 +5,10 @@
 [![Java 21](https://img.shields.io/badge/Java-21-blue.svg)](https://openjdk.org/projects/jdk/21/)
 [![Spring Boot 3.4](https://img.shields.io/badge/Spring%20Boot-3.4.4-brightgreen.svg)](https://spring.io/projects/spring-boot)
 [![Spring AI 1.0](https://img.shields.io/badge/Spring%20AI-1.0.4%20GA-brightgreen.svg)](https://spring.io/projects/spring-ai)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Tests](https://img.shields.io/badge/tests-1128%20passing-brightgreen.svg)](#)
 
-**The enterprise-grade, self-improving multi-agent orchestration framework for Java.** Built on Spring AI 1.0.4 GA and Spring Boot 3.4 with type-safe state management, dynamic skill generation, RL-powered decision making, and production-ready enterprise features.
+**A self-improving multi-agent orchestration framework for Java, designed for enterprise use.** Built on Spring AI 1.0.4 GA and Spring Boot 3.4 with type-safe state management, dynamic skill generation, RL-powered decision making, and enterprise features.
 
 **[www.intelliswarm.ai](https://www.intelliswarm.ai)** | [Documentation](#documentation) | [Quick Start](#quick-start) | [Migration Guide](docs/MIGRATION_GUIDE.md)
 
@@ -42,7 +42,7 @@ Every SwarmAI workflow automatically reserves 10% of its token budget for framew
 - **Thread-Safe Observability** -- `ObservabilityContext` now propagates across parallel threads via `Snapshot` API
 - **Typed Exception Hierarchy** -- `SwarmException`, `AgentExecutionException`, `ProcessExecutionException`, `ToolExecutionException`, `ConfigurationException`, `PermissionDeniedException`
 - **Health Indicators** -- Spring Boot Actuator health checks for Memory, Budget, and EventStore subsystems
-- **Flyway Migrations** -- Production-ready JDBC schema management for memory and audit tables
+- **Flyway Migrations** -- JDBC schema management for memory and audit tables via Flyway
 - **SPI Interfaces** -- `AuditSink`, `MeteringSink`, `LicenseProvider` for enterprise extensibility
 - **Configuration Validation** -- Fail-fast startup validation for budget, observability, and tenant config
 
@@ -179,7 +179,7 @@ swarm-ai/                        (parent POM, 11 modules)
 | `ITERATIVE` | Execute -> review -> refine loop until approved |
 | `SELF_IMPROVING` | Iterative + dynamic skill generation for capability gaps |
 | `SWARM` | Distributed fan-out with parallel self-improving agents |
-| `DISTRIBUTED` | RAFT consensus, declarative goals, work partitioning, fault-tolerant coordination |
+| `DISTRIBUTED` | RAFT consensus, declarative goals, work partitioning, resilience-oriented coordination |
 | `COMPOSITE` | Chain processes into pipelines |
 
 ### Enterprise Features
@@ -260,8 +260,8 @@ SwarmException (base, carries swarmId + correlationId)
 
 ## License
 
-Core modules (swarmai-core, swarmai-tools, swarmai-dsl): **MIT License**
+Core modules (swarmai-core, swarmai-tools, swarmai-dsl, swarmai-self-improving, swarmai-eval, swarmai-distributed): **Apache License 2.0**
 
-Enterprise module (swarmai-enterprise): **BSL 1.1** (source-available, production use requires commercial license; converts to MIT after 4 years)
+Enterprise module (swarmai-enterprise): **Business Source License 1.1** (source-available; production use requires a commercial license; converts to Apache 2.0 on 2030-04-09)
 
-See [LICENSE](LICENSE) for details.
+See [LICENSE](LICENSE) for core and [swarmai-enterprise/LICENSE](swarmai-enterprise/LICENSE) for enterprise details.

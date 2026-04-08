@@ -16,7 +16,7 @@ import java.util.function.Supplier;
 
 /**
  * Wraps LLM API calls with circuit breaker and retry logic.
- * Uses resilience4j for production-grade fault tolerance.
+ * Uses resilience4j for circuit breaker and retry patterns.
  *
  * <p>Configuration:
  * <ul>

@@ -17,6 +17,15 @@
     <name>SwarmAI Enterprise</name>
     <description>Commercial enterprise features: multi-tenancy, advanced governance, RBAC, audit, and license management</description>
 
+    <licenses>
+        <license>
+            <name>Business Source License 1.1</name>
+            <url>https://mariadb.com/bsl11/</url>
+            <distribution>repo</distribution>
+            <comments>Change Date: 2030-04-09. Change License: Apache License, Version 2.0</comments>
+        </license>
+    </licenses>
+
     <dependencies>
         <!-- SwarmAI Core (provides SPI interfaces, agent/process framework) -->
         <dependency>

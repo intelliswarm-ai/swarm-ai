@@ -56,4 +56,4 @@ swarm-ai/
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the [MIT License](../LICENSE).
+By contributing, you agree that your contributions will be licensed under the [Apache License 2.0](../LICENSE) (for core modules) or BSL 1.1 (for enterprise module).

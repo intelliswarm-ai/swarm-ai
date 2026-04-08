@@ -2,7 +2,7 @@
 
 ## SwarmAI Framework
 
-**SwarmAI** is a Java multi-agent framework built on Spring AI for the enterprise ecosystem.
+**SwarmAI** is a Java multi-agent framework built on Spring AI, designed for enterprise environments.
 
 ### Key Architectural Concepts:
 - **Multi-Agent Orchestration**: Coordinating multiple AI agents for complex tasks
@@ -22,4 +22,4 @@ We acknowledge and thank:
 
 ---
 
-*This project is provided under the MIT License.*
+*This project is provided under the Apache License 2.0. The enterprise module is licensed under BSL 1.1.*

@@ -63,7 +63,7 @@ SwarmAI's killer feature: **workflows that self-improve by discovering capabilit
 | **Self-Refine** | Generate → self-critique → refine loop | Output quality |
 | **SwarmAI (proposed)** | Multi-agent workflow generates tools → validates → registers → re-executes | Enterprise workflows |
 
-**SwarmAI's unique angle:** Self-improvement within a structured multi-agent workflow (not just a single agent), with institutional-grade safety (sandboxing, validation, approval gates) and cost tracking.
+**SwarmAI's unique angle:** Self-improvement within a structured multi-agent workflow (not just a single agent), with configurable safety mechanisms (sandboxing, validation, approval gates) and cost tracking.
 
 ---
 

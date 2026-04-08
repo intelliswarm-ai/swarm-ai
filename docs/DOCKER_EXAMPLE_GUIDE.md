@@ -2,7 +2,7 @@
 
 ## Complete Agentic Workflow with Ollama Integration
 
-This guide demonstrates a production-ready agentic workflow using the SwarmAI Framework with Docker and Ollama for local AI inference. The example showcases **5 AI agents** working together to conduct comprehensive competitive analysis research.
+This guide demonstrates an agentic workflow using the SwarmAI Framework with Docker and Ollama for local AI inference. The example showcases **5 AI agents** working together to conduct comprehensive competitive analysis research.
 
 ---
 
@@ -486,7 +486,7 @@ See [`examples/iterative/README.md`](examples/iterative/README.md) for the full 
 - **Documentation**: [README.md](README.md) | [EXAMPLES.md](../competitive-research/EXAMPLES.md)
 - **API Reference**: http://localhost:8080/swagger-ui.html
 - **Source Code**: Browse the complete implementation
-- **License**: MIT License - see [LICENSE](LICENSE)
+- **License**: Apache License 2.0 - see [LICENSE](LICENSE)
 
 ---
 

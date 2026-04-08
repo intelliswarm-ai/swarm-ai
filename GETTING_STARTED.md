@@ -1147,7 +1147,7 @@ spring:
 | `local`  | Development with relaxed settings              |
 | `docker` | Containerized deployment                       |
 | `test`   | Testing with mock LLM clients                  |
-| `run`    | Production-ready configuration                 |
+| `run`    | Deployment configuration                       |
 
 ---
 

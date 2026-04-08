@@ -132,7 +132,7 @@ This runs: SpotBugs, Maven Enforcer, OWASP dependency check, JaCoCo coverage, an
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the MIT License (for core modules) or BSL 1.1 (for enterprise module).
+By contributing, you agree that your contributions will be licensed under the Apache License 2.0 (for core modules) or BSL 1.1 (for enterprise module).
 
 ## Questions?
 
