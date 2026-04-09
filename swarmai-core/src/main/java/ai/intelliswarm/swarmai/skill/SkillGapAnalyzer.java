@@ -152,14 +152,20 @@ public class SkillGapAnalyzer {
             reasons.add("Low reuse potential — may be a one-off task");
         }
 
-        // Decision
+        // Decision — coverage and clarity checks take priority to prevent junk skills
         Recommendation recommendation;
-        if (score >= 0.60) {
+        if (clarityScore < 0.2) {
+            recommendation = Recommendation.SKIP;
+            reasons.add("Gap description too unclear (clarity=" + String.format("%.2f", clarityScore) +
+                ") — cannot generate a meaningful skill from this description");
+        } else if (coverage.coverageLevel() > COVERAGE_THRESHOLD) {
+            recommendation = Recommendation.USE_EXISTING;
+            reasons.add("Existing tool coverage (" + String.format("%.0f%%", coverage.coverageLevel() * 100) +
+                ") exceeds threshold — recommending USE_EXISTING");
+        } else if (score >= 0.60) {
             recommendation = Recommendation.GENERATE;
         } else if (score >= 0.40) {
             recommendation = Recommendation.GENERATE_SIMPLE;
-        } else if (coverage.coverageLevel() > COVERAGE_THRESHOLD) {
-            recommendation = Recommendation.USE_EXISTING;
         } else {
             recommendation = Recommendation.SKIP;
         }
@@ -326,6 +332,14 @@ public class SkillGapAnalyzer {
 
     private double assessClarity(String gap) {
         if (gap.length() < MIN_GAP_DESCRIPTION_LENGTH) return 0.1;
+
+        // Penalize repetitive text — a hallucinating reviewer might repeat the same word
+        String[] words = gap.toLowerCase().split("\\s+");
+        if (words.length > 3) {
+            Set<String> uniqueWords = new HashSet<>(Arrays.asList(words));
+            double diversity = (double) uniqueWords.size() / words.length;
+            if (diversity < 0.3) return 0.1; // Less than 30% unique words = gibberish
+        }
 
         double score = 0.0;
 

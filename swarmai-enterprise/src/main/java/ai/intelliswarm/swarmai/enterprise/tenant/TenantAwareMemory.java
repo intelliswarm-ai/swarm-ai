@@ -29,9 +29,19 @@ public class TenantAwareMemory implements Memory {
         delegate.save(tenantScopedAgentId(agentId), content, metadata);
     }
 
+    /**
+     * Tenant-scoped search. When a tenant context is set, searches only within
+     * memories saved by this tenant's agents (prefixed agentIds). Without tenant
+     * context, falls back to global unscoped search for backward compatibility.
+     */
     @Override
     public List<String> search(String query, int limit) {
-        return delegate.search(query, limit);
+        String tenantId = TenantContext.currentTenantId();
+        if (tenantId == null) {
+            return delegate.search(query, limit);
+        }
+        String tenantPrefix = tenantId + TENANT_PREFIX_SEPARATOR;
+        return delegate.searchByAgentPrefix(query, tenantPrefix, limit);
     }
 
     @Override

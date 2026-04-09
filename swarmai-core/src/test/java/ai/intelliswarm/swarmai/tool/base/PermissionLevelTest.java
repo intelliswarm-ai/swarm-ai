@@ -59,11 +59,14 @@ class PermissionLevelTest extends BaseSwarmTest {
         }
 
         @Test
-        @DisplayName("null agent mode permits everything")
-        void nullMode_permitsEverything() {
-            assertTrue(PermissionLevel.READ_ONLY.isPermittedBy(null));
-            assertTrue(PermissionLevel.DANGEROUS.isPermittedBy(null));
-            assertTrue(PermissionLevel.REQUIRES_APPROVAL.isPermittedBy(null));
+        @DisplayName("null agent mode defaults to READ_ONLY (fail-closed security)")
+        void nullMode_defaultsToReadOnly() {
+            assertTrue(PermissionLevel.READ_ONLY.isPermittedBy(null),
+                "READ_ONLY should be permitted even without explicit permission mode");
+            assertFalse(PermissionLevel.DANGEROUS.isPermittedBy(null),
+                "DANGEROUS must NOT be permitted when agent has no permission mode");
+            assertFalse(PermissionLevel.REQUIRES_APPROVAL.isPermittedBy(null),
+                "REQUIRES_APPROVAL must NOT be permitted when agent has no permission mode");
         }
     }
 

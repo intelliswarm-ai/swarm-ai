@@ -483,7 +483,7 @@ See [`examples/iterative/README.md`](examples/iterative/README.md) for the full 
 
 ## 📞 **Support & Resources**
 
-- **Documentation**: [README.md](README.md) | [EXAMPLES.md](../competitive-research/EXAMPLES.md)
+- **Documentation**: [README.md](README.md) | [EXAMPLES.md](internal/competitive-research/EXAMPLES.md)
 - **API Reference**: http://localhost:8080/swagger-ui.html
 - **Source Code**: Browse the complete implementation
 - **License**: Apache License 2.0 - see [LICENSE](LICENSE)

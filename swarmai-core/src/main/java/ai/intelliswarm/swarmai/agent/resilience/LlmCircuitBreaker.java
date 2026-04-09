@@ -96,8 +96,12 @@ public class LlmCircuitBreaker {
             msg = msg + " " + e.getCause().getMessage();
         }
         // Non-retryable: client errors and context length
-        if (msg.contains("400") || msg.contains("401") || msg.contains("403")
-                || msg.contains("context_length_exceeded") || msg.contains("NonTransient")) {
+        // Use word-boundary-aware matching to avoid false positives like "port 4000"
+        if (msg.contains("context_length_exceeded") || msg.contains("NonTransient")) {
+            return false;
+        }
+        // Match HTTP status codes with word boundaries (space/punctuation before/after)
+        if (msg.matches("(?s).*\\b400\\b.*") || msg.matches("(?s).*\\b401\\b.*") || msg.matches("(?s).*\\b403\\b.*")) {
             return false;
         }
         return true;

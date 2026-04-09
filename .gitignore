@@ -76,7 +76,7 @@ application-*.properties
 
 # Internal docs
 docs/internal/
-competitive-research/
+docs/internal/competitive-research/
 
 # Local configuration and secrets
 *.env

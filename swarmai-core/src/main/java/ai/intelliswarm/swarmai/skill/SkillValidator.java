@@ -51,8 +51,8 @@ public class SkillValidator {
         List<String> errors = new ArrayList<>();
 
         // 1. Basic checks (all types)
-        if (skill.getName() == null || skill.getName().isEmpty()) {
-            errors.add("Skill name is empty");
+        if (skill.getName() == null || skill.getName().isEmpty() || skill.getName().equals("unnamed_skill")) {
+            errors.add("Skill name is empty or auto-generated placeholder");
             return new ValidationResult(false, errors, null, null);
         }
         if (skill.getDescription() == null || skill.getDescription().isEmpty()) {

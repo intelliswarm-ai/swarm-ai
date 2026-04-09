@@ -365,6 +365,7 @@ public class SkillDefinition {
      */
     public static SkillDefinition fromSkillMd(String skillMd) {
         SkillDefinition def = new SkillDefinition();
+        def.type = null; // Clear default — type should come from frontmatter or be inferred by caller
         if (skillMd == null || skillMd.isBlank()) return def;
 
         // Split frontmatter and body

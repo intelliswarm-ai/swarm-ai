@@ -1,0 +1,25 @@
+{
+  "id" : "ac445073",
+  "slug" : "generated_skill_1775724185480",
+  "displayName" : "generated skill 1775724185480",
+  "status" : "ACTIVE",
+  "skillType" : "PROMPT",
+  "usageCount" : 0,
+  "successCount" : 0,
+  "createdAt" : "2026-04-09T10:43:05.488690079",
+  "parentSkillId" : null,
+  "latest" : {
+    "version" : "1.0.0",
+    "publishedAt" : 1775724185917
+  },
+  "history" : [ ],
+  "qualityScore" : {
+    "documentation" : 15,
+    "testCoverage" : 0,
+    "errorHandling" : 0,
+    "codeComplexity" : 10,
+    "outputFormat" : 0,
+    "total" : 25,
+    "grade" : "F"
+  }
+}

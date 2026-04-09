@@ -417,7 +417,7 @@ public class SkillGenerator {
             def.setDescription(fallbackDescription);
         }
 
-        // Determine skill type if not explicitly set
+        // Determine skill type if not explicitly set in frontmatter
         if (def.getType() == null) {
             def.setType(inferSkillType(def));
         }

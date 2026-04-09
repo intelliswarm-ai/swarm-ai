@@ -66,6 +66,26 @@ public class InMemoryMemory implements Memory {
     }
 
     @Override
+    public List<String> searchByAgentPrefix(String query, String agentPrefix, int limit) {
+        if (query == null || query.isBlank()) {
+            return Collections.emptyList();
+        }
+        if (agentPrefix == null || agentPrefix.isEmpty()) {
+            return search(query, limit);
+        }
+
+        String lowerQuery = query.toLowerCase();
+
+        return globalMemories.stream()
+                .filter(entry -> entry.agentId() != null && entry.agentId().startsWith(agentPrefix))
+                .filter(entry -> entry.content().toLowerCase().contains(lowerQuery))
+                .sorted(Comparator.comparing(MemoryEntry::timestamp).reversed())
+                .limit(limit)
+                .map(MemoryEntry::content)
+                .collect(Collectors.toList());
+    }
+
+    @Override
     public void clear() {
         agentMemories.clear();
         globalMemories.clear();

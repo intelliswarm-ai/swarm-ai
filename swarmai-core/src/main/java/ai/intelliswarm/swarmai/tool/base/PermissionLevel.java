@@ -50,7 +50,10 @@ public enum PermissionLevel {
      */
     public boolean isPermittedBy(PermissionLevel agentMode) {
         if (agentMode == null) {
-            return true; // no restriction
+            // Default to READ_ONLY when no permission mode is set.
+            // This prevents privilege escalation when agents are created without
+            // explicit permission configuration — fail-closed, not fail-open.
+            return this.ordinal() <= READ_ONLY.ordinal();
         }
         return this.ordinal() <= agentMode.ordinal();
     }

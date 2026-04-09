@@ -113,6 +113,11 @@ public class SequentialProcess implements Process {
             aggregateReactiveMetrics(outputBuilder, allOutputs);
             return outputBuilder.build();
 
+        } catch (ai.intelliswarm.swarmai.budget.BudgetExceededException e) {
+            // Budget exceptions propagate directly — the Swarm catches these
+            // specifically to set BUDGET_EXCEEDED status. Don't wrap them.
+            publishEvent(SwarmEvent.Type.PROCESS_FAILED, "Sequential process stopped: budget exceeded", swarmId);
+            throw e;
         } catch (Exception e) {
             publishEvent(SwarmEvent.Type.PROCESS_FAILED, "Sequential process failed: " + e.getMessage(), swarmId);
             throw new ProcessExecutionException("Sequential process execution failed", e, ProcessType.SEQUENTIAL);
