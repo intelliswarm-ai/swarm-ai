@@ -137,7 +137,7 @@ public class ParallelProcess implements Process {
                             futures.add(future);
                         }
 
-                        // Wait for all tasks in this layer to complete
+                        // Wait for all tasks in this layer to complete (don't throw on individual failures)
                         CompletableFuture<Void> allDone = CompletableFuture.allOf(
                                 futures.toArray(new CompletableFuture[0]));
 
@@ -146,11 +146,35 @@ public class ParallelProcess implements Process {
                         } catch (TimeoutException e) {
                             throw new ProcessExecutionException(
                                     "Parallel layer " + layerIdx + " timed out", e, ProcessType.PARALLEL, swarmId, null);
+                        } catch (ExecutionException e) {
+                            // At least one task failed — collect partial results below
+                            logger.warn("One or more parallel tasks in layer {} failed; collecting partial results", layerIdx);
                         }
 
-                        // Collect results in order
-                        for (CompletableFuture<TaskOutput> future : futures) {
-                            allOutputs.add(future.get());
+                        // Collect results in order, tolerating individual task failures
+                        List<String> failedTasks = new ArrayList<>();
+
+                        for (int i = 0; i < futures.size(); i++) {
+                            try {
+                                allOutputs.add(futures.get(i).get());
+                            } catch (Exception e) {
+                                String taskDesc = i < layer.size() ? truncate(layer.get(i).getDescription(), 60) : "unknown";
+                                failedTasks.add(taskDesc);
+                                logger.warn("Parallel task failed (continuing with partial results): {}",
+                                        e.getCause() != null ? e.getCause().getMessage() : e.getMessage());
+                            }
+                        }
+
+                        if (allOutputs.isEmpty() && !failedTasks.isEmpty()) {
+                            throw new ProcessExecutionException(
+                                    "Parallel layer " + layerIdx + " failed: all " + failedTasks.size() + " tasks failed",
+                                    null, ProcessType.PARALLEL, swarmId, null);
+                        }
+
+                        if (!failedTasks.isEmpty()) {
+                            logger.warn("Parallel layer {}: {}/{} tasks succeeded, {}/{} failed",
+                                    layerIdx, futures.size() - failedTasks.size(), futures.size(),
+                                    failedTasks.size(), futures.size());
                         }
                     } else {
                         // Single task — run sequentially

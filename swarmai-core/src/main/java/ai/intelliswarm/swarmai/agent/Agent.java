@@ -459,11 +459,24 @@ public class Agent {
     private <T> T callWithRetry(Supplier<T> llmCall, int maxRetries, int timeoutMs) {
         Exception lastException = null;
         for (int attempt = 1; attempt <= maxRetries; attempt++) {
+            CompletableFuture<T> future = null;
             try {
-                CompletableFuture<T> future = CompletableFuture.supplyAsync(llmCall::get);
+                future = CompletableFuture.supplyAsync(llmCall::get);
                 return future.get(timeoutMs, TimeUnit.MILLISECONDS);
             } catch (TimeoutException e) {
-                throw new AgentExecutionException("LLM call timed out after " + timeoutMs + "ms", e, id, null);
+                if (future != null) future.cancel(true);
+                lastException = new AgentExecutionException("LLM call timed out after " + timeoutMs + "ms", e, id, null);
+                if (attempt < maxRetries) {
+                    long backoffMs = (long) Math.pow(2, attempt) * 1000;
+                    logger.warn("Agent [{}] LLM call timed out (attempt {}/{}). Retrying in {} ms...",
+                            role, attempt, maxRetries, backoffMs);
+                    try {
+                        Thread.sleep(backoffMs);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new AgentExecutionException("Interrupted during retry backoff", ie, id, null);
+                    }
+                }
             } catch (Exception e) {
                 lastException = e;
                 Throwable cause = e.getCause() != null ? e.getCause() : e;
