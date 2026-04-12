@@ -279,7 +279,7 @@ class SequentialProcessTest extends BaseSwarmTest {
         void validateTasks_withMissingDependency_throwsException() {
             Task task = Task.builder()
                     .id("task-1")
-                    .description("Task with missing dep")
+                    .description("Task with missing dep and long details to verify truncation in message output for debugging")
                     .agent(agent)
                     .dependsOn("non-existent-task")
                     .build();
@@ -290,9 +290,15 @@ class SequentialProcessTest extends BaseSwarmTest {
             String message = exception.getMessage() != null ? exception.getMessage() : "";
             Throwable cause = exception.getCause();
             String causeMessage = cause != null && cause.getMessage() != null ? cause.getMessage() : "";
-            assertTrue(message.contains("non-existent") || message.contains("nonexistent") ||
-                       causeMessage.contains("non-existent") || causeMessage.contains("nonexistent"),
-                    "Expected missing dependency message. Got: " + message + " / " + causeMessage);
+            String combinedMessage = message + " " + causeMessage;
+            assertTrue(combinedMessage.contains("Task \"Task with missing dep and long details to verify truncatio...\""),
+                    "Expected task description in message. Got: " + combinedMessage);
+            assertTrue(combinedMessage.contains("id=task-1"),
+                    "Expected task id in message. Got: " + combinedMessage);
+            assertTrue(combinedMessage.contains("agentRole=" + agent.getRole()),
+                    "Expected agent role in message. Got: " + combinedMessage);
+            assertTrue(combinedMessage.contains("id=non-existent-task"),
+                    "Expected missing dependency id in message. Got: " + combinedMessage);
         }
 
         @Test

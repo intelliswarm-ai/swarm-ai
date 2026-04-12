@@ -429,7 +429,12 @@ public final class SwarmGraph implements SwarmDefinition {
             if (task.getDependencyTaskIds() != null) {
                 for (String dep : task.getDependencyTaskIds()) {
                     if (!taskIds.contains(dep)) {
-                        errors.add(new CompilationError.InvalidDependency(task.getId(), dep));
+                        errors.add(new CompilationError.InvalidDependency(
+                                task.getId(),
+                                task.getDescription(),
+                                task.getAgent() != null ? task.getAgent().getRole() : null,
+                                dep
+                        ));
                     }
                 }
             }

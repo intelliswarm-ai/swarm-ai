@@ -229,7 +229,7 @@ public class SequentialProcess implements Process {
             for (String depId : task.getDependencyTaskIds()) {
                 if (!allTaskIds.contains(depId)) {
                     throw new IllegalArgumentException(
-                        "Task " + task.getId() + " depends on non-existent task: " + depId);
+                        taskLabel(task) + " depends on non-existent task id=" + depId);
                 }
             }
         }
@@ -241,6 +241,17 @@ public class SequentialProcess implements Process {
         if (!tasksWithoutAgents.isEmpty() && agents.isEmpty()) {
             throw new IllegalArgumentException("Tasks without agents found, but no agents available");
         }
+    }
+
+    private String taskLabel(Task task) {
+        String description = task.getDescription();
+        String descriptionLabel = (description == null || description.isBlank())
+                ? ""
+                : " \"" + truncateForLog(description, 60) + "\"";
+        String agentRoleLabel = task.getAgent() == null || task.getAgent().getRole() == null
+                ? ""
+                : " [agentRole=" + task.getAgent().getRole() + "]";
+        return "Task" + descriptionLabel + " (id=" + task.getId() + ")" + agentRoleLabel;
     }
 
     private String truncateForLog(String text, int maxLength) {

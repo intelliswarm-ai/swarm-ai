@@ -404,7 +404,7 @@ public class IterativeProcess implements Process {
             for (String depId : task.getDependencyTaskIds()) {
                 if (!allTaskIds.contains(depId)) {
                     throw new IllegalArgumentException(
-                            "Task " + task.getId() + " depends on non-existent task: " + depId);
+                            taskLabel(task) + " depends on non-existent task id=" + depId);
                 }
             }
         }
@@ -412,6 +412,17 @@ public class IterativeProcess implements Process {
         if (reviewerAgent == null) {
             throw new IllegalArgumentException("Reviewer agent is required for iterative process");
         }
+    }
+
+    private String taskLabel(Task task) {
+        String description = task.getDescription();
+        String descriptionLabel = (description == null || description.isBlank())
+                ? ""
+                : " \"" + truncateForLog(description, 60) + "\"";
+        String agentRoleLabel = task.getAgent() == null || task.getAgent().getRole() == null
+                ? ""
+                : " [agentRole=" + task.getAgent().getRole() + "]";
+        return "Task" + descriptionLabel + " (id=" + task.getId() + ")" + agentRoleLabel;
     }
 
     private String truncateForLog(String text, int maxLength) {

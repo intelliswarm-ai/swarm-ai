@@ -324,9 +324,16 @@ class SwarmGraphCompilationTest {
         @Test
         @DisplayName("InvalidDependency has descriptive message")
         void invalidDependencyMessage() {
-            var error = new CompilationError.InvalidDependency("task-1", "task-ghost");
+            var error = new CompilationError.InvalidDependency(
+                    "task-1",
+                    "Research topic and produce a very long summary with additional context that should be truncated",
+                    "analyst",
+                    "task-ghost"
+            );
             assertTrue(error.message().contains("task-1"));
             assertTrue(error.message().contains("task-ghost"));
+            assertTrue(error.message().contains("agentRole=analyst"));
+            assertTrue(error.message().contains("Research topic and produce a very long summary with additio..."));
         }
 
         @Test

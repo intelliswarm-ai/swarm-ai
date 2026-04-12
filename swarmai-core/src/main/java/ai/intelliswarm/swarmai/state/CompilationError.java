@@ -43,10 +43,34 @@ public sealed interface CompilationError {
         }
     }
 
-    record InvalidDependency(String taskId, String missingDependency) implements CompilationError {
+    record InvalidDependency(
+            String taskId,
+            String taskDescription,
+            String agentRole,
+            String missingDependency
+    ) implements CompilationError {
+
+        public InvalidDependency(String taskId, String missingDependency) {
+            this(taskId, null, null, missingDependency);
+        }
+
         @Override
         public String message() {
-            return "Task '" + taskId + "' depends on non-existent task '" + missingDependency + "'";
+            String descriptionLabel = taskDescription == null || taskDescription.isBlank()
+                    ? ""
+                    : " \"" + truncate(taskDescription, 60) + "\"";
+            String agentRoleLabel = agentRole == null || agentRole.isBlank()
+                    ? ""
+                    : " [agentRole=" + agentRole + "]";
+            return "Task" + descriptionLabel + " (id=" + taskId + ")" + agentRoleLabel
+                    + " depends on non-existent task (id=" + missingDependency + ")";
+        }
+
+        private static String truncate(String text, int maxLength) {
+            if (text.length() <= maxLength) {
+                return text;
+            }
+            return text.substring(0, maxLength - 3) + "...";
         }
     }
 
