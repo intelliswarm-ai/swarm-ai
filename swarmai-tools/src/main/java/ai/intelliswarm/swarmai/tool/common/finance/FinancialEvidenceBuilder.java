@@ -117,10 +117,23 @@ public class FinancialEvidenceBuilder {
      * high-signal-preserving — the fact card and Key Metrics sections are never cut.
      */
     public String build(String ticker) {
+        return buildWithStats(ticker).evidence();
+    }
+
+    /**
+     * Same as {@link #build(String)} but returns per-tool wall-clock timings alongside
+     * the evidence. Call this from workflows that need to surface pre-fetch tool calls
+     * in their metrics — otherwise {@code WorkflowMetricsCollector} reports 0 tool calls
+     * because the Agent-path {@code ToolHook} never runs for pre-fetch tools.
+     */
+    public EvidenceResult buildWithStats(String ticker) {
         StringBuilder evidence = new StringBuilder();
+        java.util.LinkedHashMap<String, Long> timings = new java.util.LinkedHashMap<>();
 
         // 0. 🎯 Authoritative fact card first — pre-extracted hard values the LLM MUST cite
+        long t0 = System.currentTimeMillis();
         FactCard factCard = factCardBuilder.build(ticker);
+        timings.put("fact_card", System.currentTimeMillis() - t0);
         logger.info("📋 FactCard for {}: {} rows", ticker, factCard.rows().size());
         evidence.append(factCard.toMarkdown());
 
@@ -129,24 +142,36 @@ public class FinancialEvidenceBuilder {
         evidence.append("Company: ").append(ticker).append("\n");
         evidence.append("Source: Finnhub financial API\n");
         evidence.append("Retrieved: ").append(LocalDateTime.now()).append("\n\n");
+        long t1 = System.currentTimeMillis();
         evidence.append(truncate(callFinancialData(ticker)));
+        timings.put("financial_data", System.currentTimeMillis() - t1);
 
         // 2. SEC filings (authoritative for MD&A text + XBRL facts cross-check)
         evidence.append("\n\n=== SEC FILINGS DATA (EDGAR) ===\n");
         evidence.append("Company: ").append(ticker).append("\n");
         evidence.append("Source: SEC EDGAR (public, no API key required)\n");
         evidence.append("Retrieved: ").append(LocalDateTime.now()).append("\n\n");
+        long t2 = System.currentTimeMillis();
         evidence.append(truncate(callSecFilings(ticker)));
+        timings.put("sec_filings", System.currentTimeMillis() - t2);
 
         // 3. Web search (news, analyst opinions, market sentiment)
         evidence.append("\n\n=== WEB SEARCH RESULTS ===\n");
         evidence.append("Query: \"").append(ticker).append(" stock analysis\"\n");
         evidence.append("Retrieved: ").append(LocalDateTime.now()).append("\n\n");
+        long t3 = System.currentTimeMillis();
         evidence.append(truncate(callWebSearch(ticker)));
+        timings.put("web_search", System.currentTimeMillis() - t3);
 
         evidence.append("\n\n=== END OF TOOL EVIDENCE ===");
-        return evidence.toString();
+        return new EvidenceResult(evidence.toString(), timings);
     }
+
+    /**
+     * Evidence string paired with per-tool wall-clock timings from the pre-fetch phase.
+     * Iteration order is the order the tools were invoked.
+     */
+    public record EvidenceResult(String evidence, java.util.Map<String, Long> toolTimings) {}
 
     /**
      * Extracts only the high-signal structured sections from tool evidence — useful for
