@@ -33,8 +33,8 @@ public class ParallelProcess implements Process {
 
     private static final Logger logger = LoggerFactory.getLogger(ParallelProcess.class);
 
-    /** Default timeout per task in a parallel layer (seconds). Total layer timeout = this * layer size. */
-    private static final int DEFAULT_PER_TASK_TIMEOUT_SECONDS = 300; // 5 minutes per task
+    /** Default timeout per task in a parallel layer (seconds). Total layer timeout = this * layer size / concurrency. */
+    private static final int DEFAULT_PER_TASK_TIMEOUT_SECONDS = 600; // 10 minutes per task
 
     private final List<Agent> agents;
     private final ApplicationEventPublisher eventPublisher;
@@ -61,7 +61,9 @@ public class ParallelProcess implements Process {
         this.eventPublisher = eventPublisher;
         this.threadPoolSize = Math.max(2, threadPoolSize);
         this.perTaskTimeoutSeconds = perTaskTimeoutSeconds > 0 ? perTaskTimeoutSeconds : DEFAULT_PER_TASK_TIMEOUT_SECONDS;
-        this.maxConcurrentLlmCalls = maxConcurrentLlmCalls > 0 ? maxConcurrentLlmCalls : this.threadPoolSize;
+        // Default concurrency to 2 (not threadPoolSize) — most LLM providers serialize requests
+        // internally, so high concurrency just causes timeouts without speedup
+        this.maxConcurrentLlmCalls = maxConcurrentLlmCalls > 0 ? maxConcurrentLlmCalls : 2;
     }
 
     @Override
