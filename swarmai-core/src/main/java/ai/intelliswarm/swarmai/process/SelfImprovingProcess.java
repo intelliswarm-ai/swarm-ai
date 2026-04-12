@@ -219,6 +219,11 @@ public class SelfImprovingProcess implements Process {
         int[] gapsSkippedAsDuplicateRef = {0};
 
         while (iteration < effectiveMaxIterations && !approved) {
+            if (Thread.currentThread().isInterrupted()) {
+                logger.info("Self-Improving Process: Stopping — thread interrupted before iteration {}", iteration + 1);
+                break;
+            }
+
             iteration++;
 
             // Check budget-based stopping (leave 10% headroom for final output)
