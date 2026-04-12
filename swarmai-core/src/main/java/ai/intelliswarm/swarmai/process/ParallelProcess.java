@@ -171,7 +171,11 @@ public class ParallelProcess implements Process {
                                 layerIdx, layerTimeoutSeconds, batches, perTaskTimeoutSeconds);
 
                         try {
-                            allDone.get(layerTimeoutSeconds, TimeUnit.SECONDS);
+                            // Wait for all tasks with timeout, even if some fail.
+                            // allOf() completes exceptionally as soon as one future fails; mapping
+                            // exceptional completion to normal ensures timeout still governs the layer.
+                            allDone.handle((ignored, ex) -> null)
+                                    .get(layerTimeoutSeconds, TimeUnit.SECONDS);
                         } catch (TimeoutException e) {
                             logger.error("Parallel layer {} timed out after {} seconds ({} tasks, {} concurrent)",
                                     layerIdx, layerTimeoutSeconds, layer.size(), effectiveConcurrency);
@@ -179,9 +183,6 @@ public class ParallelProcess implements Process {
                                     "Parallel layer " + layerIdx + " timed out after " + layerTimeoutSeconds + "s " +
                                     "(" + layer.size() + " tasks, " + effectiveConcurrency + " concurrent)",
                                     e, ProcessType.PARALLEL, swarmId, null);
-                        } catch (ExecutionException e) {
-                            // At least one task failed — collect partial results below
-                            logger.warn("One or more parallel tasks in layer {} failed; collecting partial results", layerIdx);
                         }
 
                         // Collect results in order, tolerating individual task failures
