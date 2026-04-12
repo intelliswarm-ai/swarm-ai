@@ -10,16 +10,71 @@ import java.util.stream.Collectors;
  */
 public class ReportGenerator {
 
+    private final FinancialFactsFormatter factsFormatter = new FinancialFactsFormatter();
+    private final MDAExtractor mdaExtractor = new MDAExtractor();
+    private final InsiderTransactionAggregator insiderAggregator = new InsiderTransactionAggregator();
+    private static final int MDA_MAX_BULLETS = 16;
+
     /**
-     * Generate a comprehensive analysis report from filings
+     * Legacy signature — kept for callers that don't have a {@link CompanyFacts} object yet.
+     * New callers should prefer the overload that accepts facts so agents see structured
+     * financial data at the top of the report.
      */
     public String generateAnalysisReport(String ticker, String cik, String query, List<Filing> filings) {
+        return generateAnalysisReport(ticker, cik, query, filings, null);
+    }
+
+    /**
+     * Generate a comprehensive analysis report from filings, with an optional
+     * "Key Financials (XBRL)" section derived from SEC's companyfacts API.
+     *
+     * <p>The facts section is placed immediately after the header so agents see
+     * structured revenue/margin/EPS numbers before wading through filing content.
+     * When {@code facts} is null or has no usable concepts, the section is omitted
+     * and behavior is identical to the legacy signature.
+     */
+    public String generateAnalysisReport(String ticker, String cik, String query,
+                                         List<Filing> filings, CompanyFacts facts) {
         StringBuilder report = new StringBuilder();
 
         // Header
         report.append(String.format("# SEC Filings Analysis for %s\n", ticker));
         report.append(String.format("**CIK:** %s\n", cik));
+        if (facts != null && facts.getEntityName() != null) {
+            report.append(String.format("**Entity:** %s\n", facts.getEntityName()));
+        }
         report.append(String.format("**Search Query:** %s\n\n", query));
+
+        // Key Financials section (XBRL companyfacts — highest-signal content, goes first)
+        if (facts != null) {
+            String factsSection = factsFormatter.format(facts);
+            if (!factsSection.isEmpty()) {
+                report.append(factsSection);
+            }
+        }
+
+        // MD&A Highlights — themed, citation-carrying bullets (risks / opportunities /
+        // liquidity / guidance). Second-priority placement so agents see MD&A-level
+        // narrative before getting into per-filing detail.
+        List<MDAExtractor.Bullet> mdaBullets = mdaExtractor.extract(filings, MDA_MAX_BULLETS);
+        String mdaSection = mdaExtractor.render(mdaBullets);
+        org.slf4j.LoggerFactory.getLogger(ReportGenerator.class).info(
+                "MD&A extractor: {} bullets across {} filings ({} chars rendered)",
+                mdaBullets.size(), filings.size(), mdaSection.length());
+        if (!mdaSection.isEmpty()) {
+            report.append(mdaSection);
+        }
+
+        // Insider Transaction Flow — aggregated from Form 4 filings. Gives agents a
+        // clean table + net $ flow instead of having to scan multiple Form 4 bodies.
+        List<InsiderTransactionAggregator.Transaction> insiderTx = insiderAggregator.extract(filings);
+        String insiderSection = insiderAggregator.render(insiderTx);
+        org.slf4j.LoggerFactory.getLogger(ReportGenerator.class).info(
+                "Insider aggregator: {} transactions extracted ({} chars rendered)",
+                insiderTx.size(), insiderSection.length());
+        if (!insiderSection.isEmpty()) {
+            report.append(insiderSection);
+        }
 
         // Group filings by type
         Map<String, List<Filing>> filingsByType = filings.stream()
