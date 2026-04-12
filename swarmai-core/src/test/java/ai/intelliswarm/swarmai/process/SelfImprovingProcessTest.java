@@ -188,6 +188,33 @@ class SelfImprovingProcessTest extends BaseSwarmTest {
     }
 
     @Nested
+    @DisplayName("execute() - Thread interruption")
+    class ThreadInterruptionTests {
+
+        @Test
+        @DisplayName("stops immediately when thread is already interrupted")
+        void execute_interruptedThread_stopsWithoutIterations() {
+            ChatClient reviewerClient = MockChatClientFactory.withResponse("VERDICT: APPROVED");
+            reviewerAgent = TestFixtures.createTestAgent("Reviewer", reviewerClient);
+
+            SelfImprovingProcess process = new SelfImprovingProcess(
+                List.of(workerAgent), reviewerAgent, mockEventPublisher, 3, null);
+
+            Task task = createTask(workerAgent);
+            Thread.currentThread().interrupt();
+            try {
+                SwarmOutput output = process.execute(List.of(task), Map.of(), "test-swarm");
+
+                assertNotNull(output);
+                assertFalse(output.isSuccessful());
+                assertEquals(0, output.getMetadata().get("totalIterations"));
+            } finally {
+                Thread.interrupted(); // clear interrupt flag for following tests
+            }
+        }
+    }
+
+    @Nested
     @DisplayName("execute() - Max iterations")
     class MaxIterationsTests {
 
