@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -161,6 +162,31 @@ class ParallelProcessTest extends BaseSwarmTest {
 
             assertNotNull(output);
             assertEquals(4, output.getTaskOutputs().size());
+        }
+
+        @Test
+        @DisplayName("honors layer timeout even when one task fails early")
+        void execute_withEarlyFailureAndSlowTask_timesOutLayer() {
+            ChatClient failClient = MockChatClientFactory.withError("fail fast");
+            ChatClient slowClient = MockChatClientFactory.withDelay(Duration.ofSeconds(3), "slow success");
+
+            Agent failAgent = TestFixtures.createTestAgent("Fail Agent", failClient);
+            Agent slowAgent = TestFixtures.createTestAgent("Slow Agent", slowClient);
+
+            ParallelProcess process = new ParallelProcess(
+                    List.of(failAgent, slowAgent), mockEventPublisher, 2, 1, 2);
+
+            Task failTask = TestFixtures.createTestTask("Fail", failAgent);
+            Task slowTask = TestFixtures.createTestTask("Slow", slowAgent);
+
+            Instant start = Instant.now();
+            ProcessExecutionException ex = assertThrows(ProcessExecutionException.class, () ->
+                    process.execute(List.of(failTask, slowTask), Map.of(), "test-swarm"));
+            long elapsedMs = Duration.between(start, Instant.now()).toMillis();
+
+            assertTrue(ex.getMessage().contains("timed out"), "Expected timeout-related failure");
+            assertTrue(elapsedMs < 2500,
+                    "Execution should honor layer timeout instead of waiting for the slow task");
         }
     }
 
