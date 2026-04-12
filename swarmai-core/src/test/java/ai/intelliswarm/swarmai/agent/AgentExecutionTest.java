@@ -17,8 +17,13 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 @DisplayName("Agent Execution Tests")
 class AgentExecutionTest extends BaseSwarmTest {
@@ -281,6 +286,45 @@ class AgentExecutionTest extends BaseSwarmTest {
     @Nested
     @DisplayName("timeout retry behavior")
     class TimeoutRetryTests {
+        @Test
+        @DisplayName("retries timeout failures instead of failing immediately")
+        void executeTask_withTimeout_retriesBeforeFailing() {
+            ChatClient timeoutClient = mock(ChatClient.class, org.mockito.Mockito.RETURNS_DEEP_STUBS);
+            AtomicInteger attempts = new AtomicInteger();
+
+            org.mockito.stubbing.Answer<Object> timeoutAnswer = invocation -> {
+                attempts.incrementAndGet();
+                Thread.sleep(200);
+                return null;
+            };
+
+            when(timeoutClient.prompt().system(anyString()).user(anyString())
+                    .call().chatResponse()).thenAnswer(timeoutAnswer);
+            when(timeoutClient.prompt().system(anyString()).user(anyString())
+                    .toolNames(any(String[].class)).call().chatResponse()).thenAnswer(timeoutAnswer);
+            when(timeoutClient.prompt().user(anyString())
+                    .call().chatResponse()).thenAnswer(timeoutAnswer);
+            when(timeoutClient.prompt().user(anyString())
+                    .toolNames(any(String[].class)).call().chatResponse()).thenAnswer(timeoutAnswer);
+
+            Agent timeoutAgent = Agent.builder()
+                    .role("Timeout Agent")
+                    .goal("Handle transient timeout")
+                    .backstory("Test timeout retry path")
+                    .chatClient(timeoutClient)
+                    .maxExecutionTime(20)
+                    .maxTurns(1)
+                    .build();
+
+            Task task = TestFixtures.createTestTask(timeoutAgent);
+            long start = System.currentTimeMillis();
+
+            assertThrows(Exception.class, () -> timeoutAgent.executeTask(task, Collections.emptyList()));
+
+            long elapsedMs = System.currentTimeMillis() - start;
+            assertTrue(attempts.get() >= 2, "Expected timeout retry attempts, got " + attempts.get());
+            assertTrue(elapsedMs >= 1900, "Expected retry backoff delay, elapsed=" + elapsedMs + "ms");
+        }
 
         @Test
         @DisplayName("retries on timeout instead of failing immediately")
