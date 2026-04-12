@@ -87,8 +87,13 @@ public class SECFilingsTool implements BaseTool {
             logger.info("Fetching content for recent filings...");
             contentProcessor.fetchFilingContents(recentFilings, 8); // Fetch content for key filings only (rate limit safe)
 
-            // 5. Generate comprehensive report
-            String report = reportGenerator.generateAnalysisReport(parsedInput.ticker(), cik, parsedInput.query(), recentFilings);
+            // 5. Fetch structured XBRL facts (companyfacts API) — clean revenue/margin/EPS data
+            // that agents can quote without parsing HTML tables. Non-fatal if unavailable.
+            ai.intelliswarm.swarmai.tool.common.sec.CompanyFacts facts = apiClient.fetchCompanyFacts(cik);
+
+            // 6. Generate comprehensive report with the XBRL facts spliced in
+            String report = reportGenerator.generateAnalysisReport(
+                    parsedInput.ticker(), cik, parsedInput.query(), recentFilings, facts);
 
             logger.info("Successfully generated SEC filings analysis for {} with {} characters",
                 parsedInput.ticker(), report.length());

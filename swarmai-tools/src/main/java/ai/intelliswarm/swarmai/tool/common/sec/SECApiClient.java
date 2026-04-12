@@ -194,6 +194,111 @@ public class SECApiClient {
     }
 
     /**
+     * Fetches structured XBRL financial facts for a company via SEC's companyfacts API.
+     *
+     * <p>Endpoint: {@code https://data.sec.gov/api/xbrl/companyfacts/CIK##########.json}
+     * — returns every us-gaap concept the company has ever reported, with values and
+     * periods. This is dramatically more reliable than scraping inline-XBRL from filing
+     * HTML because SEC already did the parsing.
+     *
+     * @return a populated {@link CompanyFacts}, or {@code null} if the API was unreachable.
+     *         Companies that don't report in us-gaap (some foreign issuers) may return
+     *         a facts object with no concepts — callers should check {@code hasConcept}.
+     */
+    public CompanyFacts fetchCompanyFacts(String cik) {
+        try {
+            String formattedCik = String.format("%010d", Integer.parseInt(cik));
+            String url = SEC_API_BASE + "/api/xbrl/companyfacts/CIK" + formattedCik + ".json";
+
+            ResponseEntity<String> response = executeWithRetry(url, createHeaders());
+            if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
+                logger.warn("companyfacts API returned HTTP {} for CIK {}", response.getStatusCode(), cik);
+                return null;
+            }
+
+            JsonNode root = objectMapper.readTree(response.getBody());
+            CompanyFacts facts = new CompanyFacts();
+            facts.setCik(cik);
+            facts.setEntityName(root.path("entityName").asText(null));
+
+            // SEC reports XBRL facts under two namespaces:
+            //   - "us-gaap"   — domestic filers (10-K, 10-Q)
+            //   - "ifrs-full" — foreign private issuers (20-F, 6-K) who file under IFRS
+            // We parse both so foreign tickers (e.g. IMPP, a Greek shipping company) get
+            // the same structured revenue/margin/EPS rescue that domestic filers get.
+            JsonNode factsNode = root.path("facts");
+            int parsedConcepts = 0;
+            parsedConcepts += ingestNamespace(factsNode.path("us-gaap"), "us-gaap", facts);
+            parsedConcepts += ingestNamespace(factsNode.path("ifrs-full"), "ifrs-full", facts);
+
+            if (parsedConcepts == 0) {
+                logger.info("No us-gaap or ifrs-full facts reported for CIK {}", cik);
+            } else {
+                logger.info("Loaded {} XBRL concepts (us-gaap+ifrs-full) from companyfacts for CIK {}",
+                        parsedConcepts, cik);
+            }
+            return facts;
+
+        } catch (HttpClientErrorException.NotFound nf) {
+            logger.info("companyfacts not available for CIK {} (404)", cik);
+            return null;
+        } catch (Exception e) {
+            logger.warn("Error fetching companyfacts for CIK {}: {}", cik, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Parses one XBRL namespace (us-gaap or ifrs-full) from the companyfacts response
+     * and inserts all observations into {@code facts}. Concepts from different namespaces
+     * are stored under "<namespace>:<Concept>" keys so the formatter can still look up
+     * either one — but for readability when there's no collision, us-gaap concepts keep
+     * their bare name for backward compatibility and ifrs-full gets a prefix only when it
+     * collides.
+     */
+    private int ingestNamespace(JsonNode nsNode, String namespace, CompanyFacts facts) {
+        if (nsNode.isMissingNode() || !nsNode.isObject()) {
+            return 0;
+        }
+        int[] count = {0};
+        nsNode.fieldNames().forEachRemaining(concept -> {
+            JsonNode unitsNode = nsNode.get(concept).path("units");
+            if (!unitsNode.isObject()) return;
+            // If us-gaap already registered this concept, put the ifrs-full one under a
+            // prefixed key so both can be inspected. The formatter looks up concepts by
+            // a prioritized list so it'll prefer the bare (us-gaap) name when both exist.
+            String storageKey = "us-gaap".equals(namespace) || !facts.hasConcept(concept)
+                    ? concept
+                    : namespace + ":" + concept;
+            unitsNode.fieldNames().forEachRemaining(unit -> {
+                JsonNode observations = unitsNode.get(unit);
+                if (!observations.isArray()) return;
+                // Collect, then sort by endDate descending (most recent first)
+                List<CompanyFacts.Fact> batch = new ArrayList<>();
+                for (JsonNode obs : observations) {
+                    String endDate = obs.path("end").asText(null);
+                    if (endDate == null) continue;
+                    batch.add(new CompanyFacts.Fact(
+                            obs.path("val").asDouble(0.0),
+                            unit,
+                            obs.path("fp").asText("") + "-" + obs.path("fy").asText(""),
+                            endDate,
+                            obs.path("form").asText(null),
+                            obs.path("fy").asText(null),
+                            obs.path("fp").asText(null)
+                    ));
+                }
+                batch.sort((a, b) -> b.endDate().compareTo(a.endDate()));
+                for (CompanyFacts.Fact f : batch) {
+                    facts.addFact(storageKey, f);
+                }
+            });
+            count[0]++;
+        });
+        return count[0];
+    }
+
+    /**
      * Scrape filings from SEC EDGAR browse page
      */
     public String fetchBrowsePage(String cik) {

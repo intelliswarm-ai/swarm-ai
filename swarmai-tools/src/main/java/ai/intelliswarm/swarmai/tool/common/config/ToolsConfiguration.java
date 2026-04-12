@@ -25,6 +25,7 @@ import ai.intelliswarm.swarmai.tool.common.DatabaseQueryTool;
 import ai.intelliswarm.swarmai.tool.common.SemanticSearchTool;
 import ai.intelliswarm.swarmai.tool.common.DataAnalysisTool;
 import ai.intelliswarm.swarmai.tool.common.ReportGeneratorTool;
+import ai.intelliswarm.swarmai.tool.common.FinancialDataTool;
 import ai.intelliswarm.swarmai.tool.common.SECFilingsTool;
 import ai.intelliswarm.swarmai.tool.common.SimulatedWebSearchTool;
 import ai.intelliswarm.swarmai.tool.common.WebSearchTool;
@@ -67,6 +68,12 @@ public class ToolsConfiguration {
     public SECFilingsTool secFilingsTool() {
         logger.info("Registering SECFilingsTool as Spring bean");
         return new SECFilingsTool();
+    }
+
+    @Bean
+    public FinancialDataTool financialDataTool() {
+        logger.info("Registering FinancialDataTool as Spring bean");
+        return new FinancialDataTool();
     }
 
     @Bean
@@ -183,6 +190,22 @@ public class ToolsConfiguration {
         logger.info("Registering sec_filings function for Spring AI");
         SECFilingsTool tool = secFilingsTool();
         return request -> (String) tool.execute(Map.of("input", request.input()));
+    }
+
+    /**
+     * Request record for the financial_data Spring AI function. Uses {@code input}
+     * instead of {@code ticker} to match the existing convention of other tools
+     * (sec_filings, web_search) so agents can use the same parameter name.
+     */
+    public record FinancialDataRequest(String input) {}
+
+    @Bean
+    @Description("Fetches structured financial data (income statement, balance sheet, cash flow, " +
+            "key ratios, insider transactions) for any public company from Finnhub. " +
+            "Works for US and foreign issuers. Input: ticker symbol.")
+    public Function<FinancialDataRequest, String> financial_data(FinancialDataTool financialDataTool) {
+        logger.info("Registering financial_data function for Spring AI");
+        return request -> (String) financialDataTool.execute(Map.of("input", request.input()));
     }
 
     @Bean
