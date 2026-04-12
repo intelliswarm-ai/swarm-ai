@@ -161,6 +161,37 @@ class SwarmKickoffTest extends BaseSwarmTest {
         }
 
         @Test
+        @DisplayName("fails fast when health checks are enabled and LLM is unavailable")
+        void build_withHealthCheckEnabledAndUnavailableLlm_throws() {
+            Agent failingAgent = createAgent(chatClientWithError("LLM unavailable"));
+            Task task = createTask(failingAgent);
+
+            IllegalStateException exception = assertThrows(IllegalStateException.class, () ->
+                    Swarm.builder()
+                            .agent(failingAgent)
+                            .task(task)
+                            .healthCheckEnabled(true)
+                            .build());
+
+            assertTrue(exception.getMessage().contains("LLM health check failed"));
+        }
+
+        @Test
+        @DisplayName("builds when health checks are enabled and LLM is healthy")
+        void build_withHealthCheckEnabledAndHealthyLlm_succeeds() {
+            Agent agent = createAgent(chatClientWithResponse("pong"));
+            Task task = createTask(agent);
+
+            Swarm swarm = Swarm.builder()
+                    .agent(agent)
+                    .task(task)
+                    .healthCheckEnabled(true)
+                    .build();
+
+            assertNotNull(swarm);
+        }
+
+        @Test
         @DisplayName("sets FAILED status when process fails")
         void kickoff_whenProcessFails_setsFailedStatus() {
             Agent failingAgent = TestFixtures.createTestAgent(chatClientWithError("Failure"));
