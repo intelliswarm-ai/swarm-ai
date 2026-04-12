@@ -74,10 +74,12 @@ public class ParallelProcess implements Process {
         try {
             validateTasks(tasks);
 
+            Map<String, Object> safeInputs = inputs != null ? inputs : Collections.emptyMap();
+
             // Interpolate inputs into task descriptions
-            if (inputs != null && !inputs.isEmpty()) {
+            if (!safeInputs.isEmpty()) {
                 for (Task task : tasks) {
-                    task.interpolateDescription(inputs);
+                    task.interpolateDescription(safeInputs);
                 }
             }
 
@@ -144,8 +146,8 @@ public class ParallelProcess implements Process {
                                             output.getExecutionTimeMs());
 
                                     // Record budget usage (thread-safe via AtomicLong in tracker)
-                                    BudgetTracker pbt = inputs.get("__budgetTracker") instanceof BudgetTracker b ? b : null;
-                                    String pbsId = inputs.get("__budgetSwarmId") instanceof String s ? s : swarmId;
+                                    BudgetTracker pbt = safeInputs.get("__budgetTracker") instanceof BudgetTracker b ? b : null;
+                                    String pbsId = safeInputs.get("__budgetSwarmId") instanceof String s ? s : swarmId;
                                     recordBudgetUsage(pbt, pbsId, output, task.getAgent() != null ? task.getAgent().getModelName() : null);
 
                                     publishEvent(SwarmEvent.Type.TASK_COMPLETED,
@@ -230,8 +232,8 @@ public class ParallelProcess implements Process {
 
                         allOutputs.add(output);
 
-                        BudgetTracker sbt = inputs.get("__budgetTracker") instanceof BudgetTracker b ? b : null;
-                        String sbsId = inputs.get("__budgetSwarmId") instanceof String s ? s : swarmId;
+                        BudgetTracker sbt = safeInputs.get("__budgetTracker") instanceof BudgetTracker b ? b : null;
+                        String sbsId = safeInputs.get("__budgetSwarmId") instanceof String s ? s : swarmId;
                         recordBudgetUsage(sbt, sbsId, output, task.getAgent() != null ? task.getAgent().getModelName() : null);
 
                         publishEvent(SwarmEvent.Type.TASK_COMPLETED,

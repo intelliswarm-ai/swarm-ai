@@ -46,6 +46,20 @@ class ParallelProcessTest extends BaseSwarmTest {
             assertEquals(1, output.getTaskOutputs().size());
         }
 
+
+        @Test
+        @DisplayName("handles null inputs without throwing")
+        void execute_withNullInputs_succeeds() {
+            ParallelProcess process = new ParallelProcess(List.of(agent), mockEventPublisher);
+            Task task = TestFixtures.createTestTask(agent);
+
+            SwarmOutput output = process.execute(List.of(task), null, "test-swarm");
+
+            assertNotNull(output);
+            assertTrue(output.isSuccessful());
+            assertEquals(1, output.getTaskOutputs().size());
+        }
+
         @Test
         @DisplayName("executes multiple independent tasks in parallel")
         void execute_withMultipleIndependentTasks_succeeds() {
