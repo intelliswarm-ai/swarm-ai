@@ -344,6 +344,11 @@ public class Swarm {
 
         if (healthCheckEnabled) {
             LlmHealthChecker.assertHealthy(agents);
+            // Benchmark each unique model to seed dynamic timeouts with real measurements,
+            // so the first workflow call already has a model-specific timeout instead of
+            // the cold-start default.
+            LlmHealthChecker.benchmarkAndSeed(
+                    agents, Agent.getLatencyTracker(), LlmHealthChecker.DEFAULT_BENCHMARK_PROBES);
         }
     }
 

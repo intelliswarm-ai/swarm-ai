@@ -225,11 +225,12 @@ public class SequentialProcess implements Process {
             .map(Task::getId)
             .collect(Collectors.toSet());
 
+        java.util.Map<String, Task> tasksById = tasks.stream()
+            .collect(Collectors.toMap(Task::getId, t -> t, (a, b) -> a));
         for (Task task : tasks) {
             for (String depId : task.getDependencyTaskIds()) {
                 if (!allTaskIds.contains(depId)) {
-                    throw new IllegalArgumentException(
-                        "Task " + task.getId() + " depends on non-existent task: " + depId);
+                    throw new IllegalArgumentException(describeDependencyError(task, depId, tasksById));
                 }
             }
         }
@@ -248,5 +249,34 @@ public class SequentialProcess implements Process {
             return text;
         }
         return text.substring(0, maxLength - 3) + "...";
+    }
+
+    /**
+     * Build a developer-friendly error message for an invalid task dependency.
+     * Includes the description and role of the offending task (not just the UUID)
+     * and suggests the most common root cause (cross-swarm .dependsOn()).
+     */
+    static String describeDependencyError(Task task, String depId, java.util.Map<String, Task> tasksById) {
+        String taskDesc = task.getDescription() != null && !task.getDescription().isBlank()
+            ? "\"" + truncate(task.getDescription(), 60) + "\"" : "(no description)";
+        String taskRole = task.getAgent() != null ? task.getAgent().getRole() : "unassigned";
+        Task dep = tasksById.get(depId);
+        String depDesc = dep != null && dep.getDescription() != null
+            ? "\"" + truncate(dep.getDescription(), 60) + "\"" : "(unknown)";
+        return String.format(
+            "Task %s (id=%s, agent=%s) depends on non-existent task %s (id=%s). " +
+            "The dependency is not in this swarm. If the dependency is in a different " +
+            "swarm, remove the .dependsOn() call and pass data via inputs or shared memory instead.",
+            taskDesc, shortId(task.getId()), taskRole, depDesc, shortId(depId));
+    }
+
+    private static String truncate(String s, int max) {
+        if (s == null) return "";
+        return s.length() <= max ? s : s.substring(0, max - 3) + "...";
+    }
+
+    private static String shortId(String id) {
+        if (id == null) return "null";
+        return id.length() > 8 ? id.substring(0, 8) + "…" : id;
     }
 }

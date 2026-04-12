@@ -400,11 +400,13 @@ public class IterativeProcess implements Process {
                 .map(Task::getId)
                 .collect(Collectors.toSet());
 
+        java.util.Map<String, Task> tasksById = tasks.stream()
+                .collect(Collectors.toMap(Task::getId, t -> t, (a, b) -> a));
         for (Task task : tasks) {
             for (String depId : task.getDependencyTaskIds()) {
                 if (!allTaskIds.contains(depId)) {
                     throw new IllegalArgumentException(
-                            "Task " + task.getId() + " depends on non-existent task: " + depId);
+                            SequentialProcess.describeDependencyError(task, depId, tasksById));
                 }
             }
         }

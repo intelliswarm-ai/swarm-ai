@@ -36,7 +36,20 @@ public class Agent {
 
     private static final Logger logger = LoggerFactory.getLogger(Agent.class);
     private static final int DEFAULT_MAX_RETRIES = 3;
-    private static final int DEFAULT_TIMEOUT_MS = 300_000; // 5 minutes
+    private static final int DEFAULT_TIMEOUT_MS = 300_000; // 5 minutes — used as cold-start fallback
+
+    /**
+     * Shared latency tracker across all Agent instances. Adapts timeouts based on
+     * observed LLM responsiveness (P95 × safetyMultiplier, clamped to a floor/ceiling).
+     * Keyed by model name so fast and slow models don't pollute each other's history.
+     */
+    private static final ai.intelliswarm.swarmai.agent.resilience.LlmLatencyTracker LATENCY_TRACKER =
+            new ai.intelliswarm.swarmai.agent.resilience.LlmLatencyTracker();
+
+    /** Accessor for the shared latency tracker — used by LlmHealthChecker.benchmarkAndSeed(). */
+    public static ai.intelliswarm.swarmai.agent.resilience.LlmLatencyTracker getLatencyTracker() {
+        return LATENCY_TRACKER;
+    }
     private static final int DEFAULT_MAX_TURNS = 10; // reactive loop safety cap
 
     @NotNull
@@ -360,8 +373,20 @@ public class Agent {
             }
         }
 
-        int timeoutMs = maxExecutionTime != null ? maxExecutionTime : DEFAULT_TIMEOUT_MS;
-        return callWithRetry(() -> requestBuilder.call().chatResponse(), DEFAULT_MAX_RETRIES, timeoutMs);
+        // Dynamic timeout: use tracker's suggestion based on recent P95 latency
+        // for this model. Explicit maxExecutionTime overrides the dynamic value.
+        String latencyKey = modelName != null ? modelName : "default";
+        int timeoutMs = maxExecutionTime != null
+                ? maxExecutionTime
+                : (int) LATENCY_TRACKER.suggestedTimeoutMs(latencyKey);
+
+        long callStart = System.currentTimeMillis();
+        ChatResponse result = callWithRetry(() -> requestBuilder.call().chatResponse(),
+                DEFAULT_MAX_RETRIES, timeoutMs);
+        // Record successful call latency for future timeout calculations.
+        // Failures are not recorded — keeps the window biased toward realistic healthy latencies.
+        LATENCY_TRACKER.recordSuccess(latencyKey, System.currentTimeMillis() - callStart);
+        return result;
     }
 
     /**

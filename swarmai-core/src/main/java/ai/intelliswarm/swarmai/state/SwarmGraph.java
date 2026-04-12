@@ -420,6 +420,15 @@ public final class SwarmGraph implements SwarmDefinition {
             }
         }
 
+        // COMPOSITE chains multiple Process instances manually and cannot be built via SwarmGraph.
+        // Reject at compile time with clear guidance instead of failing later in createProcess().
+        if (processType == ProcessType.COMPOSITE) {
+            errors.add(new CompilationError.InvalidConfiguration(
+                    "COMPOSITE process type cannot be created via SwarmGraph. " +
+                    "Use CompositeProcess.of(process1, process2, ...) directly to chain process stages, " +
+                    "or pick a single process type (SEQUENTIAL, PARALLEL, HIERARCHICAL, ITERATIVE, SELF_IMPROVING, SWARM)."));
+        }
+
         // Validate task dependencies
         Set<String> taskIds = new HashSet<>();
         for (Task task : tasks) {

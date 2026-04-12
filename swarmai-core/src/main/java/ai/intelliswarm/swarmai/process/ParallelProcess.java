@@ -354,16 +354,21 @@ public class ParallelProcess implements Process {
                 .map(Task::getId)
                 .collect(Collectors.toSet());
 
+        java.util.Map<String, Task> tasksById = tasks.stream()
+                .collect(Collectors.toMap(Task::getId, t -> t, (a, b) -> a));
         for (Task task : tasks) {
             for (String depId : task.getDependencyTaskIds()) {
                 if (!allTaskIds.contains(depId)) {
                     throw new IllegalArgumentException(
-                            "Task " + task.getId() + " depends on non-existent task: " + depId);
+                            SequentialProcess.describeDependencyError(task, depId, tasksById));
                 }
             }
             if (task.getAgent() == null) {
+                String desc = task.getDescription() != null && !task.getDescription().isBlank()
+                        ? "\"" + truncate(task.getDescription(), 60) + "\"" : "(no description)";
                 throw new IllegalArgumentException(
-                        "Task " + task.getId() + " has no agent assigned");
+                        "Task " + desc + " (id=" + task.getId() + ") has no agent assigned. " +
+                        "Use Task.builder().agent(someAgent) when defining the task.");
             }
         }
     }
