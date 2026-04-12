@@ -1,6 +1,7 @@
 package ai.intelliswarm.swarmai.swarm;
 
 import ai.intelliswarm.swarmai.agent.Agent;
+import ai.intelliswarm.swarmai.agent.resilience.LlmHealthChecker;
 import ai.intelliswarm.swarmai.api.PublicApi;
 import ai.intelliswarm.swarmai.budget.BudgetExceededException;
 import ai.intelliswarm.swarmai.budget.BudgetPolicy;
@@ -71,6 +72,7 @@ public class Swarm {
     private final List<ApprovalGate> approvalGates;
     @JsonIgnore
     private final TenantQuotaEnforcer tenantQuotaEnforcer;
+    private final boolean healthCheckEnabled;
 
     private final LocalDateTime createdAt;
     private SwarmOutput lastOutput;
@@ -95,6 +97,7 @@ public class Swarm {
         this.governance = builder.governance;
         this.approvalGates = builder.approvalGates != null ? new ArrayList<>(builder.approvalGates) : List.of();
         this.tenantQuotaEnforcer = builder.tenantQuotaEnforcer;
+        this.healthCheckEnabled = builder.healthCheckEnabled;
         this.createdAt = LocalDateTime.now();
 
         validateConfiguration();
@@ -338,6 +341,10 @@ public class Swarm {
         if (agents.isEmpty()) {
             throw new IllegalStateException("At least one agent is required");
         }
+
+        if (healthCheckEnabled) {
+            LlmHealthChecker.assertHealthy(agents);
+        }
     }
 
     /**
@@ -408,6 +415,7 @@ public class Swarm {
         private WorkflowGovernanceEngine governance;
         private List<ApprovalGate> approvalGates;
         private TenantQuotaEnforcer tenantQuotaEnforcer;
+        private boolean healthCheckEnabled;
 
         public Builder id(String id) {
             this.id = id;
@@ -512,6 +520,11 @@ public class Swarm {
 
         public Builder tenantQuotaEnforcer(TenantQuotaEnforcer tenantQuotaEnforcer) {
             this.tenantQuotaEnforcer = tenantQuotaEnforcer;
+            return this;
+        }
+
+        public Builder healthCheckEnabled(boolean healthCheckEnabled) {
+            this.healthCheckEnabled = healthCheckEnabled;
             return this;
         }
 
