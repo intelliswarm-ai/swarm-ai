@@ -33,18 +33,35 @@ public class ParallelProcess implements Process {
 
     private static final Logger logger = LoggerFactory.getLogger(ParallelProcess.class);
 
+    /** Default timeout per task in a parallel layer (seconds). Total layer timeout = this * layer size. */
+    private static final int DEFAULT_PER_TASK_TIMEOUT_SECONDS = 300; // 5 minutes per task
+
     private final List<Agent> agents;
     private final ApplicationEventPublisher eventPublisher;
     private final int threadPoolSize;
+    private final int perTaskTimeoutSeconds;
+    private final int maxConcurrentLlmCalls;
 
     public ParallelProcess(List<Agent> agents, ApplicationEventPublisher eventPublisher) {
-        this(agents, eventPublisher, Runtime.getRuntime().availableProcessors());
+        this(agents, eventPublisher, Runtime.getRuntime().availableProcessors(),
+                DEFAULT_PER_TASK_TIMEOUT_SECONDS, 0);
     }
 
     public ParallelProcess(List<Agent> agents, ApplicationEventPublisher eventPublisher, int threadPoolSize) {
+        this(agents, eventPublisher, threadPoolSize, DEFAULT_PER_TASK_TIMEOUT_SECONDS, 0);
+    }
+
+    /**
+     * @param perTaskTimeoutSeconds timeout per task in a layer; total layer timeout = this * layer size
+     * @param maxConcurrentLlmCalls max concurrent LLM calls (0 = unlimited, uses threadPoolSize)
+     */
+    public ParallelProcess(List<Agent> agents, ApplicationEventPublisher eventPublisher,
+                           int threadPoolSize, int perTaskTimeoutSeconds, int maxConcurrentLlmCalls) {
         this.agents = new ArrayList<>(agents);
         this.eventPublisher = eventPublisher;
         this.threadPoolSize = Math.max(2, threadPoolSize);
+        this.perTaskTimeoutSeconds = perTaskTimeoutSeconds > 0 ? perTaskTimeoutSeconds : DEFAULT_PER_TASK_TIMEOUT_SECONDS;
+        this.maxConcurrentLlmCalls = maxConcurrentLlmCalls > 0 ? maxConcurrentLlmCalls : this.threadPoolSize;
     }
 
     @Override
@@ -74,7 +91,9 @@ public class ParallelProcess implements Process {
             }
 
             List<TaskOutput> allOutputs = new ArrayList<>();
-            ExecutorService executor = Executors.newFixedThreadPool(threadPoolSize);
+            // Limit concurrency to avoid overwhelming single-instance LLM providers (e.g., Ollama)
+            int effectiveConcurrency = Math.min(threadPoolSize, maxConcurrentLlmCalls);
+            ExecutorService executor = Executors.newFixedThreadPool(effectiveConcurrency);
 
             try {
                 for (int layerIdx = 0; layerIdx < layers.size(); layerIdx++) {
@@ -82,7 +101,8 @@ public class ParallelProcess implements Process {
                     boolean isParallel = layer.size() > 1;
 
                     if (isParallel) {
-                        logger.info("Executing layer {} with {} tasks in PARALLEL", layerIdx, layer.size());
+                        logger.info("Executing layer {} with {} tasks in PARALLEL (concurrency: {})",
+                                layerIdx, layer.size(), effectiveConcurrency);
                     } else {
                         logger.info("Executing layer {} with 1 task", layerIdx);
                     }
@@ -141,11 +161,22 @@ public class ParallelProcess implements Process {
                         CompletableFuture<Void> allDone = CompletableFuture.allOf(
                                 futures.toArray(new CompletableFuture[0]));
 
+                        // Scale timeout with layer size: if tasks are queued behind a concurrency
+                        // limit, they run in batches, so total time = (tasks / concurrency) * perTaskTimeout
+                        int batches = (int) Math.ceil((double) layer.size() / effectiveConcurrency);
+                        long layerTimeoutSeconds = (long) batches * perTaskTimeoutSeconds;
+                        logger.info("Layer {} timeout: {} seconds ({} batches x {} sec/task)",
+                                layerIdx, layerTimeoutSeconds, batches, perTaskTimeoutSeconds);
+
                         try {
-                            allDone.get(600, TimeUnit.SECONDS); // 10 min max per layer
+                            allDone.get(layerTimeoutSeconds, TimeUnit.SECONDS);
                         } catch (TimeoutException e) {
+                            logger.error("Parallel layer {} timed out after {} seconds ({} tasks, {} concurrent)",
+                                    layerIdx, layerTimeoutSeconds, layer.size(), effectiveConcurrency);
                             throw new ProcessExecutionException(
-                                    "Parallel layer " + layerIdx + " timed out", e, ProcessType.PARALLEL, swarmId, null);
+                                    "Parallel layer " + layerIdx + " timed out after " + layerTimeoutSeconds + "s " +
+                                    "(" + layer.size() + " tasks, " + effectiveConcurrency + " concurrent)",
+                                    e, ProcessType.PARALLEL, swarmId, null);
                         } catch (ExecutionException e) {
                             // At least one task failed — collect partial results below
                             logger.warn("One or more parallel tasks in layer {} failed; collecting partial results", layerIdx);

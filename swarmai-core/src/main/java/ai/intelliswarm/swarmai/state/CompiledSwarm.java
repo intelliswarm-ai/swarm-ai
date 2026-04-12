@@ -340,7 +340,15 @@ public final class CompiledSwarm implements SwarmDefinition {
         return switch (processType) {
             case SEQUENTIAL -> new ai.intelliswarm.swarmai.process.SequentialProcess(agents, eventPublisher);
             case HIERARCHICAL -> new ai.intelliswarm.swarmai.process.HierarchicalProcess(agents, managerAgent, eventPublisher);
-            case PARALLEL -> new ai.intelliswarm.swarmai.process.ParallelProcess(agents, eventPublisher);
+            case PARALLEL -> {
+                int perTaskTimeout = config.containsKey("perTaskTimeoutSeconds")
+                        ? ((Number) config.get("perTaskTimeoutSeconds")).intValue() : 300;
+                int maxConcurrent = config.containsKey("maxConcurrentLlmCalls")
+                        ? ((Number) config.get("maxConcurrentLlmCalls")).intValue() : 0;
+                yield new ai.intelliswarm.swarmai.process.ParallelProcess(
+                        agents, eventPublisher, Runtime.getRuntime().availableProcessors(),
+                        perTaskTimeout, maxConcurrent);
+            }
             case ITERATIVE -> {
                 int maxIter = config.containsKey("maxIterations") ? (int) config.get("maxIterations") : 3;
                 String criteria = config.containsKey("qualityCriteria") ? (String) config.get("qualityCriteria") : null;

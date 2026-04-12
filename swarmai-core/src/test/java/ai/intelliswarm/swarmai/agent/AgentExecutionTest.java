@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
 
+import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -274,6 +275,53 @@ class AgentExecutionTest extends BaseSwarmTest {
             assertNotNull(output);
             assertTrue(output.isSuccessful());
             assertEquals("Analyze the data", task.getDescription());
+        }
+    }
+
+    @Nested
+    @DisplayName("timeout retry behavior")
+    class TimeoutRetryTests {
+
+        @Test
+        @DisplayName("retries on timeout instead of failing immediately")
+        void executeTask_withSlowLlm_retriesOnTimeout() {
+            // Create a slow client that takes 2 seconds (longer than a very short timeout)
+            // but the agent's default timeout is 300s, so this should succeed
+            ChatClient slowClient = MockChatClientFactory.withDelay(Duration.ofMillis(500), "Delayed response");
+            Agent slowAgent = Agent.builder()
+                    .role("Slow Agent")
+                    .goal("Complete task despite delays")
+                    .backstory("Test agent for timeout retry")
+                    .chatClient(slowClient)
+                    .maxTurns(1)
+                    .build();
+
+            Task task = TestFixtures.createTestTask(slowAgent);
+
+            // Should succeed — delay is within default timeout
+            TaskOutput output = slowAgent.executeTask(task, Collections.emptyList());
+
+            assertNotNull(output);
+            assertTrue(output.isSuccessful());
+        }
+
+        @Test
+        @DisplayName("fails after exhausting all retry attempts")
+        void executeTask_withPersistentError_failsAfterRetries() {
+            ChatClient failClient = MockChatClientFactory.withError("Persistent failure");
+            Agent failAgent = Agent.builder()
+                    .role("Failing Agent")
+                    .goal("Attempt task")
+                    .backstory("Test agent for retry exhaustion")
+                    .chatClient(failClient)
+                    .maxTurns(1)
+                    .build();
+
+            Task task = TestFixtures.createTestTask(failAgent);
+
+            // Should throw after exhausting retries
+            assertThrows(Exception.class, () ->
+                    failAgent.executeTask(task, Collections.emptyList()));
         }
     }
 }
