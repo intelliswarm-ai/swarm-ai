@@ -99,13 +99,12 @@ class NeuralLinUCBBanditTest {
             bandit.update(state2, 2, 0.2);
         }
 
-        // After training, verify context-dependent selection
         int correct1 = 0, correct2 = 0;
-        for (int i = 0; i < 20; i++) {
+        for (int i = 0; i < 100; i++) {
             if (bandit.selectAction(state1) == 2) correct1++;
             if (bandit.selectAction(state2) == 0) correct2++;
         }
-        assertTrue(correct1 > 10, "Should select action 2 for state [1,0,0]");
-        assertTrue(correct2 > 10, "Should select action 0 for state [0,1,0]");
+        assertTrue(correct1 > 60, "Should select action 2 for state [1,0,0] (got " + correct1 + "/100)");
+        assertTrue(correct2 > 60, "Should select action 0 for state [0,1,0] (got " + correct2 + "/100)");
     }
 }
