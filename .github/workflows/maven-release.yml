@@ -97,7 +97,7 @@ jobs:
       if: success() || failure()
       with:
         name: Release Unit Tests
-        path: target/surefire-reports/*.xml
+        path: '**/target/surefire-reports/*.xml'
         reporter: java-junit
 
   integration-tests:
@@ -137,7 +137,7 @@ jobs:
       if: success() || failure()
       with:
         name: Release Integration Tests
-        path: target/failsafe-reports/*.xml
+        path: '**/target/failsafe-reports/*.xml'
         reporter: java-junit
 
   # ============================================

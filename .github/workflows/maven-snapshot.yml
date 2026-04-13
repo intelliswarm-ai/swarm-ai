@@ -49,7 +49,7 @@ jobs:
       if: (success() || failure()) && github.event.inputs.skip_tests != 'true'
       with:
         name: Unit Tests
-        path: target/surefire-reports/*.xml
+        path: '**/target/surefire-reports/*.xml'
         reporter: java-junit
 
   integration-tests:
@@ -83,10 +83,10 @@ jobs:
 
     - name: Generate integration test report
       uses: dorny/test-reporter@v1
-      if: (success() || failure()) && github.event.inputs.skip_tests != 'true' && hashFiles('target/failsafe-reports/*.xml') != ''
+      if: (success() || failure()) && github.event.inputs.skip_tests != 'true' && hashFiles('**/target/failsafe-reports/*.xml') != ''
       with:
         name: Integration Tests
-        path: target/failsafe-reports/*.xml
+        path: '**/target/failsafe-reports/*.xml'
         reporter: java-junit
 
   # ============================================
