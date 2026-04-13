@@ -30,6 +30,7 @@
         </developer>
     </developers>
 
+
     <scm>
         <url>https://github.com/intelliswarm-ai/swarm-ai</url>
         <connection>scm:git:git://github.com/intelliswarm-ai/swarm-ai.git</connection>
