@@ -90,28 +90,26 @@ jobs:
         reporter: java-junit
 
   # ============================================
-  # Publish snapshot to Maven Central (OSSRH)
+  # Publish snapshot to Maven Central (Central Portal)
   # ============================================
-  publish-ossrh:
-    name: Publish to OSSRH
+  publish-central:
+    name: Publish to Central Snapshots
     runs-on: ubuntu-latest
     needs: [ unit-tests, integration-tests ]
-    # Only run if OSSRH credentials are configured
-    if: secrets.OSSRH_USERNAME != '' && secrets.MAVEN_GPG_PRIVATE_KEY != ''
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Set up JDK 21 for OSSRH
+    - name: Set up JDK 21 for Central Portal
       uses: actions/setup-java@v4
       with:
         java-version: '21'
         distribution: 'temurin'
         cache: maven
-        server-id: ossrh
-        server-username: MAVEN_USERNAME
-        server-password: MAVEN_PASSWORD
+        server-id: central
+        server-username: CENTRAL_USERNAME
+        server-password: CENTRAL_PASSWORD
         gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
         gpg-passphrase: MAVEN_GPG_PASSPHRASE
 
@@ -125,26 +123,26 @@ jobs:
         fi
         echo "VERSION=$VERSION" >> $GITHUB_ENV
 
-    - name: Deploy to OSSRH Snapshots
+    - name: Deploy to Central Snapshots
       run: |
         mvn --batch-mode -Prelease deploy -DskipTests
       env:
-        MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
-        MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
+        CENTRAL_USERNAME: ${{ secrets.CENTRAL_TOKEN_USERNAME }}
+        CENTRAL_PASSWORD: ${{ secrets.CENTRAL_TOKEN_PASSWORD }}
         MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
 
     - name: Summary
       run: |
-        echo "## OSSRH Snapshot Published" >> $GITHUB_STEP_SUMMARY
+        echo "## Central Portal Snapshot Published" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "- **Version:** ${{ env.VERSION }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Repository:** https://s01.oss.sonatype.org/content/repositories/snapshots" >> $GITHUB_STEP_SUMMARY
+        echo "- **Repository:** https://central.sonatype.com/repository/maven-snapshots/" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Maven Dependency" >> $GITHUB_STEP_SUMMARY
         echo '```xml' >> $GITHUB_STEP_SUMMARY
         echo '<dependency>' >> $GITHUB_STEP_SUMMARY
         echo '    <groupId>ai.intelliswarm</groupId>' >> $GITHUB_STEP_SUMMARY
-        echo '    <artifactId>swarmai-framework</artifactId>' >> $GITHUB_STEP_SUMMARY
+        echo '    <artifactId>swarmai-core</artifactId>' >> $GITHUB_STEP_SUMMARY
         echo "    <version>${{ env.VERSION }}</version>" >> $GITHUB_STEP_SUMMARY
         echo '</dependency>' >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY

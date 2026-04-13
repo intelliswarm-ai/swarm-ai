@@ -17,6 +17,15 @@
     <name>SwarmAI Studio</name>
     <description>Optional web dashboard for workflow visualization, event replay, and debugging</description>
 
+    <licenses>
+        <license>
+            <name>Business Source License 1.1</name>
+            <url>https://mariadb.com/bsl11/</url>
+            <distribution>repo</distribution>
+            <comments>Change Date: 2030-04-09. Change License: Apache License, Version 2.0</comments>
+        </license>
+    </licenses>
+
     <dependencies>
         <!-- Core framework -->
         <dependency>
@@ -32,4 +41,28 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <profiles>
+        <profile>
+            <id>release</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.sonatype.central</groupId>
+                        <artifactId>central-publishing-maven-plugin</artifactId>
+                        <configuration>
+                            <skipPublishing>true</skipPublishing>
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-deploy-plugin</artifactId>
+                        <configuration>
+                            <skip>true</skip>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>
