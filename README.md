@@ -1,6 +1,7 @@
 # SwarmAI Framework
 
 [![Website](https://img.shields.io/badge/website-intelliswarm.ai-blue.svg)](https://www.intelliswarm.ai)
+[![Maven Central](https://img.shields.io/maven-central/v/ai.intelliswarm/swarmai-core.svg?label=Maven%20Central)](https://central.sonatype.com/artifact/ai.intelliswarm/swarmai-core)
 [![Maven CI](https://github.com/intelliswarm-ai/swarm-ai/actions/workflows/maven-ci.yml/badge.svg)](https://github.com/intelliswarm-ai/swarm-ai/actions/workflows/maven-ci.yml)
 [![Java 21](https://img.shields.io/badge/Java-21-blue.svg)](https://openjdk.org/projects/jdk/21/)
 [![Spring Boot 3.4](https://img.shields.io/badge/Spring%20Boot-3.4.4-brightgreen.svg)](https://spring.io/projects/spring-boot)
@@ -48,35 +49,43 @@ Every SwarmAI workflow automatically reserves 10% of its token budget for framew
 
 ## Quick Start
 
+Available on **[Maven Central](https://central.sonatype.com/search?q=g:ai.intelliswarm)**. Recommended approach is to import the BOM and let it manage versions for all SwarmAI modules:
+
 ```xml
-<!-- Core framework -->
-<dependency>
-    <groupId>ai.intelliswarm</groupId>
-    <artifactId>swarmai-core</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
-</dependency>
+<dependencyManagement>
+    <dependencies>
+        <dependency>
+            <groupId>ai.intelliswarm</groupId>
+            <artifactId>swarmai-bom</artifactId>
+            <version>1.0.0</version>
+            <type>pom</type>
+            <scope>import</scope>
+        </dependency>
+    </dependencies>
+</dependencyManagement>
 
-<!-- Optional: 24 built-in tools (web, PDF, CSV, shell, etc.) -->
-<dependency>
-    <groupId>ai.intelliswarm</groupId>
-    <artifactId>swarmai-tools</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
-</dependency>
+<dependencies>
+    <!-- Core framework -->
+    <dependency>
+        <groupId>ai.intelliswarm</groupId>
+        <artifactId>swarmai-core</artifactId>
+    </dependency>
 
-<!-- Optional: YAML DSL for declarative workflows -->
-<dependency>
-    <groupId>ai.intelliswarm</groupId>
-    <artifactId>swarmai-dsl</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
-</dependency>
+    <!-- Optional: 24 built-in tools (web, PDF, CSV, shell, etc.) -->
+    <dependency>
+        <groupId>ai.intelliswarm</groupId>
+        <artifactId>swarmai-tools</artifactId>
+    </dependency>
 
-<!-- Optional: Enterprise features (multi-tenancy, governance, RBAC, audit) -->
-<dependency>
-    <groupId>ai.intelliswarm</groupId>
-    <artifactId>swarmai-enterprise</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
-</dependency>
+    <!-- Optional: YAML DSL for declarative workflows -->
+    <dependency>
+        <groupId>ai.intelliswarm</groupId>
+        <artifactId>swarmai-dsl</artifactId>
+    </dependency>
+</dependencies>
 ```
+
+> **Enterprise + Studio modules** (`swarmai-enterprise`, `swarmai-studio`) are licensed under BSL 1.1 and distributed via [GitHub Packages](https://github.com/intelliswarm-ai/swarm-ai/packages) instead of Maven Central. Configure a `<server>` block in your `~/.m2/settings.xml` with a Personal Access Token having `read:packages` scope to consume them.
 
 ```java
 Agent researcher = Agent.builder()
