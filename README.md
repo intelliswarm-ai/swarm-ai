@@ -13,6 +13,68 @@
 
 **[www.intelliswarm.ai](https://www.intelliswarm.ai)** | [Documentation](#documentation) | [Quick Start](#quick-start) | [Migration Guide](docs/MIGRATION_GUIDE.md)
 
+## Architecture
+
+```
+                    ┌──────────────┐
+   user.yaml ─────► │ Swarm Engine │ ─────► LLM (Spring AI ChatClient)
+                    └──────┬───────┘
+                           │
+              ┌────────────┼────────────┐
+              ▼            ▼            ▼
+         ┌────────┐  ┌──────────┐  ┌──────────┐
+         │ Agent  │  │  Agent   │  │  Agent   │
+         └───┬────┘  └────┬─────┘  └────┬─────┘
+             │            │             │
+             └────────────┼─────────────┘
+                          ▼
+              ┌─────────────────────────┐
+              │  Tool Registry (RBAC)   │
+              └─────────────────────────┘
+
+  Cross-cutting:  Budget Tracker  ·  Governance Gates  ·  Self-Improvement Loop (10%)
+```
+
+## Try it in 30 seconds
+
+```yaml
+# pr-reviewer.yaml
+swarm:
+  process: PARALLEL
+  budget: { max_tokens: 50000, mode: HARD_STOP }
+  agents:
+    security-reviewer:
+      role: "Security Reviewer"
+      tools: [git-diff, semgrep]
+      permissionMode: READ_ONLY
+    style-reviewer:
+      role: "Style Reviewer"
+      tools: [git-diff]
+      permissionMode: READ_ONLY
+```
+
+```bash
+docker run -e OPENAI_API_KEY=$KEY intelliswarm/swarmai run pr-reviewer.yml
+```
+
+Live playground: **[intelliswarm.ai/demo](https://www.intelliswarm.ai/demo)** — step through recorded workflow traces in the browser, no install needed.
+
+## How SwarmAI compares
+
+|                                 | SwarmAI    | LangGraph | langchain4j | Spring AI |
+|---------------------------------|------------|-----------|-------------|-----------|
+| Language                        | Java       | Python    | Java        | Java      |
+| Multi-agent orchestration       | ✓          | ✓         | partial     | ✗         |
+| Declarative YAML workflows      | ✓          | ✗         | ✗           | ✗         |
+| Budget enforcement              | ✓          | ✗         | ✗           | ✗         |
+| Governance / approval gates     | ✓          | partial   | ✗           | ✗         |
+| RBAC on tool execution          | ✓          | ✗         | ✗           | ✗         |
+| Self-improvement loop           | ✓          | ✗         | ✗           | ✗         |
+| Production maturity             | new (1.0)  | mature    | mature      | mature    |
+| Community size                  | small      | large     | medium      | large     |
+
+If you don't need multi-agent orchestration with governance, use Spring AI directly. If you're on Python, use LangGraph. SwarmAI's wedge is JVM teams that need an opinionated agent layer with budget, RBAC, and approval gates baked in.
+
 ## The 10% Self-Improvement Investment
 
 SwarmAI is the first agentic framework where **every workflow makes the framework better for everyone**.
