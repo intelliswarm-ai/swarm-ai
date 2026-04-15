@@ -13,6 +13,11 @@
     <name>SwarmAI Parent</name>
     <description>Java multi-agent framework built on Spring AI</description>
 
+    <organization>
+        <name>IntelliSwarm.ai</name>
+        <url>https://www.intelliswarm.ai</url>
+    </organization>
+
     <licenses>
         <license>
             <name>Apache License, Version 2.0</name>
@@ -23,7 +28,10 @@
 
     <developers>
         <developer>
+            <id>intelliswarm</id>
             <name>IntelliSwarm.ai Team</name>
+            <email>info@intelliswarm.ai</email>
+            <url>https://www.intelliswarm.ai</url>
             <organization>IntelliSwarm.ai</organization>
             <organizationUrl>https://www.intelliswarm.ai</organizationUrl>
         </developer>
@@ -36,6 +44,16 @@
         <connection>scm:git:git://github.com/intelliswarm-ai/swarm-ai.git</connection>
         <developerConnection>scm:git:ssh://git@github.com/intelliswarm-ai/swarm-ai.git</developerConnection>
     </scm>
+
+    <issueManagement>
+        <system>GitHub</system>
+        <url>https://github.com/intelliswarm-ai/swarm-ai/issues</url>
+    </issueManagement>
+
+    <ciManagement>
+        <system>GitHub Actions</system>
+        <url>https://github.com/intelliswarm-ai/swarm-ai/actions</url>
+    </ciManagement>
 
     <modules>
         <module>swarmai-bom</module>
