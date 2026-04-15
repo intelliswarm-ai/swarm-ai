@@ -129,7 +129,12 @@ jobs:
         fi
 
         # Cross-check against POM (advisory only; we override the POM later)
-        POM_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+        POM_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null || true)
+        if [[ -z "$POM_VERSION" || "$POM_VERSION" == "null object or invalid expression" ]]; then
+          echo "::warning::mvn help:evaluate returned empty — falling back to grep-based POM parse"
+          POM_VERSION=$(grep -oPm1 "(?<=<version>)[^<]+" pom.xml)
+        fi
+        echo "Resolved POM version: $POM_VERSION"
         POM_BASE="${POM_VERSION%-SNAPSHOT}"
         if [[ "$POM_BASE" != "$VERSION" ]]; then
           echo "::notice::POM version ($POM_VERSION) does not match release version ($VERSION). Will override POM."

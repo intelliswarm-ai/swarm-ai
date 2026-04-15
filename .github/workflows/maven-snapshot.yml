@@ -171,7 +171,19 @@ jobs:
 
     - name: Get version
       run: |
-        VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+        VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null || true)
+        if [[ -z "$VERSION" || "$VERSION" == "null object or invalid expression" ]]; then
+          echo "::warning::mvn help:evaluate returned empty — falling back to POM parse"
+          echo "=== Re-running without -q to show Maven errors ==="
+          mvn help:evaluate -Dexpression=project.version -DforceStdout || true
+          echo "=== Falling back to grep-based extraction ==="
+          VERSION=$(grep -oPm1 "(?<=<version>)[^<]+" pom.xml)
+        fi
+        if [[ -z "$VERSION" ]]; then
+          echo "::error::Failed to resolve project.version from POM"
+          exit 1
+        fi
+        echo "Resolved version: $VERSION"
         echo "VERSION=$VERSION" >> $GITHUB_ENV
 
     - name: Deploy to GitHub Packages
