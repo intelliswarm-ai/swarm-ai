@@ -18,6 +18,13 @@
     <description>Framework self-improvement engine — reserves 10% of workflow token budget to produce
         framework-level improvements (policy weights, skills, prompt templates, anti-patterns, convergence
         defaults) that ship in the next release and benefit all users on upgrade.</description>
+    <url>https://github.com/intelliswarm-ai/swarm-ai</url>
+
+    <scm>
+        <url>https://github.com/intelliswarm-ai/swarm-ai</url>
+        <connection>scm:git:git://github.com/intelliswarm-ai/swarm-ai.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/intelliswarm-ai/swarm-ai.git</developerConnection>
+    </scm>
 
     <dependencies>
         <!-- SwarmAI Core (Process, PolicyEngine, BudgetTracker, SkillRegistry, ObservabilityContext) -->

@@ -16,6 +16,13 @@
 
     <name>SwarmAI Eval</name>
     <description>Self-evaluating swarm, competitive benchmarks, and agent evals for continuous framework improvement</description>
+    <url>https://github.com/intelliswarm-ai/swarm-ai</url>
+
+    <scm>
+        <url>https://github.com/intelliswarm-ai/swarm-ai</url>
+        <connection>scm:git:git://github.com/intelliswarm-ai/swarm-ai.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/intelliswarm-ai/swarm-ai.git</developerConnection>
+    </scm>
 
     <dependencies>
         <!-- SwarmAI modules -->

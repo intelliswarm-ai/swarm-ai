@@ -16,6 +16,13 @@
 
     <name>SwarmAI Distributed</name>
     <description>RAFT consensus and distributed goal execution for multi-node agent swarms</description>
+    <url>https://github.com/intelliswarm-ai/swarm-ai</url>
+
+    <scm>
+        <url>https://github.com/intelliswarm-ai/swarm-ai</url>
+        <connection>scm:git:git://github.com/intelliswarm-ai/swarm-ai.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/intelliswarm-ai/swarm-ai.git</developerConnection>
+    </scm>
 
     <dependencies>
         <dependency>

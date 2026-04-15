@@ -16,6 +16,13 @@
 
     <name>SwarmAI DSL</name>
     <description>YAML DSL for declarative workflow definitions — parse, validate, and compile workflow YAML into live Swarm instances</description>
+    <url>https://github.com/intelliswarm-ai/swarm-ai</url>
+
+    <scm>
+        <url>https://github.com/intelliswarm-ai/swarm-ai</url>
+        <connection>scm:git:git://github.com/intelliswarm-ai/swarm-ai.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/intelliswarm-ai/swarm-ai.git</developerConnection>
+    </scm>
 
     <dependencies>
         <!-- SwarmAI Core -->

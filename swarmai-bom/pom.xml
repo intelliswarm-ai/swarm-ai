@@ -16,6 +16,13 @@
 
     <name>SwarmAI BOM</name>
     <description>Bill of Materials for SwarmAI Framework — import this POM to align all module versions</description>
+    <url>https://github.com/intelliswarm-ai/swarm-ai</url>
+
+    <scm>
+        <url>https://github.com/intelliswarm-ai/swarm-ai</url>
+        <connection>scm:git:git://github.com/intelliswarm-ai/swarm-ai.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/intelliswarm-ai/swarm-ai.git</developerConnection>
+    </scm>
 
     <dependencyManagement>
         <dependencies>

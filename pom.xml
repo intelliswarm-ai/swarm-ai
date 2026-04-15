@@ -12,7 +12,6 @@
 
     <name>SwarmAI Parent</name>
     <description>Java multi-agent framework built on Spring AI</description>
-    <url>https://github.com/intelliswarm-ai/swarm-ai</url>
 
     <licenses>
         <license>
@@ -30,7 +29,9 @@
         </developer>
     </developers>
 
-    <scm>
+    <scm child.scm.connection.inherit.append.path="false"
+         child.scm.developerConnection.inherit.append.path="false"
+         child.scm.url.inherit.append.path="false">
         <url>https://github.com/intelliswarm-ai/swarm-ai</url>
         <connection>scm:git:git://github.com/intelliswarm-ai/swarm-ai.git</connection>
         <developerConnection>scm:git:ssh://git@github.com/intelliswarm-ai/swarm-ai.git</developerConnection>

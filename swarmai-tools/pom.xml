@@ -16,6 +16,13 @@
 
     <name>SwarmAI Tools</name>
     <description>Built-in tool implementations: file I/O, web scraping, PDF, CSV, HTTP, shell, email, database</description>
+    <url>https://github.com/intelliswarm-ai/swarm-ai</url>
+
+    <scm>
+        <url>https://github.com/intelliswarm-ai/swarm-ai</url>
+        <connection>scm:git:git://github.com/intelliswarm-ai/swarm-ai.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/intelliswarm-ai/swarm-ai.git</developerConnection>
+    </scm>
 
     <dependencies>
         <!-- Core framework -->
