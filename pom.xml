@@ -12,6 +12,7 @@
 
     <name>SwarmAI Parent</name>
     <description>Java multi-agent framework built on Spring AI</description>
+    <url>https://github.com/intelliswarm-ai/swarm-ai</url>
 
     <organization>
         <name>IntelliSwarm.ai</name>
