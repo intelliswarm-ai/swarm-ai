@@ -15,25 +15,93 @@
 
 ## Architecture
 
-```
-                    ┌──────────────┐
-   user.yaml ─────► │ Swarm Engine │ ─────► LLM (Spring AI ChatClient)
-                    └──────┬───────┘
-                           │
-              ┌────────────┼────────────┐
-              ▼            ▼            ▼
-         ┌────────┐  ┌──────────┐  ┌──────────┐
-         │ Agent  │  │  Agent   │  │  Agent   │
-         └───┬────┘  └────┬─────┘  └────┬─────┘
-             │            │             │
-             └────────────┼─────────────┘
-                          ▼
-              ┌─────────────────────────┐
-              │  Tool Registry (RBAC)   │
-              └─────────────────────────┘
+```mermaid
+graph TB
+    classDef entry fill:#E3F2FD,stroke:#1976D2,stroke-width:2px,color:#000
+    classDef core fill:#EDE7F6,stroke:#5E35B1,stroke-width:2px,color:#000
+    classDef runtime fill:#FFF3E0,stroke:#F57C00,stroke-width:2px,color:#000
+    classDef guard fill:#FCE4EC,stroke:#C2185B,stroke-width:2px,color:#000
+    classDef improve fill:#E0F7FA,stroke:#00838F,stroke-width:2px,color:#000
+    classDef ext fill:#ECEFF1,stroke:#455A64,stroke-width:2px,color:#000
 
-  Cross-cutting:  Budget Tracker  ·  Governance Gates  ·  Self-Improvement Loop (10%)
+    subgraph Entry["① Declare a workflow"]
+        YAML["YAML DSL<br/><i>swarmai-dsl</i>"]:::entry
+        Java["Java Builder API"]:::entry
+        Studio["REST · Studio UI<br/><i>swarmai-studio</i>"]:::entry
+    end
+
+    Compiler["SwarmCompiler"]:::core
+    Engine["<b>Swarm Coordinator</b><br/>8 Process strategies<br/>SEQUENTIAL · PARALLEL · HIERARCHICAL · ITERATIVE<br/>SELF_IMPROVING · SWARM · DISTRIBUTED · COMPOSITE"]:::core
+
+    subgraph Agents["② Agent runtime"]
+        direction LR
+        A1["Agent"]:::runtime
+        A2["Agent"]:::runtime
+        A3["Agent"]:::runtime
+    end
+
+    Tools["<b>Tool Registry</b><br/>RBAC · Hooks · Audit<br/>25 built-in + MCP + dynamic Skills"]:::runtime
+
+    subgraph Guards["Enterprise guardrails"]
+        direction LR
+        Budget["Budget Tracker<br/>HARD_STOP · WARN"]:::guard
+        Gov["Governance Gates<br/>human approval"]:::guard
+        Tenant["Tenant Context<br/>quotas · isolation"]:::guard
+    end
+
+    subgraph Insights["Observability &amp; learning"]
+        direction LR
+        Mem["Memory + Knowledge<br/>JDBC · Redis · Vector"]:::runtime
+        Obs["Traces · Metrics<br/>Event Store"]:::runtime
+        RL["RL Policy Engine<br/>LinUCB · Thompson"]:::runtime
+    end
+
+    subgraph Improve["③ Self-Improving Loop — 10% of every budget"]
+        direction LR
+        Gap["Capability<br/>Gap Detector"]:::improve
+        Gen["Skill Generator"]:::improve
+        Val["Sandbox Validator"]:::improve
+        Ledger["Community<br/>Investment Ledger"]:::improve
+    end
+
+    LLM[("LLM providers<br/>OpenAI · Anthropic · Ollama<br/><i>via Spring AI ChatClient</i>")]:::ext
+    World[("External world<br/>DBs · MCP · Web<br/>Shell · Email · Slack")]:::ext
+
+    YAML --> Compiler
+    Java --> Compiler
+    Studio --> Compiler
+    Compiler --> Engine
+    Engine --> A1
+    Engine --> A2
+    Engine --> A3
+    A1 --> Tools
+    A2 --> Tools
+    A3 --> Tools
+    A1 -.-> LLM
+    A2 -.-> LLM
+    A3 -.-> LLM
+    Tools --> World
+    Mem --> World
+
+    Engine -. gated by .-> Gov
+    Engine -. scoped by .-> Tenant
+    A1 -. meters .-> Budget
+    A2 -. meters .-> Budget
+    A3 -. meters .-> Budget
+    A1 -. emits .-> Obs
+    A2 -. emits .-> Obs
+    A3 -. emits .-> Obs
+    A1 -. reads/writes .-> Mem
+    Engine -. asks .-> RL
+
+    A2 -. gap .-> Gap
+    Gap --> Gen --> Val
+    Val -->|registers skill| Tools
+    Val --> Ledger
+    Budget -. 10% reserve .-> Improve
 ```
+
+The engine picks one of 8 process strategies, runs agents that call LLMs and tools, and enforces budget, governance, and tenant guardrails along the way. Every execution feeds the self-improving loop, which generates new skills and publishes framework-level improvements to the Community Investment Ledger.
 
 ## Try it in 30 seconds
 
