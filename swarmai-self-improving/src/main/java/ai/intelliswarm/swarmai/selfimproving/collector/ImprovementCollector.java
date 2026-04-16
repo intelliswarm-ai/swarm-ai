@@ -29,6 +29,9 @@ public class ImprovementCollector {
         observations.addAll(collectToolSelectionPatterns(trace));
         observations.addAll(collectSkillPatterns(trace));
         observations.addAll(collectAntiPatterns(trace));
+        observations.addAll(collectDecisionQuality(trace));
+        observations.addAll(collectProcessSuitability(trace));
+        observations.addAll(collectCoordinationQuality(trace));
 
         log.info("Collected {} observations from swarm {}", observations.size(), trace.swarmId());
         return observations;
@@ -191,6 +194,96 @@ public class ImprovementCollector {
             }
         }
 
+        return observations;
+    }
+
+    /**
+     * Detect when agents retry excessively (more than 2 retries signals a decision-quality issue).
+     */
+    private List<SpecificObservation> collectDecisionQuality(ExecutionTrace trace) {
+        List<SpecificObservation> observations = new ArrayList<>();
+        for (TaskTrace task : trace.taskTraces()) {
+            // turnCount > 3 on a successful task means the agent needed many attempts
+            // to arrive at a good answer — the decision pipeline could be improved.
+            if (task.succeeded() && task.turnCount() > 3) {
+                observations.add(SpecificObservation.decisionQuality(
+                        trace.workflowShape(),
+                        "Agent '%s' required %d turns to complete task '%s' successfully — possible decision-quality issue".formatted(
+                                task.agentRole(), task.turnCount(), task.taskId()),
+                        Map.of(
+                                "task_id", task.taskId(),
+                                "agent_role", task.agentRole() != null ? task.agentRole() : "unknown",
+                                "turn_count", task.turnCount(),
+                                "tokens_spent", task.totalTokens()
+                        )
+                ));
+            }
+        }
+        return observations;
+    }
+
+    /**
+     * Detect sequential workflows where tasks have no dependencies — they should
+     * be running in parallel.
+     */
+    private List<SpecificObservation> collectProcessSuitability(ExecutionTrace trace) {
+        if (trace.workflowShape() == null) return List.of();
+        // A sequential workflow with multiple independent tasks (maxDependencyDepth == 0
+        // and taskCount > 1) would likely benefit from parallel execution.
+        if ("SEQUENTIAL".equals(trace.workflowShape().processType())
+                && trace.workflowShape().taskCount() > 1
+                && trace.workflowShape().maxDependencyDepth() == 0) {
+            return List.of(SpecificObservation.processSuitability(
+                    trace.workflowShape(),
+                    "Sequential workflow with %d independent tasks (depth 0) — parallel execution may reduce latency".formatted(
+                            trace.workflowShape().taskCount()),
+                    Map.of(
+                            "process_type", trace.workflowShape().processType(),
+                            "task_count", trace.workflowShape().taskCount(),
+                            "max_depth", trace.workflowShape().maxDependencyDepth(),
+                            "agent_count", trace.workflowShape().agentCount()
+                    )
+            ));
+        }
+        return List.of();
+    }
+
+    /**
+     * Detect when downstream tasks ignore upstream output — low context utilization
+     * suggests poor agent coordination.
+     */
+    private List<SpecificObservation> collectCoordinationQuality(ExecutionTrace trace) {
+        List<SpecificObservation> observations = new ArrayList<>();
+        // In a sequential workflow with multiple tasks, if downstream tasks use
+        // significantly more tokens than upstream ones, it may indicate they are
+        // not leveraging the upstream context effectively.
+        List<TaskTrace> tasks = trace.taskTraces();
+        if (tasks.size() < 2) return observations;
+
+        for (int i = 1; i < tasks.size(); i++) {
+            TaskTrace upstream = tasks.get(i - 1);
+            TaskTrace downstream = tasks.get(i);
+            // If downstream uses 3x+ more tokens than upstream and upstream succeeded,
+            // the downstream agent may be re-deriving context instead of using the handoff.
+            if (upstream.succeeded() && downstream.succeeded()
+                    && upstream.totalTokens() > 0
+                    && downstream.totalTokens() > upstream.totalTokens() * 3) {
+                observations.add(SpecificObservation.coordinationQuality(
+                        trace.workflowShape(),
+                        "Task '%s' used %dx more tokens than predecessor '%s' — possible context handoff inefficiency".formatted(
+                                downstream.taskId(),
+                                downstream.totalTokens() / Math.max(1, upstream.totalTokens()),
+                                upstream.taskId()),
+                        Map.of(
+                                "upstream_task", upstream.taskId(),
+                                "downstream_task", downstream.taskId(),
+                                "upstream_tokens", upstream.totalTokens(),
+                                "downstream_tokens", downstream.totalTokens(),
+                                "token_ratio", (double) downstream.totalTokens() / Math.max(1, upstream.totalTokens())
+                        )
+                ));
+            }
+        }
         return observations;
     }
 

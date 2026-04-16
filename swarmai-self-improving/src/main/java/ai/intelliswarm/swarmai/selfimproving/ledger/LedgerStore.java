@@ -1,6 +1,8 @@
 package ai.intelliswarm.swarmai.selfimproving.ledger;
 
+import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -52,6 +54,45 @@ public interface LedgerStore {
      * and the self-improvement health indicator.
      */
     GlobalSnapshot getGlobalSnapshot();
+
+    /**
+     * Persist a raw observation so it survives JVM restarts.
+     * Called by the self-improvement pipeline after each workflow execution.
+     */
+    void recordObservation(String swarmId, String observationType, String description, String evidenceJson);
+
+    /**
+     * Load recent persisted observations for cross-JVM pattern extraction.
+     *
+     * @param limit maximum number of observations to return (most recent first)
+     */
+    List<StoredObservation> getRecentObservations(int limit);
+
+    /**
+     * A persisted observation row, used to re-hydrate the PatternExtractor's
+     * historical observation list across JVM boundaries.
+     */
+    record StoredObservation(
+            String swarmId,
+            String observationType,
+            String description,
+            String evidenceJson,
+            Instant createdAt
+    ) {}
+
+    /**
+     * Record a self-evolution event (swarm restructuring using existing capabilities).
+     * Evolutions are persisted for cross-JVM learning and Studio visualization.
+     */
+    void recordEvolution(ai.intelliswarm.swarmai.selfimproving.model.SwarmEvolution evolution);
+
+    /**
+     * Get recent evolution events for Studio timeline visualization.
+     */
+    List<StoredEvolution> getRecentEvolutions(int limit);
+
+    record StoredEvolution(String swarmId, String evolutionType, String reason,
+                           String beforeJson, String afterJson, java.time.Instant createdAt) {}
 
     /**
      * Per-pass increments. Mirrors the website's telemetry input schema.

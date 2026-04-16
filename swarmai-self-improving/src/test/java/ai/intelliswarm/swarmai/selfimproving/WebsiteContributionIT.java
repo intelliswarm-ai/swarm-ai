@@ -5,6 +5,7 @@ import ai.intelliswarm.swarmai.selfimproving.classifier.ImprovementClassifier;
 import ai.intelliswarm.swarmai.selfimproving.collector.ImprovementCollector;
 import ai.intelliswarm.swarmai.selfimproving.config.SelfImprovementConfig;
 import ai.intelliswarm.swarmai.selfimproving.extractor.PatternExtractor;
+import ai.intelliswarm.swarmai.selfimproving.ledger.NoOpLedgerStore;
 import ai.intelliswarm.swarmai.selfimproving.model.*;
 import ai.intelliswarm.swarmai.selfimproving.model.ExecutionTrace.*;
 import ai.intelliswarm.swarmai.selfimproving.model.SpecificObservation.ObservationType;
@@ -97,7 +98,7 @@ class WebsiteContributionIT {
         SelfImprovementConfig config = new SelfImprovementConfig();
         config.setMinObservations(1); // low threshold for test
         config.setMinCrossWorkflowEvidence(1);
-        PatternExtractor extractor = new PatternExtractor(config);
+        PatternExtractor extractor = new PatternExtractor(config, new NoOpLedgerStore());
 
         // Collect observations
         List<SpecificObservation> observations = collector.collect(trace);

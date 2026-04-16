@@ -3,6 +3,7 @@ package ai.intelliswarm.swarmai.selfimproving.config;
 import ai.intelliswarm.swarmai.selfimproving.aggregator.ImprovementAggregator;
 import ai.intelliswarm.swarmai.selfimproving.classifier.ImprovementClassifier;
 import ai.intelliswarm.swarmai.selfimproving.collector.ImprovementCollector;
+import ai.intelliswarm.swarmai.selfimproving.evolution.EvolutionEngine;
 import ai.intelliswarm.swarmai.selfimproving.extractor.PatternExtractor;
 import ai.intelliswarm.swarmai.selfimproving.ledger.DailyTelemetryScheduler;
 import ai.intelliswarm.swarmai.selfimproving.ledger.JdbcLedgerStore;
@@ -63,9 +64,11 @@ public class SelfImprovementAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public PatternExtractor selfImprovementPatternExtractor(SelfImprovementConfig config) {
-        log.info("SwarmAI Self-Improvement: PatternExtractor initialized");
-        return new PatternExtractor(config);
+    public PatternExtractor selfImprovementPatternExtractor(SelfImprovementConfig config,
+                                                             LedgerStore ledgerStore) {
+        log.info("SwarmAI Self-Improvement: PatternExtractor initialized (persistent observation store: {})",
+                ledgerStore.getClass().getSimpleName());
+        return new PatternExtractor(config, ledgerStore);
     }
 
     @Bean
@@ -115,15 +118,25 @@ public class SelfImprovementAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    public EvolutionEngine selfImprovementEvolutionEngine(LedgerStore ledgerStore) {
+        log.info("SwarmAI Self-Improvement: EvolutionEngine initialized — " +
+                "internal observations will drive runtime self-evolution");
+        return new EvolutionEngine(ledgerStore);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     public SelfImprovementEventListener selfImprovementEventListener(
             ImprovementPhase phase,
             LedgerStore ledgerStore,
             SelfImprovementConfig config,
+            EvolutionEngine evolutionEngine,
             org.springframework.beans.factory.ObjectProvider<DailyTelemetryScheduler> scheduler) {
         log.info("SwarmAI Self-Improvement: Auto-trigger listener registered — " +
                 "improvement phase will run after every successful workflow (telemetry mode: {})",
                 config.getTelemetryMode());
-        return new SelfImprovementEventListener(phase, ledgerStore, config, scheduler.getIfAvailable());
+        return new SelfImprovementEventListener(phase, ledgerStore, config,
+                evolutionEngine, scheduler.getIfAvailable());
     }
 
     @Bean

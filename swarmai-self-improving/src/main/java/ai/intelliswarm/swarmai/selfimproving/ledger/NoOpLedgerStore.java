@@ -1,6 +1,7 @@
 package ai.intelliswarm.swarmai.selfimproving.ledger;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -44,5 +45,25 @@ public class NoOpLedgerStore implements LedgerStore {
     @Override
     public GlobalSnapshot getGlobalSnapshot() {
         return GlobalSnapshot.zero();
+    }
+
+    @Override
+    public void recordObservation(String swarmId, String observationType, String description, String evidenceJson) {
+        // Intentional no-op
+    }
+
+    @Override
+    public List<StoredObservation> getRecentObservations(int limit) {
+        return List.of();
+    }
+
+    @Override
+    public void recordEvolution(ai.intelliswarm.swarmai.selfimproving.model.SwarmEvolution evolution) {
+        // Intentional no-op
+    }
+
+    @Override
+    public List<StoredEvolution> getRecentEvolutions(int limit) {
+        return List.of();
     }
 }

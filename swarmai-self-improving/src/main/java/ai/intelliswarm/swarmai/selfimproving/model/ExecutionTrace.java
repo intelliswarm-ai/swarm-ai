@@ -137,12 +137,15 @@ public record ExecutionTrace(
             this.totalPromptTokens = output.getTotalPromptTokens();
             this.totalCompletionTokens = output.getTotalCompletionTokens();
 
+            Set<String> agentRoles = new HashSet<>();
             for (TaskOutput taskOutput : output.getTaskOutputs()) {
                 Long prompt = taskOutput.getPromptTokens() != null ? taskOutput.getPromptTokens() : 0L;
                 Long completion = taskOutput.getCompletionTokens() != null ? taskOutput.getCompletionTokens() : 0L;
+                String role = (String) taskOutput.getMetadata().getOrDefault("agentRole", "unknown");
+                agentRoles.add(role);
                 addTaskTrace(new TaskTrace(
                         taskOutput.getTaskId(),
-                        (String) taskOutput.getMetadata().getOrDefault("agentRole", "unknown"),
+                        role,
                         taskOutput.isSuccessful(),
                         prompt,
                         completion,
@@ -152,6 +155,28 @@ public record ExecutionTrace(
                         taskOutput.isSuccessful() ? null : "Task failed",
                         Duration.ofMillis(taskOutput.getExecutionTimeMs())
                 ));
+            }
+
+            // Derive WorkflowShape from SwarmOutput when not set explicitly.
+            // SwarmOutput doesn't expose Process/Task objects directly, so we
+            // build a lightweight shape from the task traces and metadata.
+            if (this.workflowShape == null) {
+                String processType = output.getMetadata() != null
+                        ? (String) output.getMetadata().getOrDefault("processType", "SEQUENTIAL")
+                        : "SEQUENTIAL";
+                this.workflowShape = new WorkflowShape(
+                        output.getTaskOutputs().size(),      // taskCount
+                        0,                                    // maxDependencyDepth (not available from output)
+                        false,                                // hasSkillGeneration
+                        "PARALLEL".equals(processType),       // hasParallelTasks
+                        false,                                // hasCyclicDependencies
+                        Set.of(),                             // toolCategories
+                        processType,                          // processType
+                        agentRoles.size(),                    // agentCount
+                        0.0,                                  // avgToolsPerAgent
+                        false,                                // hasBudgetConstraint
+                        false                                 // hasGovernanceGates
+                );
             }
             return this;
         }

@@ -5,6 +5,7 @@ import ai.intelliswarm.swarmai.selfimproving.classifier.ImprovementClassifier;
 import ai.intelliswarm.swarmai.selfimproving.collector.ImprovementCollector;
 import ai.intelliswarm.swarmai.selfimproving.config.SelfImprovementConfig;
 import ai.intelliswarm.swarmai.selfimproving.extractor.PatternExtractor;
+import ai.intelliswarm.swarmai.selfimproving.ledger.NoOpLedgerStore;
 import ai.intelliswarm.swarmai.selfimproving.model.*;
 import ai.intelliswarm.swarmai.selfimproving.model.ExecutionTrace.*;
 import ai.intelliswarm.swarmai.selfimproving.phase.ImprovementPhase;
@@ -35,7 +36,7 @@ class ImprovementPhaseTest {
         config.setMinCrossWorkflowEvidence(1);
 
         collector = new ImprovementCollector();
-        extractor = new PatternExtractor(config);
+        extractor = new PatternExtractor(config, new NoOpLedgerStore());
         classifier = new ImprovementClassifier(config);
         aggregator = new ImprovementAggregator(config);
         phase = new ImprovementPhase(config, collector, extractor, classifier, aggregator);

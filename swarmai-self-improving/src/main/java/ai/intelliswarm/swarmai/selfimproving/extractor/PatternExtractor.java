@@ -1,9 +1,11 @@
 package ai.intelliswarm.swarmai.selfimproving.extractor;
 
 import ai.intelliswarm.swarmai.selfimproving.config.SelfImprovementConfig;
+import ai.intelliswarm.swarmai.selfimproving.ledger.LedgerStore;
 import ai.intelliswarm.swarmai.selfimproving.model.*;
 import ai.intelliswarm.swarmai.selfimproving.model.GenericRule.RuleCategory;
 import ai.intelliswarm.swarmai.selfimproving.model.GenericRule.ValidationResult;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -23,22 +25,40 @@ import java.util.stream.Collectors;
 public class PatternExtractor {
 
     private static final Logger log = LoggerFactory.getLogger(PatternExtractor.class);
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final SelfImprovementConfig config;
+    private final LedgerStore ledgerStore;
     private final List<SpecificObservation> historicalObservations = new CopyOnWriteArrayList<>();
 
-    public PatternExtractor(SelfImprovementConfig config) {
+    public PatternExtractor(SelfImprovementConfig config, LedgerStore ledgerStore) {
         this.config = config;
+        this.ledgerStore = ledgerStore;
     }
 
     /**
      * Record observations for future cross-validation.
+     * Also persists to the ledger store so observations survive JVM restarts.
      */
     public void recordObservations(List<SpecificObservation> observations) {
         historicalObservations.addAll(observations);
         // Keep bounded
         while (historicalObservations.size() > 10_000) {
             historicalObservations.remove(0);
+        }
+        // Persist each observation to the durable store
+        for (SpecificObservation obs : observations) {
+            try {
+                String evidenceJson = MAPPER.writeValueAsString(obs.evidence());
+                ledgerStore.recordObservation(
+                        obs.observationId(),
+                        obs.type() != null ? obs.type().name() : "UNKNOWN",
+                        obs.description(),
+                        evidenceJson
+                );
+            } catch (Exception e) {
+                log.debug("Failed to persist observation {} (non-fatal): {}", obs.observationId(), e.getMessage());
+            }
         }
     }
 
@@ -100,6 +120,7 @@ public class PatternExtractor {
      */
     private Map<String, Object> findCommonFeatures(List<SpecificObservation> observations) {
         List<Map<String, Object>> featureMaps = observations.stream()
+                .filter(obs -> obs.workflowShape() != null)
                 .map(obs -> obs.workflowShape().toFeatureMap())
                 .toList();
 
@@ -133,6 +154,42 @@ public class PatternExtractor {
     private ValidationResult crossValidate(Map<String, Object> condition,
                                            SpecificObservation.ObservationType type,
                                            List<SpecificObservation> currentObs) {
+        // If in-memory observations are empty (cross-JVM scenario), re-hydrate
+        // from the durable store so cross-validation has historical data.
+        if (historicalObservations.isEmpty()) {
+            try {
+                List<LedgerStore.StoredObservation> stored = ledgerStore.getRecentObservations(10_000);
+                for (LedgerStore.StoredObservation so : stored) {
+                    try {
+                        SpecificObservation.ObservationType obsType =
+                                SpecificObservation.ObservationType.valueOf(so.observationType());
+                        // Re-create a lightweight SpecificObservation for cross-validation.
+                        // WorkflowShape is not persisted, so we use a minimal placeholder;
+                        // cross-validation matches on type, not shape, when rehydrating.
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> evidence = so.evidenceJson() != null
+                                ? MAPPER.readValue(so.evidenceJson(), Map.class)
+                                : Map.of();
+                        historicalObservations.add(new SpecificObservation(
+                                so.swarmId(),
+                                obsType,
+                                null, // shape not persisted; findCommonFeatures skips nulls
+                                so.description(),
+                                evidence,
+                                0.5,
+                                so.createdAt()
+                        ));
+                    } catch (IllegalArgumentException ignored) {
+                        // Unknown observation type from an older schema — skip
+                    }
+                }
+                log.debug("Re-hydrated {} historical observations from ledger store",
+                        historicalObservations.size());
+            } catch (Exception e) {
+                log.debug("Failed to re-hydrate observations from ledger (non-fatal): {}", e.getMessage());
+            }
+        }
+
         // Exclude current observations from validation set
         Set<String> currentIds = currentObs.stream()
                 .map(SpecificObservation::observationId)
@@ -152,6 +209,13 @@ public class PatternExtractor {
         List<String> details = new ArrayList<>();
 
         for (SpecificObservation obs : validationSet) {
+            if (obs.workflowShape() == null) {
+                // Rehydrated observation without shape — count as a match on type alone
+                // since the observation type already passed the filter above.
+                matched++;
+                details.add("Matched (rehydrated): %s".formatted(obs.description()));
+                continue;
+            }
             boolean matches = obs.workflowShape().matches(condition);
             if (matches) {
                 matched++;
@@ -182,6 +246,9 @@ public class PatternExtractor {
             case ANTI_PATTERN -> RuleCategory.ANTI_PATTERN;
             case FAILURE -> RuleCategory.ANTI_PATTERN;
             case EXPENSIVE_TASK -> RuleCategory.CONVERGENCE_DEFAULT;
+            case DECISION_QUALITY -> RuleCategory.ANTI_PATTERN;
+            case PROCESS_SUITABILITY -> RuleCategory.PROCESS_SELECTION;
+            case COORDINATION_QUALITY -> RuleCategory.PROMPT_OPTIMIZATION;
         };
     }
 
@@ -195,6 +262,9 @@ public class PatternExtractor {
             case FAILURE -> "Add validation rule to prevent this failure mode";
             case EXPENSIVE_TASK -> "Optimize token consumption for matching task patterns";
             case PROMPT_EFFICIENCY -> "Update prompt template for more efficient agent turns";
+            case DECISION_QUALITY -> "Refine agent decision pipeline to reduce excessive retries";
+            case PROCESS_SUITABILITY -> "Switch independent sequential tasks to parallel execution";
+            case COORDINATION_QUALITY -> "Improve context handoff between sequential agents";
         };
     }
 

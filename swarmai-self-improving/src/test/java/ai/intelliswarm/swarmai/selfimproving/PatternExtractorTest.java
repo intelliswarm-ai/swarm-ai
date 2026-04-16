@@ -2,6 +2,7 @@ package ai.intelliswarm.swarmai.selfimproving;
 
 import ai.intelliswarm.swarmai.selfimproving.config.SelfImprovementConfig;
 import ai.intelliswarm.swarmai.selfimproving.extractor.PatternExtractor;
+import ai.intelliswarm.swarmai.selfimproving.ledger.NoOpLedgerStore;
 import ai.intelliswarm.swarmai.selfimproving.model.*;
 import ai.intelliswarm.swarmai.selfimproving.model.GenericRule.RuleCategory;
 import ai.intelliswarm.swarmai.selfimproving.model.SpecificObservation.ObservationType;
@@ -37,7 +38,7 @@ class PatternExtractorTest {
         config = new SelfImprovementConfig();
         config.setMinObservations(3);
         config.setMinCrossWorkflowEvidence(2);
-        extractor = new PatternExtractor(config);
+        extractor = new PatternExtractor(config, new NoOpLedgerStore());
     }
 
     // ================================================================
