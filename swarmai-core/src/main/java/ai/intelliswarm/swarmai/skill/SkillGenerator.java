@@ -1,6 +1,7 @@
 package ai.intelliswarm.swarmai.skill;
 
 import ai.intelliswarm.swarmai.agent.Agent;
+import ai.intelliswarm.swarmai.skill.runtime.SkillSource;
 import ai.intelliswarm.swarmai.task.Task;
 import ai.intelliswarm.swarmai.task.output.TaskOutput;
 import org.slf4j.Logger;
@@ -30,10 +31,24 @@ public class SkillGenerator {
     private static final Logger logger = LoggerFactory.getLogger(SkillGenerator.class);
 
     private final ChatClient chatClient;
+    private final String targetLanguage;
     private Map<String, String> toolOutputSamples = new HashMap<>();
 
     public SkillGenerator(ChatClient chatClient) {
+        this(chatClient, SkillSource.GROOVY);
+    }
+
+    /**
+     * Generate skills targeting a specific SkillRuntime language.
+     * Supported values are defined as constants on SkillSource (GROOVY, KOTLIN_SCRIPT).
+     * Non-Groovy targets are opt-in and produce skills tagged with the chosen language;
+     * SkillValidator will route them to the matching runtime in RuntimeRegistry.
+     */
+    public SkillGenerator(ChatClient chatClient, String targetLanguage) {
         this.chatClient = chatClient;
+        this.targetLanguage = targetLanguage == null || targetLanguage.isBlank()
+            ? SkillSource.GROOVY
+            : targetLanguage;
     }
 
     public void discoverToolFormats(Map<String, BaseTool> tools) {
@@ -157,8 +172,21 @@ public class SkillGenerator {
         }
     }
 
+    private static String fenceFor(String language) {
+        return SkillSource.KOTLIN_SCRIPT.equals(language) ? "kotlin" : "groovy";
+    }
+
     private String buildGenerationPrompt(String gapDescription, List<String> existingToolNames) {
         StringBuilder prompt = new StringBuilder();
+
+        if (!SkillSource.GROOVY.equals(targetLanguage)) {
+            prompt.append("TARGET LANGUAGE: ").append(targetLanguage).append("\n");
+            prompt.append("The CODE block must be valid ").append(targetLanguage)
+                  .append(" source. The Groovy examples below are illustrative only — ")
+                  .append("emit idiomatic ").append(targetLanguage).append(" in your output.\n");
+            prompt.append("When writing the code fence, use ```").append(fenceFor(targetLanguage))
+                  .append(" instead of ```groovy.\n\n");
+        }
 
         prompt.append("Generate a skill to fill this capability gap:\n\n");
         prompt.append("GAP: ").append(gapDescription).append("\n\n");
@@ -451,8 +479,9 @@ public class SkillGenerator {
         }
 
         GeneratedSkill skill = new GeneratedSkill(def);
-        logger.info("Generated {} skill: {} (category={}, tags={})",
-            def.getType(), def.getName(), def.getCategory(), def.getTags());
+        skill.setLanguage(targetLanguage);
+        logger.info("Generated {} skill: {} (category={}, tags={}, language={})",
+            def.getType(), def.getName(), def.getCategory(), def.getTags(), targetLanguage);
         return skill;
     }
 

@@ -432,4 +432,61 @@ class SkillGeneratorContractTest {
             assertNotNull(skill.getName());
         }
     }
+
+    // ================================================================
+    // TARGET LANGUAGE TAGGING
+    // ================================================================
+
+    @Nested
+    @DisplayName("Target language tagging")
+    class TargetLanguageTagging {
+
+        private static final String MINIMAL_CODE_SKILL = """
+            ---
+            name: tiny_skill
+            description: Smoke-test skill used to verify language tagging
+            type: CODE
+            ---
+
+            # Tiny Skill
+
+            Just enough body to parse.
+
+            ```groovy
+            return params.get("x")
+            ```
+            """;
+
+        @Test
+        @DisplayName("default generator tags parsed skills with language=groovy")
+        void defaultGeneratorTagsGroovy() {
+            SkillGenerator defaultGen = new SkillGenerator(null);
+
+            GeneratedSkill skill = defaultGen.parseSkillDefinition(MINIMAL_CODE_SKILL, "tiny");
+
+            assertNotNull(skill);
+            assertEquals("groovy", skill.getLanguage());
+        }
+
+        @Test
+        @DisplayName("kotlin-script generator tags parsed skills with language=kotlin-script")
+        void kotlinGeneratorTagsKotlin() {
+            SkillGenerator kotlinGen = new SkillGenerator(null, "kotlin-script");
+
+            GeneratedSkill skill = kotlinGen.parseSkillDefinition(MINIMAL_CODE_SKILL, "tiny");
+
+            assertNotNull(skill);
+            assertEquals("kotlin-script", skill.getLanguage());
+        }
+
+        @Test
+        @DisplayName("blank target language falls back to groovy")
+        void blankTargetLanguageFallsBackToGroovy() {
+            SkillGenerator blank = new SkillGenerator(null, "  ");
+
+            GeneratedSkill skill = blank.parseSkillDefinition(MINIMAL_CODE_SKILL, "tiny");
+
+            assertEquals("groovy", skill.getLanguage());
+        }
+    }
 }

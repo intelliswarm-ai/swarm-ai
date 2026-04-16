@@ -77,6 +77,9 @@ public class GeneratedSkill implements BaseTool {
     // Quality
     private SkillQualityScore qualityScore;
 
+    // Runtime — which SkillRuntime validates & executes this skill's code (default: Groovy)
+    private String language = ai.intelliswarm.swarmai.skill.runtime.SkillSource.GROOVY;
+
     // ==================== Constructors ====================
 
     /**
@@ -746,6 +749,12 @@ public class GeneratedSkill implements BaseTool {
     public void setQualityScore(SkillQualityScore qs) { this.qualityScore = qs; }
     public void setVersion(String v) { this.version = v; }
     public void setParentSkillId(String pid) { this.parentSkillId = pid; }
+    public String getLanguage() { return language; }
+    public void setLanguage(String language) {
+        this.language = language == null || language.isBlank()
+            ? ai.intelliswarm.swarmai.skill.runtime.SkillSource.GROOVY
+            : language;
+    }
     public void setRequirements(ToolRequirements reqs) {
         if (reqs != null && !reqs.isEmpty()) {
             Map<String, List<String>> reqMap = new LinkedHashMap<>();

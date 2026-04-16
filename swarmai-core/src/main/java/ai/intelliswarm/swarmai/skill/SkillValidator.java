@@ -194,7 +194,8 @@ public class SkillValidator {
     }
 
     private SkillSource sourceFor(GeneratedSkill skill) {
-        return new SkillSource(SkillSource.GROOVY, skill.getCode(), skill.getTestCases());
+        String language = skill.getLanguage() != null ? skill.getLanguage() : SkillSource.GROOVY;
+        return new SkillSource(language, skill.getCode(), skill.getTestCases());
     }
 
     /**
