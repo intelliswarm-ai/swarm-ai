@@ -7,7 +7,7 @@
 [![Spring Boot 3.4](https://img.shields.io/badge/Spring%20Boot-3.4.4-brightgreen.svg)](https://spring.io/projects/spring-boot)
 [![Spring AI 1.0](https://img.shields.io/badge/Spring%20AI-1.0.4%20GA-brightgreen.svg)](https://spring.io/projects/spring-ai)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Tests](https://img.shields.io/badge/tests-1128%20passing-brightgreen.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-1457%20passing-brightgreen.svg)](#)
 
 **A self-improving multi-agent orchestration framework for Java, designed for enterprise use.** Built on Spring AI 1.0.4 GA and Spring Boot 3.4 with type-safe state management, dynamic skill generation, RL-powered decision making, and enterprise features.
 
@@ -284,7 +284,7 @@ SwarmOutput result = swarm.kickoff(Map.of());
 ### Build & Test
 
 ```bash
-./mvnw clean test       # 1128 tests, all passing
+./mvnw clean test       # 1457 tests, all passing
 ./mvnw clean install    # install to local Maven repo
 ```
 
@@ -386,7 +386,7 @@ SwarmException (base, carries swarmId + correlationId)
 | MCP Java SDK | 0.10.0 |
 | Groovy | 4.x (skill sandbox) |
 | Build | Maven (11 modules) |
-| Tests | JUnit 5 + Mockito (1128 tests) |
+| Tests | JUnit 5 + Mockito (1457 tests) |
 
 ## Documentation
 
