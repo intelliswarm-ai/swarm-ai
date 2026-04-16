@@ -35,7 +35,7 @@ import java.util.stream.Collectors;
  * 1. GitHub issue: paste the file content at github.com/intelliswarm-ai/swarm-ai/issues/new
  * 2. Email: send to contributions@intelliswarm.ai
  * 3. Web form: upload at intelliswarm.ai/contribute
- * 4. CLI: `curl -X POST https://api.intelliswarm.ai/api/v1/contribute -d @export.json`
+ * 4. CLI: `curl -X POST https://api.intelliswarm.ai/api/contribute -H "Content-Type: application/json" -d @export.json`
  */
 public class ImprovementExporter {
 

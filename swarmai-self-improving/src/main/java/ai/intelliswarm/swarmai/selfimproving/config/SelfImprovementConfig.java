@@ -69,11 +69,52 @@ public class SelfImprovementConfig {
 
     // --- Telemetry reporting ---
 
-    /** Enable anonymized telemetry reporting to central endpoint */
-    private boolean telemetryEnabled = true;
+    /**
+     * Enable anonymized telemetry reporting to central endpoint.
+     * Default: false (opt-in). Users must explicitly enable this — the framework
+     * never phones home without consent.
+     */
+    private boolean telemetryEnabled = false;
+
+    /**
+     * When the telemetry POST fires. Two modes:
+     * <ul>
+     *   <li>{@link TelemetryMode#PER_WORKFLOW} — POST after each successful
+     *       workflow completion. Right for short-lived JVMs (examples, CI jobs,
+     *       batch scripts) where every run should contribute immediately.</li>
+     *   <li>{@link TelemetryMode#CONTINUOUS} — POST on a cron schedule
+     *       (default every 6h). Right for long-running services where
+     *       per-workflow POSTs would flood the endpoint.</li>
+     * </ul>
+     * Default: {@code CONTINUOUS} — the safer choice for production services.
+     * Framework users running examples should override to {@code PER_WORKFLOW}.
+     */
+    private TelemetryMode telemetryMode = TelemetryMode.CONTINUOUS;
 
     /** Central endpoint for telemetry aggregation */
     private String telemetryEndpoint = "https://api.intelliswarm.ai";
+
+    /**
+     * Cron expression for the CONTINUOUS-mode push. Default: every 6 hours
+     * (00:00, 06:00, 12:00, 18:00 in the configured timezone). Ignored in
+     * {@link TelemetryMode#PER_WORKFLOW} mode.
+     */
+    private String telemetryReportCron = "0 0 */6 * * *";
+
+    /** Timezone for the telemetry cron (IANA name). Default: UTC. */
+    private String telemetryReportZone = "UTC";
+
+    /**
+     * Flush any un-reported rollup on JVM shutdown. Useful in both modes as a
+     * belt-and-suspenders safety net — ensures a graceful SIGTERM still
+     * contributes the most recent activity before the process exits.
+     */
+    private boolean telemetryFlushOnShutdown = true;
+
+    public enum TelemetryMode {
+        PER_WORKFLOW,
+        CONTINUOUS
+    }
 
     // --- Priority budget allocation within the 10% ---
 
@@ -167,6 +208,18 @@ public class SelfImprovementConfig {
     public boolean isTelemetryEnabled() { return telemetryEnabled; }
     public void setTelemetryEnabled(boolean telemetryEnabled) { this.telemetryEnabled = telemetryEnabled; }
 
+    public TelemetryMode getTelemetryMode() { return telemetryMode; }
+    public void setTelemetryMode(TelemetryMode telemetryMode) { this.telemetryMode = telemetryMode; }
+
     public String getTelemetryEndpoint() { return telemetryEndpoint; }
     public void setTelemetryEndpoint(String telemetryEndpoint) { this.telemetryEndpoint = telemetryEndpoint; }
+
+    public String getTelemetryReportCron() { return telemetryReportCron; }
+    public void setTelemetryReportCron(String telemetryReportCron) { this.telemetryReportCron = telemetryReportCron; }
+
+    public String getTelemetryReportZone() { return telemetryReportZone; }
+    public void setTelemetryReportZone(String telemetryReportZone) { this.telemetryReportZone = telemetryReportZone; }
+
+    public boolean isTelemetryFlushOnShutdown() { return telemetryFlushOnShutdown; }
+    public void setTelemetryFlushOnShutdown(boolean v) { this.telemetryFlushOnShutdown = v; }
 }

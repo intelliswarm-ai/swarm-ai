@@ -88,6 +88,6 @@ class ImprovementReportingServiceTest {
                 .status(ImprovementProposal.ProposalStatus.VALIDATED)
                 .build();
 
-        return new ImprovementResult("test-swarm", 5, 1, 1, 0, 0, 2000, List.of(proposal));
+        return new ImprovementResult("test-swarm", 5, 1, 1, 0, 0, 2000, List.of(proposal), List.of());
     }
 }

@@ -165,6 +165,12 @@ public class Swarm {
 
             publishEvent(SwarmEvent.Type.SWARM_COMPLETED, "Swarm execution completed successfully");
 
+            if (eventPublisher != null) {
+                eventPublisher.publishEvent(
+                    new ai.intelliswarm.swarmai.event.SwarmCompletedEvent(this, this.id, output, budgetTracker)
+                );
+            }
+
             return output;
 
         } catch (BudgetExceededException e) {

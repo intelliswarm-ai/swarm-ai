@@ -4,6 +4,11 @@ import ai.intelliswarm.swarmai.selfimproving.aggregator.ImprovementAggregator;
 import ai.intelliswarm.swarmai.selfimproving.classifier.ImprovementClassifier;
 import ai.intelliswarm.swarmai.selfimproving.collector.ImprovementCollector;
 import ai.intelliswarm.swarmai.selfimproving.extractor.PatternExtractor;
+import ai.intelliswarm.swarmai.selfimproving.ledger.DailyTelemetryScheduler;
+import ai.intelliswarm.swarmai.selfimproving.ledger.JdbcLedgerStore;
+import ai.intelliswarm.swarmai.selfimproving.ledger.LedgerStore;
+import ai.intelliswarm.swarmai.selfimproving.ledger.NoOpLedgerStore;
+import ai.intelliswarm.swarmai.selfimproving.listener.SelfImprovementEventListener;
 import ai.intelliswarm.swarmai.selfimproving.phase.ImprovementPhase;
 import ai.intelliswarm.swarmai.selfimproving.health.ImprovementNudgeScheduler;
 import ai.intelliswarm.swarmai.selfimproving.health.SelfImprovementHealthIndicator;
@@ -11,6 +16,10 @@ import ai.intelliswarm.swarmai.selfimproving.reporter.GitHubImprovementReporter;
 import ai.intelliswarm.swarmai.selfimproving.reporter.ImprovementExporter;
 import ai.intelliswarm.swarmai.selfimproving.reporter.ImprovementReportingService;
 import ai.intelliswarm.swarmai.selfimproving.reporter.TelemetryReporter;
+import org.springframework.boot.autoconfigure.AutoConfigureAfter;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.boot.autoconfigure.jdbc.JdbcTemplateAutoConfiguration;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -19,6 +28,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
@@ -33,35 +43,41 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @Configuration
 @EnableConfigurationProperties(SelfImprovementConfig.class)
 @EnableScheduling
+@EnableAsync
+@AutoConfigureAfter(JdbcTemplateAutoConfiguration.class)
 @ConditionalOnProperty(prefix = "swarmai.self-improving", name = "enabled", havingValue = "true")
 public class SelfImprovementAutoConfiguration {
 
     private static final Logger log = LoggerFactory.getLogger(SelfImprovementAutoConfiguration.class);
 
+    // Bean names prefixed with "selfImprovement" to avoid collision with downstream
+    // apps that define their own @Components with the same simple class name
+    // (e.g. examples' judge/ImprovementAggregator).
+
     @Bean
     @ConditionalOnMissingBean
-    public ImprovementCollector improvementCollector() {
+    public ImprovementCollector selfImprovementCollector() {
         log.info("SwarmAI Self-Improvement: ImprovementCollector initialized");
         return new ImprovementCollector();
     }
 
     @Bean
     @ConditionalOnMissingBean
-    public PatternExtractor patternExtractor(SelfImprovementConfig config) {
+    public PatternExtractor selfImprovementPatternExtractor(SelfImprovementConfig config) {
         log.info("SwarmAI Self-Improvement: PatternExtractor initialized");
         return new PatternExtractor(config);
     }
 
     @Bean
     @ConditionalOnMissingBean
-    public ImprovementClassifier improvementClassifier(SelfImprovementConfig config) {
+    public ImprovementClassifier selfImprovementClassifier(SelfImprovementConfig config) {
         log.info("SwarmAI Self-Improvement: ImprovementClassifier initialized");
         return new ImprovementClassifier(config);
     }
 
     @Bean
     @ConditionalOnMissingBean
-    public ImprovementAggregator improvementAggregator(SelfImprovementConfig config) {
+    public ImprovementAggregator selfImprovementAggregator(SelfImprovementConfig config) {
         log.info("SwarmAI Self-Improvement: ImprovementAggregator initialized — " +
                 "community investment tracking enabled");
         return new ImprovementAggregator(config);
@@ -69,7 +85,7 @@ public class SelfImprovementAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public ImprovementPhase improvementPhase(SelfImprovementConfig config,
+    public ImprovementPhase selfImprovementPhase(SelfImprovementConfig config,
                                               ImprovementCollector collector,
                                               PatternExtractor extractor,
                                               ImprovementClassifier classifier,
@@ -82,8 +98,38 @@ public class SelfImprovementAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    @ConditionalOnBean(JdbcTemplate.class)
+    public LedgerStore jdbcLedgerStore(JdbcTemplate jdbcTemplate) {
+        log.info("SwarmAI Self-Improvement: JdbcLedgerStore initialized — " +
+                "community investment counters persist across restarts");
+        return new JdbcLedgerStore(jdbcTemplate);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(LedgerStore.class)
+    public LedgerStore inMemoryLedgerStore() {
+        log.info("SwarmAI Self-Improvement: No JdbcTemplate on classpath — using NoOpLedgerStore. " +
+                "Ledger counters will NOT survive restart. Add a DataSource to enable persistence.");
+        return new NoOpLedgerStore();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SelfImprovementEventListener selfImprovementEventListener(
+            ImprovementPhase phase,
+            LedgerStore ledgerStore,
+            SelfImprovementConfig config,
+            org.springframework.beans.factory.ObjectProvider<DailyTelemetryScheduler> scheduler) {
+        log.info("SwarmAI Self-Improvement: Auto-trigger listener registered — " +
+                "improvement phase will run after every successful workflow (telemetry mode: {})",
+                config.getTelemetryMode());
+        return new SelfImprovementEventListener(phase, ledgerStore, config, scheduler.getIfAvailable());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     @ConditionalOnProperty(prefix = "swarmai.self-improving", name = "github-token")
-    public GitHubImprovementReporter githubImprovementReporter(SelfImprovementConfig config) {
+    public GitHubImprovementReporter selfImprovementGithubReporter(SelfImprovementConfig config) {
         log.info("SwarmAI Self-Improvement: GitHub reporter initialized — " +
                 "PRs will be created on {}/{}", config.getGithubOwner(), config.getGithubRepo());
         return new GitHubImprovementReporter(
@@ -96,7 +142,7 @@ public class SelfImprovementAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public TelemetryReporter telemetryReporter(SelfImprovementConfig config) {
+    public TelemetryReporter selfImprovementTelemetryReporter(SelfImprovementConfig config) {
         if (config.isTelemetryEnabled()) {
             log.info("SwarmAI Self-Improvement: Telemetry reporter initialized — " +
                     "anonymized improvement data will be sent to {}", config.getTelemetryEndpoint());
@@ -106,7 +152,23 @@ public class SelfImprovementAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public ImprovementReportingService improvementReportingService(
+    @ConditionalOnProperty(prefix = "swarmai.self-improving", name = "telemetry-enabled",
+                           havingValue = "true")
+    public DailyTelemetryScheduler dailyTelemetryScheduler(SelfImprovementConfig config,
+                                                            LedgerStore ledgerStore) {
+        String version = getClass().getPackage().getImplementationVersion();
+        if (version == null) version = "dev";
+        log.info("SwarmAI Self-Improvement: Daily telemetry scheduler registered — " +
+                "rollup reported to {} on cron '{}' (zone {})",
+                config.getTelemetryEndpoint() + "/api/v1/self-improving/telemetry",
+                config.getTelemetryReportCron(),
+                config.getTelemetryReportZone());
+        return new DailyTelemetryScheduler(config, ledgerStore, version);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ImprovementReportingService selfImprovementReportingService(
             ImprovementAggregator aggregator,
             org.springframework.beans.factory.ObjectProvider<GitHubImprovementReporter> githubReporter,
             TelemetryReporter telemetryReporter) {
@@ -123,7 +185,7 @@ public class SelfImprovementAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public ImprovementExporter improvementExporter(ImprovementAggregator aggregator) {
+    public ImprovementExporter selfImprovementExporter(ImprovementAggregator aggregator) {
         log.info("SwarmAI Self-Improvement: ImprovementExporter initialized — " +
                 "use POST /actuator/self-improving/export for air-gapped environments");
         return new ImprovementExporter(aggregator);
@@ -140,7 +202,7 @@ public class SelfImprovementAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public ImprovementNudgeScheduler improvementNudgeScheduler(
+    public ImprovementNudgeScheduler selfImprovementNudgeScheduler(
             ImprovementExporter exporter, SelfImprovementConfig config) {
         boolean autoReporting = config.getGithubToken() != null && !config.getGithubToken().isBlank();
         ImprovementNudgeScheduler scheduler = new ImprovementNudgeScheduler(exporter, autoReporting);

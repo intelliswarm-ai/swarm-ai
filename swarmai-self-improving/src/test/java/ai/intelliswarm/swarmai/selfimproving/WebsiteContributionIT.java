@@ -290,7 +290,7 @@ class WebsiteContributionIT {
         );
 
         ImprovementResult result = new ImprovementResult(
-            "test-swarm", 5, 2, 1, 1, 0, 500, proposals
+            "test-swarm", 5, 2, 1, 1, 0, 500, proposals, List.of()
         );
 
         // Build telemetry report

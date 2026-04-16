@@ -74,6 +74,7 @@ public class ImprovementPhase {
         List<SpecificObservation> observations = collector.collect(trace);
         extractor.recordObservations(observations);
         result.totalObservations(observations.size());
+        result.observations(observations);
 
         // Group observations by type for priority processing
         Map<ObservationType, List<SpecificObservation>> byType = observations.stream()
@@ -83,24 +84,24 @@ public class ImprovementPhase {
         long p1Budget = (long) (budgetTokens * config.getPriority1FixFailuresPercent());
         tokensUsed += processFailures(byType.getOrDefault(ObservationType.FAILURE, List.of()),
                 p1Budget, result);
-        if (tokensUsed >= budgetTokens) return result.build();
+        if (tokensUsed >= budgetTokens) { result.tokensUsed(tokensUsed); return result.build(); }
 
         // Priority 2: Optimize expensive tasks (25%)
         long p2Budget = (long) (budgetTokens * config.getPriority2OptimizePercent());
         tokensUsed += processExpensiveTasks(byType.getOrDefault(ObservationType.EXPENSIVE_TASK, List.of()),
                 p2Budget, result);
-        if (tokensUsed >= budgetTokens) return result.build();
+        if (tokensUsed >= budgetTokens) { result.tokensUsed(tokensUsed); return result.build(); }
 
         // Priority 3: Promote successful patterns (20%)
         long p3Budget = (long) (budgetTokens * config.getPriority3PromotePercent());
         tokensUsed += processSuccessfulPatterns(observations, p3Budget, result);
-        if (tokensUsed >= budgetTokens) return result.build();
+        if (tokensUsed >= budgetTokens) { result.tokensUsed(tokensUsed); return result.build(); }
 
         // Priority 4: Detect structural gaps (15%)
         long p4Budget = (long) (budgetTokens * config.getPriority4DetectGapsPercent());
         tokensUsed += processAntiPatterns(byType.getOrDefault(ObservationType.ANTI_PATTERN, List.of()),
                 p4Budget, result);
-        if (tokensUsed >= budgetTokens) return result.build();
+        if (tokensUsed >= budgetTokens) { result.tokensUsed(tokensUsed); return result.build(); }
 
         // Priority 5: Explore convergence and tool patterns (10%)
         long p5Budget = (long) (budgetTokens * config.getPriority5ExplorePercent());
@@ -230,7 +231,8 @@ public class ImprovementPhase {
             int tier2Pending,
             int tier3Proposals,
             long tokensUsed,
-            List<ImprovementProposal> proposals
+            List<ImprovementProposal> proposals,
+            List<SpecificObservation> observations
     ) {
         public static Builder builder() { return new Builder(); }
 
@@ -239,18 +241,23 @@ public class ImprovementPhase {
             private int totalObservations;
             private long tokensUsed;
             private final List<ImprovementProposal> proposals = new ArrayList<>();
+            private List<SpecificObservation> observations = List.of();
 
             public Builder swarmId(String id) { this.swarmId = id; return this; }
             public Builder totalObservations(int count) { this.totalObservations = count; return this; }
             public Builder tokensUsed(long tokens) { this.tokensUsed = tokens; return this; }
             public Builder addProposal(ImprovementProposal p) { proposals.add(p); return this; }
+            public Builder observations(List<SpecificObservation> obs) {
+                this.observations = obs != null ? List.copyOf(obs) : List.of();
+                return this;
+            }
 
             public ImprovementResult build() {
                 int t1 = (int) proposals.stream().filter(p -> p.tier() == ImprovementTier.TIER_1_AUTOMATIC).count();
                 int t2 = (int) proposals.stream().filter(p -> p.tier() == ImprovementTier.TIER_2_REVIEW).count();
                 int t3 = (int) proposals.stream().filter(p -> p.tier() == ImprovementTier.TIER_3_PROPOSAL).count();
                 return new ImprovementResult(swarmId, totalObservations, proposals.size(),
-                        t1, t2, t3, tokensUsed, List.copyOf(proposals));
+                        t1, t2, t3, tokensUsed, List.copyOf(proposals), observations);
             }
         }
     }
