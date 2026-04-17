@@ -11,12 +11,17 @@ public class RuntimeRegistry {
 
     public void register(SkillRuntime runtime) {
         Objects.requireNonNull(runtime, "runtime");
+
         for (String language : runtime.supportedLanguages()) {
-            SkillRuntime existing = byLanguage.putIfAbsent(language, runtime);
+            SkillRuntime existing = byLanguage.get(language);
             if (existing != null && existing != runtime) {
                 throw new IllegalStateException(
                     "Language '" + language + "' already registered by runtime '" + existing.id() + "'");
             }
+        }
+
+        for (String language : runtime.supportedLanguages()) {
+            byLanguage.putIfAbsent(language, runtime);
         }
     }
 
