@@ -32,7 +32,10 @@ public record GenericRule(
         PROMPT_OPTIMIZATION,
         SKILL_PROMOTION,
         ANTI_PATTERN,
-        PROCESS_SELECTION
+        PROCESS_SELECTION,
+        TOKEN_OPTIMIZATION,
+        AGENT_CONFIGURATION,
+        CONTEXT_HANDOFF
     }
 
     public boolean isReadyToShip() {
@@ -56,7 +59,8 @@ public record GenericRule(
         return category == RuleCategory.CONVERGENCE_DEFAULT
                 || category == RuleCategory.POLICY_WEIGHT
                 || category == RuleCategory.TOOL_ROUTING
-                || category == RuleCategory.PROCESS_SELECTION;
+                || category == RuleCategory.PROCESS_SELECTION
+                || category == RuleCategory.TOKEN_OPTIMIZATION;
     }
 
     public record ValidationResult(

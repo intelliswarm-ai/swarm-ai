@@ -17,6 +17,7 @@ import ai.intelliswarm.swarmai.selfimproving.reporter.GitHubImprovementReporter;
 import ai.intelliswarm.swarmai.selfimproving.reporter.ImprovementExporter;
 import ai.intelliswarm.swarmai.selfimproving.reporter.ImprovementReportingService;
 import ai.intelliswarm.swarmai.selfimproving.reporter.TelemetryReporter;
+import java.util.List;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.jdbc.JdbcTemplateAutoConfiguration;
@@ -121,6 +122,27 @@ public class SelfImprovementAutoConfiguration {
     public EvolutionEngine selfImprovementEvolutionEngine(LedgerStore ledgerStore) {
         log.info("SwarmAI Self-Improvement: EvolutionEngine initialized — " +
                 "internal observations will drive runtime self-evolution");
+
+        // Register a global evolution advisor on Swarm.kickoff() so process type
+        // optimizations are applied transparently without example code needing to
+        // read H2 manually. The advisor checks if a PROCESS_TYPE_CHANGE evolution
+        // exists for workflows with independent tasks (depth 0).
+        ai.intelliswarm.swarmai.swarm.Swarm.setEvolutionAdvisor((configured, taskCount, maxDepth) -> {
+            if (maxDepth > 0) return configured; // tasks have dependencies, can't parallelize
+            if (configured == ai.intelliswarm.swarmai.process.ProcessType.PARALLEL) return configured; // already parallel
+            if (taskCount <= 1) return configured; // single task, nothing to parallelize
+
+            // Check if a prior run learned that this shape should be parallel
+            List<LedgerStore.StoredEvolution> evolutions = ledgerStore.getRecentEvolutions(20);
+            boolean hasProcessChange = evolutions.stream()
+                    .anyMatch(e -> "PROCESS_TYPE_CHANGE".equals(e.evolutionType()));
+            if (hasProcessChange) {
+                return ai.intelliswarm.swarmai.process.ProcessType.PARALLEL;
+            }
+            return configured;
+        });
+        log.info("SwarmAI Self-Improvement: Evolution advisor registered on Swarm.kickoff()");
+
         return new EvolutionEngine(ledgerStore);
     }
 
