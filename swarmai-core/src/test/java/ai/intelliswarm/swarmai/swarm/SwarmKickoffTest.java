@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -227,6 +228,29 @@ class SwarmKickoffTest extends BaseSwarmTest {
 
             assertTrue(exception.getMessage().contains("Swarm execution failed"));
         }
+
+        @Test
+        @DisplayName("re-evaluates evolved process each kickoff")
+        void kickoff_reEvaluatesEvolvedProcessEachRun() {
+            Agent agent = createAgent();
+            Task task = createTask(agent);
+            Swarm swarm = createSwarmWithPublisher(List.of(agent), List.of(task));
+
+            AtomicInteger calls = new AtomicInteger();
+            Swarm.setEvolutionAdvisor((configured, taskCount, maxDepth) ->
+                    calls.getAndIncrement() == 0 ? ProcessType.PARALLEL : configured);
+
+            try {
+                invokeApplyEvolution(swarm);
+                assertEquals(ProcessType.PARALLEL, readEvolvedProcessType(swarm));
+
+                invokeApplyEvolution(swarm);
+                assertNull(readEvolvedProcessType(swarm),
+                        "Expected evolved process override to clear when advisor returns configured type");
+            } finally {
+                Swarm.setEvolutionAdvisor(null);
+            }
+        }
     }
 
     @Nested
@@ -398,6 +422,27 @@ class SwarmKickoffTest extends BaseSwarmTest {
                             .task(task)
                             .process(ProcessType.HIERARCHICAL)
                             .build());
+        }
+    }
+
+    private void invokeApplyEvolution(Swarm swarm) {
+        try {
+            var method = Swarm.class.getDeclaredMethod("applyEvolution");
+            method.setAccessible(true);
+            method.invoke(swarm);
+        } catch (Exception e) {
+            fail("Failed to invoke applyEvolution via reflection: " + e.getMessage());
+        }
+    }
+
+    private ProcessType readEvolvedProcessType(Swarm swarm) {
+        try {
+            var field = Swarm.class.getDeclaredField("evolvedProcessType");
+            field.setAccessible(true);
+            return (ProcessType) field.get(swarm);
+        } catch (Exception e) {
+            fail("Failed to read evolvedProcessType via reflection: " + e.getMessage());
+            return null;
         }
     }
 }

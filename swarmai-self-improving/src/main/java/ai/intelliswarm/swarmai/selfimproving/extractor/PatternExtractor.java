@@ -110,8 +110,8 @@ public class PatternExtractor {
                 Instant.now()
         );
 
-        log.info("Extracted generic rule: category={}, confidence={:.2f}, condition={}",
-                category, confidence, commonCondition);
+        log.info("Extracted generic rule: category={}, confidence={}, condition={}",
+                category, String.format("%.2f", confidence), commonCondition);
         return rule;
     }
 
@@ -245,26 +245,80 @@ public class PatternExtractor {
             case SUCCESSFUL_SKILL -> RuleCategory.SKILL_PROMOTION;
             case ANTI_PATTERN -> RuleCategory.ANTI_PATTERN;
             case FAILURE -> RuleCategory.ANTI_PATTERN;
-            case EXPENSIVE_TASK -> RuleCategory.CONVERGENCE_DEFAULT;
-            case DECISION_QUALITY -> RuleCategory.ANTI_PATTERN;
+            case EXPENSIVE_TASK -> RuleCategory.TOKEN_OPTIMIZATION;
+            case DECISION_QUALITY -> RuleCategory.AGENT_CONFIGURATION;
             case PROCESS_SUITABILITY -> RuleCategory.PROCESS_SELECTION;
-            case COORDINATION_QUALITY -> RuleCategory.PROMPT_OPTIMIZATION;
+            case COORDINATION_QUALITY -> RuleCategory.CONTEXT_HANDOFF;
         };
     }
 
     private String buildRecommendation(SpecificObservation.ObservationType type,
                                        List<SpecificObservation> observations) {
         return switch (type) {
-            case CONVERGENCE_PATTERN -> "Adjust convergence defaults for matching workflow shapes";
-            case TOOL_SELECTION -> "Update tool routing hints for better first-pick accuracy";
-            case SUCCESSFUL_SKILL -> "Promote skill to built-in library";
-            case ANTI_PATTERN -> "Add compile-time warning for this pattern";
-            case FAILURE -> "Add validation rule to prevent this failure mode";
-            case EXPENSIVE_TASK -> "Optimize token consumption for matching task patterns";
-            case PROMPT_EFFICIENCY -> "Update prompt template for more efficient agent turns";
-            case DECISION_QUALITY -> "Refine agent decision pipeline to reduce excessive retries";
-            case PROCESS_SUITABILITY -> "Switch independent sequential tasks to parallel execution";
-            case COORDINATION_QUALITY -> "Improve context handoff between sequential agents";
+            case CONVERGENCE_PATTERN -> {
+                OptionalDouble avgConverged = observations.stream()
+                        .map(o -> o.evidence().get("converged_at"))
+                        .filter(Objects::nonNull)
+                        .mapToInt(v -> ((Number) v).intValue())
+                        .average();
+                yield avgConverged.isPresent()
+                        ? "Set default maxIterations=%d for workflows with this shape (observed convergence at %.0f)".formatted(
+                            (int) Math.ceil(avgConverged.getAsDouble()), avgConverged.getAsDouble())
+                        : "Adjust convergence defaults for matching workflow shapes";
+            }
+            case TOOL_SELECTION -> {
+                String toolName = observations.stream()
+                        .map(o -> (String) o.evidence().get("tool_name"))
+                        .filter(Objects::nonNull).findFirst().orElse("unknown");
+                double avgRate = observations.stream()
+                        .map(o -> o.evidence().get("success_rate"))
+                        .filter(Objects::nonNull)
+                        .mapToDouble(v -> ((Number) v).doubleValue())
+                        .average().orElse(0);
+                yield "Deprioritize tool '%s' in routing (%.0f%% success rate) — add AVOID WHEN hint or fallback tool".formatted(
+                        toolName, avgRate * 100);
+            }
+            case SUCCESSFUL_SKILL -> {
+                String skillName = observations.stream()
+                        .map(o -> (String) o.evidence().get("skill_name"))
+                        .filter(Objects::nonNull).findFirst().orElse("unknown");
+                yield "Promote skill '%s' to built-in library — validated, reused, high quality".formatted(skillName);
+            }
+            case ANTI_PATTERN -> "Add compile-time warning: agent spinning detected (>5 turns, no tool calls). Set maxTurns or add tools.";
+            case FAILURE -> "Add validation rule to prevent structural failure at task build time";
+            case EXPENSIVE_TASK -> {
+                double avgRatio = observations.stream()
+                        .map(o -> o.evidence().get("token_ratio"))
+                        .filter(Objects::nonNull)
+                        .mapToDouble(v -> ((Number) v).doubleValue())
+                        .average().orElse(0);
+                int avgTurns = (int) observations.stream()
+                        .map(o -> o.evidence().get("turn_count"))
+                        .filter(Objects::nonNull)
+                        .mapToInt(v -> ((Number) v).intValue())
+                        .average().orElse(1);
+                yield "Reduce maxTurns to %d for agents consuming >%.0f%% of token budget — consider splitting into sub-tasks".formatted(
+                        Math.max(1, avgTurns / 2), avgRatio * 100);
+            }
+            case PROMPT_EFFICIENCY -> "Shorten system prompt or add output length constraint to reduce token waste";
+            case DECISION_QUALITY -> {
+                int avgTurns = (int) observations.stream()
+                        .map(o -> o.evidence().get("turn_count"))
+                        .filter(Objects::nonNull)
+                        .mapToInt(v -> ((Number) v).intValue())
+                        .average().orElse(3);
+                yield "Agent needs %d+ turns to produce output — set temperature=0.1 or add few-shot examples to reduce retries".formatted(avgTurns);
+            }
+            case PROCESS_SUITABILITY -> {
+                int taskCount = observations.stream()
+                        .map(o -> o.evidence().get("task_count"))
+                        .filter(Objects::nonNull)
+                        .mapToInt(v -> ((Number) v).intValue())
+                        .findFirst().orElse(0);
+                yield "Switch to ProcessType.PARALLEL — %d tasks have no dependencies (depth 0), estimated ~%d%% latency reduction".formatted(
+                        taskCount, taskCount > 0 ? (taskCount - 1) * 100 / taskCount : 0);
+            }
+            case COORDINATION_QUALITY -> "Downstream agent ignores upstream context — add explicit context injection or shared memory between agents";
         };
     }
 

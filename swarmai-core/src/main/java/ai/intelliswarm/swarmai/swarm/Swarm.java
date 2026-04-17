@@ -78,6 +78,32 @@ public class Swarm {
     private SwarmOutput lastOutput;
     private SwarmStatus status = SwarmStatus.READY;
 
+    /**
+     * Optional global evolution advisor. When set, Swarm.kickoff() consults it
+     * before selecting the process type. The self-improving module registers
+     * an implementation that reads evolution history from H2.
+     *
+     * <p>Thread-safe: set once during auto-configuration, read on every kickoff.
+     */
+    private static volatile EvolutionAdvisor evolutionAdvisor;
+
+    /**
+     * Functional interface for the evolution advisor. Receives the configured
+     * processType, task count, and dependency depth, and returns the optimized
+     * processType (or the same one if no evolution applies).
+     */
+    @FunctionalInterface
+    public interface EvolutionAdvisor {
+        ProcessType advise(ProcessType configured, int taskCount, int maxDepth);
+    }
+
+    /**
+     * Register a global evolution advisor. Called by SelfImprovementAutoConfiguration.
+     */
+    public static void setEvolutionAdvisor(EvolutionAdvisor advisor) {
+        evolutionAdvisor = advisor;
+    }
+
     private Swarm(Builder builder) {
         this.id = builder.id != null ? builder.id : UUID.randomUUID().toString();
         this.agents = new ArrayList<>(builder.agents);
@@ -140,6 +166,10 @@ public class Swarm {
                 safeInputs.put("__budgetTracker", budgetTracker);
                 safeInputs.put("__budgetSwarmId", this.id);
             }
+
+            // Consult the evolution advisor — may switch process type
+            // based on learned optimizations from prior runs.
+            applyEvolution();
 
             Process process = createProcess();
 
@@ -244,8 +274,43 @@ public class Swarm {
                 .collect(Collectors.toList()));
     }
 
+    /**
+     * Consult the evolution advisor and apply any learned topology optimization.
+     * The processType field is final, but we can mutate the config to signal
+     * the evolved type, or we override via a mutable field.
+     */
+    private ProcessType evolvedProcessType;
+
+    private void applyEvolution() {
+        if (evolutionAdvisor == null) return;
+
+        // Re-evaluate on every kickoff so prior evolution decisions do not
+        // leak into future runs when the advisor returns the configured type.
+        evolvedProcessType = null;
+
+        int maxDepth = computeMaxTaskDepth();
+        ProcessType advised = evolutionAdvisor.advise(processType, tasks.size(), maxDepth);
+
+        if (advised != processType) {
+            logger.info("[{}] Self-evolution applied: {} → {} (learned from prior runs)",
+                    id, processType, advised);
+            evolvedProcessType = advised;
+        }
+    }
+
+    private int computeMaxTaskDepth() {
+        // Tasks with no dependencies have depth 0
+        for (Task task : tasks) {
+            if (task.getDependencyTaskIds() != null && !task.getDependencyTaskIds().isEmpty()) {
+                return 1; // has at least one dependency
+            }
+        }
+        return 0; // all tasks are independent
+    }
+
     private Process createProcess() {
-        return switch (processType) {
+        ProcessType effectiveType = evolvedProcessType != null ? evolvedProcessType : processType;
+        return switch (effectiveType) {
             case SEQUENTIAL -> new ai.intelliswarm.swarmai.process.SequentialProcess(agents, eventPublisher);
             case HIERARCHICAL -> new ai.intelliswarm.swarmai.process.HierarchicalProcess(agents, managerAgent, eventPublisher);
             case PARALLEL -> {

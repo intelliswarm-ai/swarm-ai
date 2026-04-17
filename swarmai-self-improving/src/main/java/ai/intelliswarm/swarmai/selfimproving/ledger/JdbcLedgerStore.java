@@ -350,8 +350,8 @@ public class JdbcLedgerStore implements LedgerStore {
                     evolution.confidence(),
                     Timestamp.from(Instant.now())
             );
-            log.info("[{}] Evolution persisted: {} (confidence: {:.2f})",
-                    evolution.swarmId(), evolution.type(), evolution.confidence());
+            log.info("[{}] Evolution persisted: {} (confidence: {})",
+                    evolution.swarmId(), evolution.type(), String.format("%.2f", evolution.confidence()));
         } catch (Exception e) {
             log.warn("Failed to persist evolution (non-fatal): {}", e.getMessage());
         }

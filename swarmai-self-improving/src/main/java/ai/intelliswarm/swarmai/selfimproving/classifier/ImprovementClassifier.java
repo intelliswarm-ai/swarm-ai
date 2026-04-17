@@ -45,8 +45,8 @@ public class ImprovementClassifier {
                         : ImprovementProposal.ProposalStatus.PENDING)
                 .build();
 
-        log.info("Classified improvement: tier={}, category={}, confidence={:.2f}, target={}",
-                tier, rule.category(), rule.confidence(),
+        log.info("Classified improvement: tier={}, category={}, confidence={}, target={}",
+                tier, rule.category(), String.format("%.2f", rule.confidence()),
                 improvement != null ? improvement.targetFile() : "none");
 
         return proposal;
@@ -114,6 +114,9 @@ public class ImprovementClassifier {
             case ANTI_PATTERN -> "intelligence/anti-patterns.json";
             case SKILL_PROMOTION -> "intelligence/skills/";
             case PROMPT_OPTIMIZATION -> "intelligence/prompt-templates/";
+            case TOKEN_OPTIMIZATION -> "intelligence/token-budgets.json";
+            case AGENT_CONFIGURATION -> "intelligence/agent-defaults.json";
+            case CONTEXT_HANDOFF -> "intelligence/context-handoff.json";
         };
     }
 

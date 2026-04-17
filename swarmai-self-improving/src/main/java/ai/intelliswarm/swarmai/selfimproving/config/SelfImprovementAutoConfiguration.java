@@ -1,6 +1,8 @@
 package ai.intelliswarm.swarmai.selfimproving.config;
 
 import ai.intelliswarm.swarmai.selfimproving.aggregator.ImprovementAggregator;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import ai.intelliswarm.swarmai.selfimproving.classifier.ImprovementClassifier;
 import ai.intelliswarm.swarmai.selfimproving.collector.ImprovementCollector;
 import ai.intelliswarm.swarmai.selfimproving.evolution.EvolutionEngine;
@@ -17,6 +19,7 @@ import ai.intelliswarm.swarmai.selfimproving.reporter.GitHubImprovementReporter;
 import ai.intelliswarm.swarmai.selfimproving.reporter.ImprovementExporter;
 import ai.intelliswarm.swarmai.selfimproving.reporter.ImprovementReportingService;
 import ai.intelliswarm.swarmai.selfimproving.reporter.TelemetryReporter;
+import java.util.List;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.jdbc.JdbcTemplateAutoConfiguration;
@@ -50,6 +53,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 public class SelfImprovementAutoConfiguration {
 
     private static final Logger log = LoggerFactory.getLogger(SelfImprovementAutoConfiguration.class);
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     // Bean names prefixed with "selfImprovement" to avoid collision with downstream
     // apps that define their own @Components with the same simple class name
@@ -121,7 +125,52 @@ public class SelfImprovementAutoConfiguration {
     public EvolutionEngine selfImprovementEvolutionEngine(LedgerStore ledgerStore) {
         log.info("SwarmAI Self-Improvement: EvolutionEngine initialized — " +
                 "internal observations will drive runtime self-evolution");
+
+        // Register a global evolution advisor on Swarm.kickoff() so process type
+        // optimizations are applied transparently without example code needing to
+        // read H2 manually. The advisor checks if a PROCESS_TYPE_CHANGE evolution
+        // exists for workflows with independent tasks (depth 0).
+        ai.intelliswarm.swarmai.swarm.Swarm.setEvolutionAdvisor((configured, taskCount, maxDepth) -> {
+            if (maxDepth > 0) return configured; // tasks have dependencies, can't parallelize
+            if (configured == ai.intelliswarm.swarmai.process.ProcessType.PARALLEL) return configured; // already parallel
+            if (taskCount <= 1) return configured; // single task, nothing to parallelize
+
+            // Check if a prior run learned that this shape should be parallel
+            List<LedgerStore.StoredEvolution> evolutions = ledgerStore.getRecentEvolutions(20);
+            boolean hasProcessChange = evolutions.stream()
+                    .filter(e -> "PROCESS_TYPE_CHANGE".equals(e.evolutionType()))
+                    .anyMatch(e -> evolutionMatchesCurrentWorkflow(e, configured, taskCount, maxDepth));
+            if (hasProcessChange) {
+                return ai.intelliswarm.swarmai.process.ProcessType.PARALLEL;
+            }
+            return configured;
+        });
+        log.info("SwarmAI Self-Improvement: Evolution advisor registered on Swarm.kickoff()");
+
         return new EvolutionEngine(ledgerStore);
+    }
+
+    static boolean evolutionMatchesCurrentWorkflow(
+            LedgerStore.StoredEvolution evolution,
+            ai.intelliswarm.swarmai.process.ProcessType configured,
+            int taskCount,
+            int maxDepth) {
+        try {
+            JsonNode before = JSON.readTree(evolution.beforeJson());
+            String beforeProcess = before.path("processType").asText();
+            int beforeTaskCount = before.path("taskCount").asInt(-1);
+            int beforeDepth = before.path("maxDependencyDepth").asInt(-1);
+            JsonNode after = JSON.readTree(evolution.afterJson());
+            String afterProcess = after.path("configuration").path("processType").asText();
+
+            return configured.name().equalsIgnoreCase(beforeProcess)
+                    && taskCount == beforeTaskCount
+                    && maxDepth == beforeDepth
+                    && "PARALLEL".equalsIgnoreCase(afterProcess);
+        } catch (Exception e) {
+            log.debug("Skipping evolution {} due to unreadable topology payload", evolution.swarmId(), e);
+            return false;
+        }
     }
 
     @Bean
