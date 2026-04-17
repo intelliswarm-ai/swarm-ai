@@ -1,5 +1,12 @@
 package ai.intelliswarm.swarmai.skill;
 
+import ai.intelliswarm.swarmai.skill.runtime.GroovyInProcRuntime;
+import ai.intelliswarm.swarmai.skill.runtime.KotlinScriptRuntime;
+import ai.intelliswarm.swarmai.skill.runtime.RuntimeRegistry;
+import ai.intelliswarm.swarmai.skill.runtime.SecurityReport;
+import ai.intelliswarm.swarmai.skill.runtime.SkillRuntime;
+import ai.intelliswarm.swarmai.skill.runtime.SkillSource;
+import ai.intelliswarm.swarmai.skill.runtime.SyntaxReport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -10,8 +17,8 @@ import java.util.concurrent.*;
  * Validates generated skills before they can be used in workflows.
  *
  * Validation pipeline:
- * 1. Security scan — blocked patterns that indicate unsafe code
- * 2. Syntax check — code must be compilable Groovy/Java
+ * 1. Security scan — delegated to the SkillRuntime for the skill's language
+ * 2. Syntax check — delegated to the SkillRuntime
  * 3. Test execution — run auto-generated test cases in sandboxed GroovyShell
  * 4. Quality assessment — score documentation, tests, error handling, complexity, output format
  */
@@ -21,20 +28,33 @@ public class SkillValidator {
 
     private static final int TEST_TIMEOUT_SECONDS = 10;
 
-    // Patterns that are blocked in generated skill code
-    private static final List<String> BLOCKED_PATTERNS = List.of(
-        "Runtime.getRuntime", "ProcessBuilder", "Process ",
-        "System.exit", "System.getProperty", "System.setProperty",
-        "new File(", "new FileWriter", "new FileReader",
-        "new FileInputStream", "new FileOutputStream",
-        "new URL(", "new Socket(", "HttpURLConnection",
-        "new ServerSocket", "InetAddress",
-        "Class.forName", "ClassLoader",
-        "GroovyShell", "GroovyClassLoader",
-        "Thread.sleep", "Runtime.exec",
-        "java.lang.reflect.", "setAccessible",
-        "DELETE ", "DROP ", "TRUNCATE "
-    );
+    private final RuntimeRegistry runtimes;
+
+    public SkillValidator() {
+        this(defaultRegistry());
+    }
+
+    public SkillValidator(RuntimeRegistry runtimes) {
+        this.runtimes = runtimes;
+    }
+
+    private static RuntimeRegistry defaultRegistry() {
+        RuntimeRegistry registry = new RuntimeRegistry();
+        registry.register(new GroovyInProcRuntime());
+        tryRegisterKotlin(registry);
+        return registry;
+    }
+
+    private static void tryRegisterKotlin(RuntimeRegistry registry) {
+        try {
+            registry.register(new KotlinScriptRuntime());
+            logger.debug("Registered Kotlin script runtime for skill validation");
+        } catch (IllegalStateException e) {
+            logger.debug("Kotlin script runtime not available — skipping: {}", e.getMessage());
+        } catch (Throwable t) {
+            logger.debug("Kotlin script runtime failed to initialize — skipping: {}", t.getMessage());
+        }
+    }
 
     /**
      * Validate a generated skill for safety, correctness, and quality.
@@ -132,15 +152,23 @@ public class SkillValidator {
             return;
         }
 
-        // Security scan
-        List<String> securityIssues = securityScan(skill.getCode());
-        errors.addAll(securityIssues);
-        if (!securityIssues.isEmpty()) return;
+        SkillSource source = sourceFor(skill);
+        Optional<SkillRuntime> runtimeOpt = runtimes.pick(source.language());
+        if (runtimeOpt.isEmpty()) {
+            errors.add("Unsupported code language '" + source.language() + "' — no runtime is registered");
+            return;
+        }
+        SkillRuntime runtime = runtimeOpt.get();
 
-        // Syntax check
-        String syntaxError = checkSyntax(skill);
-        if (syntaxError != null) {
-            errors.add("Syntax error: " + syntaxError);
+        SecurityReport security = runtime.securityScan(source);
+        if (!security.ok()) {
+            errors.addAll(security.violations());
+            return;
+        }
+
+        SyntaxReport syntax = runtime.syntaxCheck(source);
+        if (!syntax.ok()) {
+            errors.add("Syntax error: " + syntax.errorMessage());
             return;
         }
 
@@ -170,43 +198,9 @@ public class SkillValidator {
         }
     }
 
-    /**
-     * Scan code for blocked patterns that indicate unsafe operations.
-     */
-    private List<String> securityScan(String code) {
-        List<String> issues = new ArrayList<>();
-
-        for (String pattern : BLOCKED_PATTERNS) {
-            if (code.contains(pattern)) {
-                issues.add("Security violation: code contains blocked pattern '" + pattern + "'");
-            }
-        }
-
-        // Also scan test cases
-        return issues;
-    }
-
-    /**
-     * Check if the code is syntactically valid Groovy/Java.
-     * Compile-only — does NOT execute the code (avoids calling real tools).
-     * Uses the same compiler config as GeneratedSkill to ensure imports resolve.
-     */
-    private String checkSyntax(GeneratedSkill skill) {
-        try {
-            org.codehaus.groovy.control.CompilerConfiguration config = new org.codehaus.groovy.control.CompilerConfiguration();
-            org.codehaus.groovy.control.customizers.ImportCustomizer imports = new org.codehaus.groovy.control.customizers.ImportCustomizer();
-            imports.addStarImports("java.util", "java.math", "groovy.json", "groovy.xml",
-                "java.util.regex", "java.time");
-            imports.addImports("java.net.URLEncoder", "java.net.URLDecoder");
-            config.addCompilationCustomizers(imports);
-
-            groovy.lang.GroovyShell shell = new groovy.lang.GroovyShell(config);
-            // parse() compiles without executing
-            shell.parse(skill.getCode());
-            return null; // No error — code compiles
-        } catch (Exception e) {
-            return e.getMessage();
-        }
+    private SkillSource sourceFor(GeneratedSkill skill) {
+        String language = skill.getLanguage() != null ? skill.getLanguage() : SkillSource.GROOVY;
+        return new SkillSource(language, skill.getCode(), skill.getTestCases());
     }
 
     /**

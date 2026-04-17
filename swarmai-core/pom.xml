@@ -144,6 +144,16 @@
             <artifactId>groovy</artifactId>
         </dependency>
 
+        <!-- Kotlin scripting (optional skill runtime — consumers opt in to use Kotlin skills).
+             Version pinned to match Spring Boot 3.4's managed kotlin-stdlib (1.9.25) —
+             mismatching versions trigger NoSuchMethodError inside the scripting compiler. -->
+        <dependency>
+            <groupId>org.jetbrains.kotlin</groupId>
+            <artifactId>kotlin-scripting-jsr223</artifactId>
+            <version>1.9.25</version>
+            <optional>true</optional>
+        </dependency>
+
         <!-- Prometheus metrics registry (optional) -->
         <dependency>
             <groupId>io.micrometer</groupId>
