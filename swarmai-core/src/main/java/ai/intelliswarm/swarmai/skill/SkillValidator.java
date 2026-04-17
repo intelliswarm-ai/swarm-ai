@@ -153,7 +153,12 @@ public class SkillValidator {
         }
 
         SkillSource source = sourceFor(skill);
-        SkillRuntime runtime = runtimes.require(source.language());
+        Optional<SkillRuntime> runtimeOpt = runtimes.pick(source.language());
+        if (runtimeOpt.isEmpty()) {
+            errors.add("Unsupported code language '" + source.language() + "' — no runtime is registered");
+            return;
+        }
+        SkillRuntime runtime = runtimeOpt.get();
 
         SecurityReport security = runtime.securityScan(source);
         if (!security.ok()) {

@@ -1,5 +1,7 @@
 package ai.intelliswarm.swarmai.skill;
 
+import ai.intelliswarm.swarmai.skill.runtime.GroovyInProcRuntime;
+import ai.intelliswarm.swarmai.skill.runtime.RuntimeRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -247,6 +249,29 @@ class SkillValidatorTest {
             SkillValidator.ValidationResult result = validator.validate(skill);
 
             assertFalse(result.passed());
+        }
+    }
+
+    @Nested
+    @DisplayName("Runtime selection")
+    class RuntimeSelection {
+
+        @Test
+        @DisplayName("reports unsupported language as validation failure")
+        void reportsUnsupportedLanguageAsValidationFailure() {
+            RuntimeRegistry registry = new RuntimeRegistry();
+            registry.register(new GroovyInProcRuntime());
+            SkillValidator groovyOnlyValidator = new SkillValidator(registry);
+
+            GeneratedSkill skill = createCodeSkill("kotlin_without_runtime",
+                "Kotlin script skill without registered runtime",
+                "val result = \"hello\"\nresult");
+            skill.setLanguage("kotlin-script");
+
+            SkillValidator.ValidationResult result = assertDoesNotThrow(() -> groovyOnlyValidator.validate(skill));
+
+            assertFalse(result.passed());
+            assertTrue(result.errors().stream().anyMatch(e -> e.contains("Unsupported code language")));
         }
     }
 

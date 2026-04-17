@@ -47,6 +47,32 @@ class KotlinScriptRuntimeTest {
     }
 
     @Test
+    void securityScanFlagsKotlinFileAccessWithoutNewKeyword() {
+        SkillSource src = new SkillSource(
+            SkillSource.KOTLIN_SCRIPT,
+            "val data = java.io.File(\"/tmp/demo.txt\").readText()",
+            List.of());
+
+        SecurityReport report = RUNTIME.securityScan(src);
+
+        assertFalse(report.ok());
+        assertTrue(report.violations().stream().anyMatch(v -> v.contains("java.io.File(")));
+    }
+
+    @Test
+    void securityScanFlagsKotlinNetworkAccessWithoutNewKeyword() {
+        SkillSource src = new SkillSource(
+            SkillSource.KOTLIN_SCRIPT,
+            "val body = java.net.URL(\"https://example.com\").readText()",
+            List.of());
+
+        SecurityReport report = RUNTIME.securityScan(src);
+
+        assertFalse(report.ok());
+        assertTrue(report.violations().stream().anyMatch(v -> v.contains("java.net.URL(")));
+    }
+
+    @Test
     void syntaxCheckAcceptsValidKotlin() {
         SkillSource src = new SkillSource(
             SkillSource.KOTLIN_SCRIPT,
