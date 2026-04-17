@@ -30,7 +30,9 @@ public class KotlinScriptRuntime implements SkillRuntime {
         "Class.forName", "ClassLoader",
         "GroovyShell", "GroovyClassLoader",
         "Thread.sleep", "Runtime.exec",
-        "java.lang.reflect.", "setAccessible",
+        "java.lang.reflect.", "setAccessible"
+    );
+    private static final List<String> BLOCKED_SQL_PATTERNS = List.of(
         "DELETE ", "DROP ", "TRUNCATE "
     );
 
@@ -62,6 +64,12 @@ public class KotlinScriptRuntime implements SkillRuntime {
         String code = source.code();
         for (String pattern : BLOCKED_PATTERNS) {
             if (code.contains(pattern)) {
+                violations.add("Security violation: code contains blocked pattern '" + pattern + "'");
+            }
+        }
+        String normalizedCode = code.toUpperCase();
+        for (String pattern : BLOCKED_SQL_PATTERNS) {
+            if (normalizedCode.contains(pattern)) {
                 violations.add("Security violation: code contains blocked pattern '" + pattern + "'");
             }
         }

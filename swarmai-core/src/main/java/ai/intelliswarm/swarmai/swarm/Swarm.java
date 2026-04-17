@@ -284,6 +284,10 @@ public class Swarm {
     private void applyEvolution() {
         if (evolutionAdvisor == null) return;
 
+        // Re-evaluate on every kickoff so prior evolution decisions do not
+        // leak into future runs when the advisor returns the configured type.
+        evolvedProcessType = null;
+
         int maxDepth = computeMaxTaskDepth();
         ProcessType advised = evolutionAdvisor.advise(processType, tasks.size(), maxDepth);
 

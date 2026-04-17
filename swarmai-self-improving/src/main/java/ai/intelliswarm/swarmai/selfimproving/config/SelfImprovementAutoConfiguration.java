@@ -1,6 +1,8 @@
 package ai.intelliswarm.swarmai.selfimproving.config;
 
 import ai.intelliswarm.swarmai.selfimproving.aggregator.ImprovementAggregator;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import ai.intelliswarm.swarmai.selfimproving.classifier.ImprovementClassifier;
 import ai.intelliswarm.swarmai.selfimproving.collector.ImprovementCollector;
 import ai.intelliswarm.swarmai.selfimproving.evolution.EvolutionEngine;
@@ -51,6 +53,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 public class SelfImprovementAutoConfiguration {
 
     private static final Logger log = LoggerFactory.getLogger(SelfImprovementAutoConfiguration.class);
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     // Bean names prefixed with "selfImprovement" to avoid collision with downstream
     // apps that define their own @Components with the same simple class name
@@ -135,7 +138,8 @@ public class SelfImprovementAutoConfiguration {
             // Check if a prior run learned that this shape should be parallel
             List<LedgerStore.StoredEvolution> evolutions = ledgerStore.getRecentEvolutions(20);
             boolean hasProcessChange = evolutions.stream()
-                    .anyMatch(e -> "PROCESS_TYPE_CHANGE".equals(e.evolutionType()));
+                    .filter(e -> "PROCESS_TYPE_CHANGE".equals(e.evolutionType()))
+                    .anyMatch(e -> evolutionMatchesCurrentWorkflow(e, configured, taskCount, maxDepth));
             if (hasProcessChange) {
                 return ai.intelliswarm.swarmai.process.ProcessType.PARALLEL;
             }
@@ -144,6 +148,29 @@ public class SelfImprovementAutoConfiguration {
         log.info("SwarmAI Self-Improvement: Evolution advisor registered on Swarm.kickoff()");
 
         return new EvolutionEngine(ledgerStore);
+    }
+
+    static boolean evolutionMatchesCurrentWorkflow(
+            LedgerStore.StoredEvolution evolution,
+            ai.intelliswarm.swarmai.process.ProcessType configured,
+            int taskCount,
+            int maxDepth) {
+        try {
+            JsonNode before = JSON.readTree(evolution.beforeJson());
+            String beforeProcess = before.path("processType").asText();
+            int beforeTaskCount = before.path("taskCount").asInt(-1);
+            int beforeDepth = before.path("maxDependencyDepth").asInt(-1);
+            JsonNode after = JSON.readTree(evolution.afterJson());
+            String afterProcess = after.path("configuration").path("processType").asText();
+
+            return configured.name().equalsIgnoreCase(beforeProcess)
+                    && taskCount == beforeTaskCount
+                    && maxDepth == beforeDepth
+                    && "PARALLEL".equalsIgnoreCase(afterProcess);
+        } catch (Exception e) {
+            log.debug("Skipping evolution {} due to unreadable topology payload", evolution.swarmId(), e);
+            return false;
+        }
     }
 
     @Bean

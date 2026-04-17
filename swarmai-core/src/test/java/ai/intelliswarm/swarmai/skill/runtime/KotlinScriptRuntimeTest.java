@@ -73,6 +73,32 @@ class KotlinScriptRuntimeTest {
     }
 
     @Test
+    void securityScanFlagsLowercaseDestructiveSql() {
+        SkillSource src = new SkillSource(
+            SkillSource.KOTLIN_SCRIPT,
+            "val sql = \"delete from users\"",
+            List.of());
+
+        SecurityReport report = RUNTIME.securityScan(src);
+
+        assertFalse(report.ok());
+        assertTrue(report.violations().stream().anyMatch(v -> v.contains("DELETE ")));
+    }
+
+    @Test
+    void securityScanFlagsMixedCaseDestructiveSql() {
+        SkillSource src = new SkillSource(
+            SkillSource.KOTLIN_SCRIPT,
+            "val sql = \"DrOp table users\"",
+            List.of());
+
+        SecurityReport report = RUNTIME.securityScan(src);
+
+        assertFalse(report.ok());
+        assertTrue(report.violations().stream().anyMatch(v -> v.contains("DROP ")));
+    }
+
+    @Test
     void syntaxCheckAcceptsValidKotlin() {
         SkillSource src = new SkillSource(
             SkillSource.KOTLIN_SCRIPT,
