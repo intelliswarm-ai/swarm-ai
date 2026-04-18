@@ -2,6 +2,8 @@ package ai.intelliswarm.swarmai.agent;
 
 import ai.intelliswarm.swarmai.api.PublicApi;
 import ai.intelliswarm.swarmai.config.ModelContextConfig;
+import ai.intelliswarm.swarmai.event.SwarmEvent;
+import ai.intelliswarm.swarmai.event.SwarmEventBus;
 import ai.intelliswarm.swarmai.memory.Memory;
 import ai.intelliswarm.swarmai.knowledge.Knowledge;
 import ai.intelliswarm.swarmai.tool.base.BaseTool;
@@ -149,6 +151,8 @@ public class Agent {
         long startTime = System.currentTimeMillis();
         int turns = maxTurns != null ? maxTurns : DEFAULT_MAX_TURNS;
 
+        publishAgentStarted(task);
+
         try {
             AgentConversation conversation = new AgentConversation();
             String systemPrompt = buildReactiveSystemPrompt();
@@ -169,14 +173,20 @@ public class Agent {
                             truncate(task.getDescription(), 80));
                 }
 
+                long llmStart = System.currentTimeMillis();
                 ChatResponse chatResponse = callLlm(systemPrompt, userPrompt);
+                long llmDurationMs = System.currentTimeMillis() - llmStart;
                 String response = chatResponse.getResult().getOutput().getText();
 
                 long promptTokens = extractTokenCount(chatResponse, true);
                 long completionTokens = extractTokenCount(chatResponse, false);
 
+                publishLlmRequest(promptTokens, completionTokens, llmDurationMs, response);
+
                 conversation.addTurn(new ConversationTurn(
                         turn, response, promptTokens, completionTokens, System.currentTimeMillis()));
+
+                publishAgentMessage(turn, response);
 
                 if (verbose) {
                     logger.info("Agent [{}] turn {} complete ({} chars, continuation={})",
@@ -216,6 +226,9 @@ public class Agent {
                         conversation.getCumulativeTotalTokens());
             }
 
+            publishAgentCompleted(finalResponse, conversation.getTurnCount(),
+                    conversation.getCumulativeTotalTokens(), executionTimeMs);
+
             TaskOutput.Builder outputBuilder = TaskOutput.builder()
                     .agentId(id)
                     .taskId(task.getId())
@@ -235,10 +248,12 @@ public class Agent {
             return outputBuilder.build();
 
         } catch (AgentExecutionException e) {
+            publishAgentFailed(e);
             throw e;
         } catch (Exception e) {
             long executionTimeMs = System.currentTimeMillis() - startTime;
             logger.error("Agent [{}] reactive execution failed after {} ms: {}", role, executionTimeMs, e.getMessage());
+            publishAgentFailed(e);
             throw new AgentExecutionException("Failed to execute task: " + task.getId(), e, id, task.getId());
         }
     }
@@ -249,6 +264,8 @@ public class Agent {
     private TaskOutput executeSingleShot(Task task, List<TaskOutput> context) {
         incrementExecutionCount();
         long startTime = System.currentTimeMillis();
+
+        publishAgentStarted(task);
 
         try {
             String systemPrompt = buildSystemPrompt();
@@ -261,7 +278,9 @@ public class Agent {
                         truncate(task.getDescription(), 80));
             }
 
+            long llmStart = System.currentTimeMillis();
             ChatResponse chatResponse = callLlm(systemPrompt, userPrompt);
+            long llmDurationMs = System.currentTimeMillis() - llmStart;
             String response = chatResponse.getResult().getOutput().getText();
             long executionTimeMs = System.currentTimeMillis() - startTime;
 
@@ -273,6 +292,11 @@ public class Agent {
                 totalTokens = toLong(usage.getTotalTokens());
             }
 
+            publishLlmRequest(
+                    promptTokens != null ? promptTokens : 0L,
+                    completionTokens != null ? completionTokens : 0L,
+                    llmDurationMs, response);
+
             saveToMemory(task, response, executionTimeMs);
 
             if (verbose) {
@@ -282,6 +306,9 @@ public class Agent {
                         promptTokens != null ? promptTokens : "N/A",
                         completionTokens != null ? completionTokens : "N/A");
             }
+
+            publishAgentCompleted(response, 1,
+                    totalTokens != null ? totalTokens : 0L, executionTimeMs);
 
             return TaskOutput.builder()
                 .agentId(id)
@@ -296,10 +323,12 @@ public class Agent {
                 .build();
 
         } catch (AgentExecutionException e) {
+            publishAgentFailed(e);
             throw e;
         } catch (Exception e) {
             long executionTimeMs = System.currentTimeMillis() - startTime;
             logger.error("Agent [{}] failed task after {} ms: {}", role, executionTimeMs, e.getMessage());
+            publishAgentFailed(e);
             throw new AgentExecutionException("Failed to execute task: " + task.getId(), e, id, task.getId());
         }
     }
@@ -411,6 +440,8 @@ public class Agent {
             }
         }
 
+        publishToolStarted(tool, params);
+
         // --- Execute ---
         long toolStart = System.currentTimeMillis();
         String output;
@@ -420,6 +451,7 @@ public class Agent {
         } catch (Exception e) {
             toolError = e;
             long elapsed = System.currentTimeMillis() - toolStart;
+            publishToolFailed(tool, params, e, elapsed);
             // Run post-hooks for error case
             if (!toolHooks.isEmpty()) {
                 ToolHookContext errCtx = ToolHookContext.error(
@@ -431,6 +463,8 @@ public class Agent {
             throw e;
         }
         long toolElapsed = System.currentTimeMillis() - toolStart;
+
+        publishToolCompleted(tool, params, output, toolElapsed);
 
         // --- Post-hooks ---
         if (!toolHooks.isEmpty()) {
@@ -454,6 +488,101 @@ public class Agent {
         }
 
         return output;
+    }
+
+    // ==================== Event emission ====================
+
+    private void publishAgentStarted(Task task) {
+        if (!SwarmEventBus.isActive()) return;
+        Map<String, Object> md = new HashMap<>();
+        md.put("agent", role);
+        md.put("role", role);
+        md.put("id", id);
+        if (modelName != null) md.put("model", modelName);
+        if (task != null) md.put("taskId", task.getId());
+        SwarmEventBus.publish(this, SwarmEvent.Type.AGENT_STARTED,
+                "Agent started: " + role, null, md);
+    }
+
+    private void publishAgentCompleted(String finalResponse, int turns, long totalTokens, long durationMs) {
+        if (!SwarmEventBus.isActive()) return;
+        Map<String, Object> md = new HashMap<>();
+        md.put("agent", role);
+        md.put("output", finalResponse);
+        md.put("turns", turns);
+        md.put("totalTokens", totalTokens);
+        md.put("durationMs", durationMs);
+        SwarmEventBus.publish(this, SwarmEvent.Type.AGENT_COMPLETED,
+                "Agent completed: " + role, null, md);
+    }
+
+    private void publishAgentFailed(Throwable e) {
+        if (!SwarmEventBus.isActive()) return;
+        Map<String, Object> md = new HashMap<>();
+        md.put("agent", role);
+        md.put("error", e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+        SwarmEventBus.publish(this, SwarmEvent.Type.AGENT_FAILED,
+                "Agent failed: " + role, null, md);
+    }
+
+    private void publishLlmRequest(long promptTokens, long completionTokens,
+                                   long durationMs, String content) {
+        if (!SwarmEventBus.isActive()) return;
+        Map<String, Object> md = new HashMap<>();
+        md.put("agent", role);
+        md.put("model", modelName != null ? modelName : "");
+        md.put("promptTokens", promptTokens);
+        md.put("completionTokens", completionTokens);
+        md.put("durationMs", durationMs);
+        if (content != null) {
+            md.put("content", content.length() > 2000 ? content.substring(0, 2000) + "…" : content);
+        }
+        SwarmEventBus.publish(this, SwarmEvent.Type.LLM_REQUEST,
+                "LLM call complete", null, md);
+    }
+
+    private void publishAgentMessage(int turn, String content) {
+        if (!SwarmEventBus.isActive() || content == null) return;
+        Map<String, Object> md = new HashMap<>();
+        md.put("agent", role);
+        md.put("role", "assistant");
+        md.put("turn", turn + 1);
+        md.put("content", content.length() > 2000 ? content.substring(0, 2000) + "…" : content);
+        SwarmEventBus.publish(this, SwarmEvent.Type.AGENT_MESSAGE,
+                "Agent turn " + (turn + 1), null, md);
+    }
+
+    private void publishToolStarted(BaseTool tool, Map<String, Object> params) {
+        if (!SwarmEventBus.isActive()) return;
+        Map<String, Object> md = new HashMap<>();
+        md.put("agent", role);
+        md.put("tool", tool.getFunctionName());
+        md.put("input", params);
+        SwarmEventBus.publish(this, SwarmEvent.Type.TOOL_STARTED,
+                "Tool started: " + tool.getFunctionName(), null, md);
+    }
+
+    private void publishToolCompleted(BaseTool tool, Map<String, Object> params,
+                                      String output, long durationMs) {
+        if (!SwarmEventBus.isActive()) return;
+        Map<String, Object> md = new HashMap<>();
+        md.put("agent", role);
+        md.put("tool", tool.getFunctionName());
+        md.put("output", output != null && output.length() > 2000 ? output.substring(0, 2000) + "…" : output);
+        md.put("durationMs", durationMs);
+        SwarmEventBus.publish(this, SwarmEvent.Type.TOOL_COMPLETED,
+                "Tool completed: " + tool.getFunctionName(), null, md);
+    }
+
+    private void publishToolFailed(BaseTool tool, Map<String, Object> params, Throwable e, long durationMs) {
+        if (!SwarmEventBus.isActive()) return;
+        Map<String, Object> md = new HashMap<>();
+        md.put("agent", role);
+        md.put("tool", tool.getFunctionName());
+        md.put("error", e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+        md.put("durationMs", durationMs);
+        SwarmEventBus.publish(this, SwarmEvent.Type.TOOL_FAILED,
+                "Tool failed: " + tool.getFunctionName(), null, md);
     }
 
     /**

@@ -58,9 +58,14 @@ public class SwarmEvent extends ApplicationEvent {
         
         // Agent Events
         AGENT_STARTED,
+        AGENT_MESSAGE,
         AGENT_COMPLETED,
         AGENT_FAILED,
-        
+
+        // LLM Events
+        LLM_REQUEST,
+        LLM_CHUNK,
+
         // Tool Events
         TOOL_STARTED,
         TOOL_COMPLETED,
