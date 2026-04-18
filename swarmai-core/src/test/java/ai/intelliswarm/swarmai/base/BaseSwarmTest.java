@@ -6,6 +6,8 @@ import ai.intelliswarm.swarmai.swarm.SwarmOutput;
 import ai.intelliswarm.swarmai.task.Task;
 import ai.intelliswarm.swarmai.task.output.TaskOutput;
 import ai.intelliswarm.swarmai.event.SwarmEvent;
+import ai.intelliswarm.swarmai.event.SwarmEventBus;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.mockito.ArgumentCaptor;
 import org.springframework.ai.chat.client.ChatClient;
@@ -33,6 +35,12 @@ public abstract class BaseSwarmTest {
 
     @BeforeEach
     protected void setUpBase() {
+        // Isolate from any static SwarmEventBus state left behind by a previous
+        // Spring context or test. Tests that need event emission from Agent/tool
+        // code must explicitly call SwarmEventBus.setPublisher(mockEventPublisher)
+        // in their own @BeforeEach (see AgentEventEmissionTest).
+        SwarmEventBus.setPublisher(null);
+
         mockChatClient = MockChatClientFactory.withResponse(TestFixtures.DEFAULT_RESPONSE);
         mockEventPublisher = mock(ApplicationEventPublisher.class);
         capturedEvents = new ArrayList<>();
@@ -46,6 +54,12 @@ public abstract class BaseSwarmTest {
             }
             return null;
         }).when(mockEventPublisher).publishEvent(any());
+    }
+
+    @AfterEach
+    protected void tearDownBase() {
+        // Belt-and-braces: leave no static publisher dangling after the test.
+        SwarmEventBus.setPublisher(null);
     }
 
     // ============================================
