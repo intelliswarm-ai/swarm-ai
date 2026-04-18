@@ -151,9 +151,12 @@ public class Agent {
         long startTime = System.currentTimeMillis();
         int turns = maxTurns != null ? maxTurns : DEFAULT_MAX_TURNS;
 
-        publishAgentStarted(task);
-
         try {
+            // Emit inside the try so that a misbehaving listener can't bypass
+            // AgentExecutionException wrapping and AGENT_FAILED emission. The
+            // bus itself also swallows listener exceptions defensively.
+            publishAgentStarted(task);
+
             AgentConversation conversation = new AgentConversation();
             String systemPrompt = buildReactiveSystemPrompt();
 
@@ -265,9 +268,10 @@ public class Agent {
         incrementExecutionCount();
         long startTime = System.currentTimeMillis();
 
-        publishAgentStarted(task);
-
         try {
+            // Emit inside the try (see executeTaskReactive for rationale).
+            publishAgentStarted(task);
+
             String systemPrompt = buildSystemPrompt();
             String userPrompt = buildUserPrompt(task, context);
             userPrompt = enforcePromptBudget(systemPrompt, userPrompt);
@@ -464,9 +468,13 @@ public class Agent {
         }
         long toolElapsed = System.currentTimeMillis() - toolStart;
 
-        publishToolCompleted(tool, params, output, toolElapsed);
-
-        // --- Post-hooks ---
+        // --- Post-hooks (may redact output via modifiedOutput, or DENY it entirely) ---
+        // Note: completion events are intentionally emitted AFTER this loop so the
+        // trace records the final, possibly redacted/filtered output — not the raw
+        // tool result. Otherwise a SanitizeToolHook would leak sensitive bytes into
+        // observability even though the caller sees the redacted version.
+        boolean postHookDenied = false;
+        String postHookDenyMessage = null;
         if (!toolHooks.isEmpty()) {
             ToolHookContext postCtx = ToolHookContext.after(
                     tool.getFunctionName(), params, output, toolElapsed, id, null);
@@ -478,13 +486,25 @@ public class Agent {
                 if (result.action() == ToolHookResult.Action.DENY) {
                     logger.warn("Agent [{}] tool {} output denied by post-hook: {}",
                             role, tool.getFunctionName(), result.message());
-                    return "Tool output filtered: " + result.message();
+                    postHookDenied = true;
+                    postHookDenyMessage = result.message();
+                    output = "Tool output filtered: " + (result.message() != null ? result.message() : "");
+                    break;
                 }
                 if (result.action() == ToolHookResult.Action.WARN && result.message() != null) {
                     logger.warn("Agent [{}] tool {} post-hook warning: {}",
                             role, tool.getFunctionName(), result.message());
                 }
             }
+        }
+
+        if (postHookDenied) {
+            // Report as TOOL_FAILED with deniedByHook=true so observability can
+            // distinguish a hook deny from a tool execution failure, and so the
+            // completion event is never emitted with success semantics.
+            publishToolDenied(tool, params, postHookDenyMessage, toolElapsed);
+        } else {
+            publishToolCompleted(tool, params, output, toolElapsed);
         }
 
         return output;
@@ -583,6 +603,23 @@ public class Agent {
         md.put("durationMs", durationMs);
         SwarmEventBus.publish(this, SwarmEvent.Type.TOOL_FAILED,
                 "Tool failed: " + tool.getFunctionName(), null, md);
+    }
+
+    /**
+     * Tool executed successfully but a post-hook denied its output (e.g. redaction policy,
+     * compliance filter). Reported as TOOL_FAILED with {@code deniedByHook=true} so listeners
+     * can distinguish a policy deny from an execution error.
+     */
+    private void publishToolDenied(BaseTool tool, Map<String, Object> params, String reason, long durationMs) {
+        if (!SwarmEventBus.isActive()) return;
+        Map<String, Object> md = new HashMap<>();
+        md.put("agent", role);
+        md.put("tool", tool.getFunctionName());
+        md.put("error", reason != null && !reason.isBlank() ? reason : "Post-hook denied tool output");
+        md.put("durationMs", durationMs);
+        md.put("deniedByHook", true);
+        SwarmEventBus.publish(this, SwarmEvent.Type.TOOL_FAILED,
+                "Tool output denied by post-hook: " + tool.getFunctionName(), null, md);
     }
 
     /**

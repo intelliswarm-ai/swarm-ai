@@ -18,7 +18,13 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import ai.intelliswarm.swarmai.task.output.TaskOutput;
+import org.springframework.context.ApplicationEventPublisher;
+
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
 
 /**
  * Verifies that {@link Agent} publishes the expected lifecycle, LLM, and tool
@@ -186,6 +192,41 @@ class AgentEventEmissionTest extends BaseSwarmTest {
             assertNotNull(error, "error field must be present");
             assertTrue(error instanceof String && !((String) error).isBlank(),
                     "error field must be a non-blank string, was: " + error);
+        }
+    }
+
+    @Nested
+    @DisplayName("listener failure does not abort execution")
+    class ListenerFailureIsolation {
+
+        @Test
+        @DisplayName("agent task completes even when the AGENT_STARTED listener throws")
+        void agentCompletesDespiteListenerFailure() {
+            ApplicationEventPublisher throwing = mock(ApplicationEventPublisher.class);
+            doAnswer(invocation -> {
+                SwarmEvent event = invocation.getArgument(0);
+                if (event.getType() == SwarmEvent.Type.AGENT_STARTED) {
+                    throw new RuntimeException("observability listener failure");
+                }
+                capturedEvents.add(event);
+                return null;
+            }).when(throwing).publishEvent(any(SwarmEvent.class));
+            SwarmEventBus.setPublisher(throwing);
+
+            Agent agent = createAgent();
+            Task task = createTask(agent);
+
+            // Must not propagate — telemetry failure can't kill an agent run before the LLM call.
+            TaskOutput output = agent.executeTask(task, Collections.emptyList());
+            assertNotNull(output);
+            assertTrue(output.isSuccessful());
+
+            // And the rest of the lifecycle still made it to the event stream.
+            Set<SwarmEvent.Type> seen = capturedEvents.stream()
+                    .map(SwarmEvent::getType)
+                    .collect(Collectors.toSet());
+            assertTrue(seen.contains(SwarmEvent.Type.LLM_REQUEST));
+            assertTrue(seen.contains(SwarmEvent.Type.AGENT_COMPLETED));
         }
     }
 

@@ -132,6 +132,29 @@ class SwarmEventBusTest {
     }
 
     @Nested
+    @DisplayName("listener failure isolation")
+    class ListenerFailureTests {
+
+        @Test
+        @DisplayName("listener RuntimeException does not propagate — telemetry is non-fatal")
+        void listenerExceptionSwallowed() {
+            ApplicationEventPublisher publisher = mock(ApplicationEventPublisher.class);
+            doThrow(new RuntimeException("listener boom"))
+                    .when(publisher).publishEvent(any());
+            SwarmEventBus.setPublisher(publisher);
+
+            assertDoesNotThrow(() ->
+                SwarmEventBus.publish(this, SwarmEvent.Type.SWARM_STARTED, "msg", "sw-1"));
+            assertDoesNotThrow(() ->
+                SwarmEventBus.publish(this, SwarmEvent.Type.AGENT_STARTED, "msg", "sw-1",
+                        Map.of("agent", "a")));
+
+            // And the publisher was still called — we just caught what it threw.
+            verify(publisher, times(2)).publishEvent(any(SwarmEvent.class));
+        }
+    }
+
+    @Nested
     @DisplayName("thread safety")
     class ThreadSafetyTests {
 
