@@ -58,15 +58,20 @@ public class BaseToolEventInterceptor implements BeanPostProcessor {
                 return invocation.proceed();
             }
             Object input = invocation.getArguments().length > 0 ? invocation.getArguments()[0] : null;
-            long start = System.currentTimeMillis();
-            publishStarted(toolName, input);
+            // Dedupe with ToolEventInterceptor: when a Spring AI Function bean delegates
+            // to this BaseTool's execute, we would otherwise emit TOOL_* events twice.
+            boolean owns = ToolEventEmissionGuard.tryEnter(toolName);
+            long start = owns ? System.currentTimeMillis() : 0L;
+            if (owns) publishStarted(toolName, input);
             try {
                 Object output = invocation.proceed();
-                publishCompleted(toolName, input, output, System.currentTimeMillis() - start);
+                if (owns) publishCompleted(toolName, input, output, System.currentTimeMillis() - start);
                 return output;
             } catch (Throwable t) {
-                publishFailed(toolName, input, t, System.currentTimeMillis() - start);
+                if (owns) publishFailed(toolName, input, t, System.currentTimeMillis() - start);
                 throw t;
+            } finally {
+                if (owns) ToolEventEmissionGuard.leave(toolName);
             }
         });
         return factory.getProxy();

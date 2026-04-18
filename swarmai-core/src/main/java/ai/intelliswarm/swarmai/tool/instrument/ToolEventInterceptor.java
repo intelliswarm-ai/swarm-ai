@@ -55,15 +55,21 @@ public class ToolEventInterceptor implements BeanPostProcessor {
         log.info("ToolEventInterceptor: wrapping tool function bean '{}'", toolName);
 
         return (Function<Object, Object>) input -> {
-            long start = System.currentTimeMillis();
-            publishStarted(toolName, input);
+            // Dedupe with BaseToolEventInterceptor: Spring AI Function beans typically
+            // adapt to BaseTool.execute(...), so a single call reaches both layers.
+            // Whoever enters first owns emission; the inner layer skips publishing.
+            boolean owns = ToolEventEmissionGuard.tryEnter(toolName);
+            long start = owns ? System.currentTimeMillis() : 0L;
+            if (owns) publishStarted(toolName, input);
             try {
                 Object output = original.apply(input);
-                publishCompleted(toolName, input, output, System.currentTimeMillis() - start);
+                if (owns) publishCompleted(toolName, input, output, System.currentTimeMillis() - start);
                 return output;
             } catch (RuntimeException e) {
-                publishFailed(toolName, input, e, System.currentTimeMillis() - start);
+                if (owns) publishFailed(toolName, input, e, System.currentTimeMillis() - start);
                 throw e;
+            } finally {
+                if (owns) ToolEventEmissionGuard.leave(toolName);
             }
         };
     }
