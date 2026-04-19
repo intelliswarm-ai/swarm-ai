@@ -23,7 +23,7 @@ cd swarm-ai
 ```
 swarm-ai/
 ├── swarmai-core/          Core framework (agents, tasks, processes, state, skills)
-├── swarmai-tools/         24 built-in tools (web, file, PDF, CSV, shell)
+├── swarmai-tools/         26 built-in tools (web, file, PDF, CSV, shell, finance, security)
 ├── swarmai-dsl/           YAML DSL parser & compiler
 ├── swarmai-enterprise/    Enterprise features (tenancy, governance, RBAC, audit)
 ├── swarmai-eval/          Self-evaluation swarm & benchmarks

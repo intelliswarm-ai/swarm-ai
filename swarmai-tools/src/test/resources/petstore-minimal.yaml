@@ -1,0 +1,52 @@
+openapi: 3.0.3
+info:
+  title: Minimal Petstore
+  version: 1.0.0
+servers:
+  - url: https://petstore.example.com/v1
+paths:
+  /pets:
+    get:
+      operationId: listPets
+      summary: List pets
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer }
+      responses:
+        "200":
+          description: ok
+    post:
+      operationId: createPet
+      summary: Create a pet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        "201":
+          description: created
+  /pets/{petId}:
+    get:
+      operationId: getPet
+      summary: Get one pet
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: ok
+    delete:
+      operationId: deletePet
+      summary: Delete one pet
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "204":
+          description: deleted

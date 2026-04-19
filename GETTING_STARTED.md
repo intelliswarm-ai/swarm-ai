@@ -581,16 +581,17 @@ Tools give agents capabilities beyond text generation. Each tool has a name, des
 
 ### Built-in Tools
 
-SwarmAI ships with 24 built-in tools in the `swarmai-tools` module:
+SwarmAI ships with 26 built-in tools in the `swarmai-tools` module:
 
-| Category      | Tools                                                           |
-|---------------|-----------------------------------------------------------------|
-| Web           | `web_search`, `web_scrape`, `http_request`, `headless_browser`  |
-| File I/O      | `file_read`, `file_write`, `directory_read`, `pdf_read`         |
-| Data          | `csv_analysis`, `json_transform`, `xml_parse`, `database_query`, `data_analysis` |
-| Computation   | `calculator`, `code_execution`, `shell_command`                 |
-| Communication | `email`, `slack_webhook`                                        |
-| Specialized   | `sec_filings`, `report_generator`, `semantic_search`            |
+| Category      | Tools                                                                                  |
+|---------------|----------------------------------------------------------------------------------------|
+| Web           | `web_search`, `simulated_web_search`, `web_scrape`, `http_request`, `headless_browser` |
+| File I/O      | `file_read`, `file_write`, `directory_read`, `pdf_read`                                |
+| Data          | `csv_analysis`, `json_transform`, `xml_parse`, `database_query`, `data_analysis`, `semantic_search` |
+| Computation   | `calculator`, `code_execution`, `shell_command`                                        |
+| Communication | `email`, `slack_webhook`                                                               |
+| Finance       | `financial_data`, `sec_filings`, `report_generator`                                    |
+| Security      | `cve_lookup`, `osv_lookup`, `github_create_pr`                                         |
 
 Tools are Spring beans. Inject them and assign to agents:
 
