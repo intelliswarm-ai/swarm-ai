@@ -65,8 +65,10 @@ public class KafkaProducerTool implements BaseTool {
     @Override
     public String getDescription() {
         return "Publish a message to a Kafka topic. Keys and values are strings (JSON, text, or " +
-               "anything UTF-8). Extra producer config (SASL, SSL, acks, compression) can be passed " +
-               "as a 'config' map. Requires KAFKA_BOOTSTRAP_SERVERS env or an explicit 'bootstrap_servers' param.";
+               "anything UTF-8). 'headers' and 'config' take a JSON OBJECT STRING " +
+               "(e.g. 'headers'='{\"x-correlation-id\":\"abc\"}'). Extra producer config (SASL, SSL, " +
+               "acks, compression) goes under 'config'. Requires KAFKA_BOOTSTRAP_SERVERS env or an " +
+               "explicit 'bootstrap_servers' param.";
     }
 
     @Override
@@ -86,7 +88,7 @@ public class KafkaProducerTool implements BaseTool {
         }
 
         String key = asString(parameters.get("key"));
-        Map<String, String> headers = toStringMap(parameters.get("headers"));
+        Map<String, String> headers = toStringStringMap(parameters.get("headers"));
         Integer partition = parseOptionalInt(parameters.get("partition"));
         int timeoutSeconds = parseInt(parameters.get("timeout_seconds"), DEFAULT_SEND_TIMEOUT_S, 1, 120);
 
@@ -144,11 +146,12 @@ public class KafkaProducerTool implements BaseTool {
         p.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, 10_000);
         p.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, 20_000);
         p.put("client.id", "swarmai-kafka-tool");
-        if (extraConfig instanceof Map<?, ?> raw) {
-            raw.forEach((k, v) -> {
-                if (k != null) p.put(k.toString(), v == null ? "" : v.toString());
-            });
-        }
+        Map<String, Object> extra = extraConfig == null
+            ? java.util.Map.of()
+            : ai.intelliswarm.swarmai.tool.common.config.SpringAiToolBindingSupport.parseJsonMap(extraConfig);
+        extra.forEach((k, v) -> {
+            if (k != null) p.put(k, v == null ? "" : v.toString());
+        });
         return p;
     }
 
@@ -160,13 +163,12 @@ public class KafkaProducerTool implements BaseTool {
         return env != null && !env.isBlank() ? env : null;
     }
 
-    private static Map<String, String> toStringMap(Object raw) {
-        if (!(raw instanceof Map<?, ?> m)) return new LinkedHashMap<>();
+    /** Accept either a Map (legacy programmatic callers) or a JSON string (LLM path). */
+    private static Map<String, String> toStringStringMap(Object raw) {
+        Map<String, Object> parsed =
+            ai.intelliswarm.swarmai.tool.common.config.SpringAiToolBindingSupport.parseJsonMap(raw);
         Map<String, String> out = new LinkedHashMap<>();
-        for (Map.Entry<?, ?> e : m.entrySet()) {
-            if (e.getKey() == null) continue;
-            out.put(e.getKey().toString(), e.getValue() == null ? null : e.getValue().toString());
-        }
+        parsed.forEach((k, v) -> out.put(k, v == null ? null : v.toString()));
         return out;
     }
 
@@ -268,7 +270,9 @@ public class KafkaProducerTool implements BaseTool {
         return pickBootstrap(Map.of()) == null ? "KAFKA_BOOTSTRAP_SERVERS not configured" : null;
     }
 
-    public record Request(String topic, String value, String key, Map<String, String> headers,
-                          Integer partition, String bootstrap_servers, Map<String, Object> config,
+    // headers/config are JSON object strings so Spring AI's auto-generated schema stays
+    // OpenAI-compatible. See SpringAiToolBindingSupport.parseJsonMap for parsing.
+    public record Request(String topic, String value, String key, String headers,
+                          Integer partition, String bootstrap_servers, String config,
                           Integer timeout_seconds) {}
 }

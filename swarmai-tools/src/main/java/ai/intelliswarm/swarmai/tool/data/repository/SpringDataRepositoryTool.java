@@ -95,7 +95,8 @@ public class SpringDataRepositoryTool implements BaseTool {
     public String getDescription() {
         return "Query the application's Spring Data repositories (JpaRepository, CrudRepository, etc.). " +
                "operation='list_repositories' enumerates available repositories; 'list_methods' shows " +
-               "callable methods on one; 'invoke' runs a method with JSON args. Write methods are refused " +
+               "callable methods on one; 'invoke' runs a method — pass 'args' as a JSON ARRAY STRING " +
+               "matching the method signature (e.g. '[42,\"PRO\"]'). Write methods are refused " +
                "unless allow_writes=true. Permission: DANGEROUS — exposes the full domain layer.";
     }
 
@@ -187,10 +188,22 @@ public class SpringDataRepositoryTool implements BaseTool {
                    "Set allow_writes=true to run it — think twice, this is irreversible.";
         }
 
-        @SuppressWarnings("unchecked")
-        List<Object> rawArgs = parameters.get("args") instanceof List
-            ? (List<Object>) parameters.get("args")
-            : List.of();
+        Object rawArgsParam = parameters.get("args");
+        List<Object> rawArgs;
+        if (rawArgsParam == null) {
+            rawArgs = List.of();
+        } else if (rawArgsParam instanceof List<?> lst) {
+            @SuppressWarnings("unchecked")
+            List<Object> castList = (List<Object>) lst;
+            rawArgs = castList;
+        } else {
+            try {
+                rawArgs = ai.intelliswarm.swarmai.tool.common.config.SpringAiToolBindingSupport
+                        .parseJsonList(rawArgsParam);
+            } catch (IllegalArgumentException e) {
+                return "Error: 'args' must be a JSON array, e.g. '[42,\"foo\"]'. (" + e.getMessage() + ")";
+            }
+        }
 
         Method chosen = pickMethod(iface, methodName, rawArgs.size(), allowWrites);
         if (chosen == null) {
@@ -476,8 +489,8 @@ public class SpringDataRepositoryTool implements BaseTool {
         addStringProp(props, "method", "Method name to invoke (e.g. 'findByEmail').");
 
         Map<String, Object> args = new HashMap<>();
-        args.put("type", "array");
-        args.put("description", "JSON-serializable argument list matching the method signature.");
+        args.put("type", "string");
+        args.put("description", "JSON ARRAY STRING of arguments matching the method signature, e.g. '[42,\"PRO\"]'.");
         props.put("args", args);
 
         Map<String, Object> allowWrites = new HashMap<>();
@@ -541,6 +554,8 @@ public class SpringDataRepositoryTool implements BaseTool {
         return null; // healthy even with zero repositories — the tool just lists nothing
     }
 
-    public record Request(String operation, String repository, String method, List<Object> args,
+    // `args` is a JSON array string so Spring AI's auto-generated function schema stays
+    // OpenAI-compatible (untyped List<Object> produces an item schema without a type).
+    public record Request(String operation, String repository, String method, String args,
                           Boolean allow_writes, Integer page, Integer size, String sort) {}
 }

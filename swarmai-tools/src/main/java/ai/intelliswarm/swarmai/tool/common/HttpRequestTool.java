@@ -62,12 +62,16 @@ public class HttpRequestTool implements BaseTool {
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public Object execute(Map<String, Object> parameters) {
         String url = (String) parameters.get("url");
         String method = ((String) parameters.getOrDefault("method", "GET")).toUpperCase();
         String body = (String) parameters.getOrDefault("body", null);
-        Map<String, String> headers = (Map<String, String>) parameters.getOrDefault("headers", null);
+        Object rawHeaders = parameters.get("headers");
+        Map<String, Object> parsedHeaders = rawHeaders == null
+            ? java.util.Map.of()
+            : ai.intelliswarm.swarmai.tool.common.config.SpringAiToolBindingSupport.parseJsonMap(rawHeaders);
+        Map<String, String> headers = new HashMap<>();
+        parsedHeaders.forEach((k, v) -> headers.put(k, v == null ? null : v.toString()));
         String authToken = (String) parameters.getOrDefault("auth_token", null);
 
         logger.info("HttpRequestTool: {} {} (body: {}, headers: {}, auth: {})",
@@ -314,9 +318,8 @@ public class HttpRequestTool implements BaseTool {
         properties.put("body", body);
 
         Map<String, Object> headers = new HashMap<>();
-        headers.put("type", "object");
-        headers.put("description", "Custom HTTP headers as key-value pairs");
-        headers.put("additionalProperties", Map.of("type", "string"));
+        headers.put("type", "string");
+        headers.put("description", "Custom HTTP headers as a JSON object string, e.g. '{\"X-Trace\":\"abc\"}'.");
         properties.put("headers", headers);
 
         Map<String, Object> authToken = new HashMap<>();
@@ -369,5 +372,7 @@ public class HttpRequestTool implements BaseTool {
     }
 
     // Request record for Spring AI function binding
-    public record Request(String url, String method, String body, Map<String, String> headers, String authToken) {}
+    // `headers` is a JSON object string so Spring AI's auto-generated function schema stays
+    // OpenAI-compatible. Parsing happens inside execute() via SpringAiToolBindingSupport.
+    public record Request(String url, String method, String body, String headers, String authToken) {}
 }
