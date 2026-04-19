@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -71,6 +72,7 @@ public class SpringDataRepositoryTool implements BaseTool {
     private final ObjectProvider<ApplicationContext> applicationContextProvider;
     private final ObjectMapper objectMapper;
 
+    @Autowired
     public SpringDataRepositoryTool(ObjectProvider<ApplicationContext> applicationContextProvider) {
         this.applicationContextProvider = applicationContextProvider;
         this.objectMapper = new ObjectMapper().disable(SerializationFeature.FAIL_ON_EMPTY_BEANS);
@@ -131,7 +133,7 @@ public class SpringDataRepositoryTool implements BaseTool {
         beans.entrySet().stream()
             .sorted(Map.Entry.comparingByKey())
             .forEach(e -> {
-                Class<?> iface = findRepositoryInterface(e.getValue());
+                Class<?> iface = findRepositoryInterface(ctx, e.getKey(), e.getValue());
                 Class<?> entity = findEntityType(ctx, e.getKey());
                 out.append("• **").append(e.getKey()).append("**\n");
                 out.append("  interface: ").append(iface == null ? "?" : iface.getName()).append('\n');
@@ -143,9 +145,10 @@ public class SpringDataRepositoryTool implements BaseTool {
     private String listMethods(ApplicationContext ctx, Map<String, Object> parameters) {
         String beanName = requireString(parameters, "repository");
         Repository<?, ?> repo = lookupRepository(ctx, beanName);
+        String resolvedName = resolveBeanName(ctx, beanName, repo);
         boolean allowWrites = parseBool(parameters, "allow_writes", false);
 
-        Class<?> iface = findRepositoryInterface(repo);
+        Class<?> iface = findRepositoryInterface(ctx, resolvedName, repo);
         if (iface == null) return "Error: could not determine interface for bean '" + beanName + "'.";
 
         List<Method> methods = safeMethods(iface, allowWrites);
@@ -173,9 +176,10 @@ public class SpringDataRepositoryTool implements BaseTool {
         String beanName = requireString(parameters, "repository");
         String methodName = requireString(parameters, "method");
         Repository<?, ?> repo = lookupRepository(ctx, beanName);
+        String resolvedName = resolveBeanName(ctx, beanName, repo);
         boolean allowWrites = parseBool(parameters, "allow_writes", false);
 
-        Class<?> iface = findRepositoryInterface(repo);
+        Class<?> iface = findRepositoryInterface(ctx, resolvedName, repo);
         if (iface == null) return "Error: could not determine interface for bean '" + beanName + "'.";
 
         if (!allowWrites && isWriteMethod(methodName)) {
@@ -216,7 +220,7 @@ public class SpringDataRepositoryTool implements BaseTool {
             Map<String, Repository> all = ctx.getBeansOfType(Repository.class);
             bean = all.entrySet().stream()
                 .filter(e -> {
-                    Class<?> iface = findRepositoryInterface(e.getValue());
+                    Class<?> iface = findRepositoryInterface(ctx, e.getKey(), e.getValue());
                     return iface != null && iface.getSimpleName().equalsIgnoreCase(beanName);
                 })
                 .map(Map.Entry::getValue)
@@ -231,15 +235,45 @@ public class SpringDataRepositoryTool implements BaseTool {
         return r;
     }
 
-    private Class<?> findRepositoryInterface(Object bean) {
-        // Spring Data creates JDK proxies implementing the user interface + Repository.
+    private Class<?> findRepositoryInterface(ApplicationContext ctx, String beanName, Object bean) {
+        // Preferred path: Spring Data's RepositoryFactoryInformation tells us exactly which
+        // user-declared interface this bean was created for (UserRepository / ProductRepository / etc.).
+        // Only proxies created by Spring Data expose this; raw JDK proxies in unit tests do not.
+        if (beanName != null) {
+            try {
+                String factoryBeanName = "&" + beanName;
+                if (ctx.containsBean(factoryBeanName)) {
+                    Object fb = ctx.getBean(factoryBeanName);
+                    if (fb instanceof RepositoryFactoryInformation<?, ?> rfi) {
+                        Class<?> declared = rfi.getRepositoryInformation().getRepositoryInterface();
+                        if (declared != null) return declared;
+                    }
+                }
+            } catch (Exception ignored) { /* fall through to reflection */ }
+        }
+        // Fallback: walk interfaces and pick the first user-owned one that extends Repository.
         Class<?>[] ifaces = AopUtils.isAopProxy(bean)
             ? AopUtils.getTargetClass(bean).getInterfaces()
             : bean.getClass().getInterfaces();
-        // If bean.getClass() isn't a proxy (e.g. test fake), fall through to all interfaces.
         if (ifaces.length == 0) ifaces = bean.getClass().getInterfaces();
+        Class<?> firstRepoMatch = null;
         for (Class<?> i : ifaces) {
-            if (Repository.class.isAssignableFrom(i) && !i.equals(Repository.class)) return i;
+            if (!Repository.class.isAssignableFrom(i) || i.equals(Repository.class)) continue;
+            if (firstRepoMatch == null) firstRepoMatch = i;
+            // Prefer user-defined interfaces over Spring Data's own internal base interfaces.
+            String pkg = i.getPackageName();
+            if (!pkg.startsWith("org.springframework.data")) return i;
+        }
+        return firstRepoMatch;
+    }
+
+    /** Resolve the real Spring bean name so {@code &beanName} lookup works even when the user
+     *  passed a simple class name. Returns null if we can't tell. */
+    private String resolveBeanName(ApplicationContext ctx, String inputName, Object bean) {
+        if (ctx.containsBean(inputName)) return inputName;
+        Map<String, Repository> all = ctx.getBeansOfType(Repository.class);
+        for (Map.Entry<String, Repository> e : all.entrySet()) {
+            if (e.getValue() == bean) return e.getKey();
         }
         return null;
     }
@@ -350,9 +384,12 @@ public class SpringDataRepositoryTool implements BaseTool {
             }
         } else if (raw instanceof List<?> list) {
             for (Object o : list) {
-                if (o instanceof Map<?, ?> m) {
+                if (o instanceof Map<?, ?> untyped) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> m = (Map<String, Object>) untyped;
                     String prop = String.valueOf(m.get("property"));
-                    String d = String.valueOf(m.getOrDefault("direction", "ASC"));
+                    Object dirObj = m.get("direction");
+                    String d = dirObj == null ? "ASC" : String.valueOf(dirObj);
                     orders.add(new Sort.Order(Sort.Direction.fromString(d), prop));
                 }
             }

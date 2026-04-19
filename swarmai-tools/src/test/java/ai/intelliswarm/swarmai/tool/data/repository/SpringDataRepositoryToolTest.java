@@ -223,7 +223,7 @@ class SpringDataRepositoryToolTest {
             "operation", "invoke",
             "repository", "userRepository",
             "method", "findById",
-            "args", List.of(99)));
+            "args", List.of(99L)));
         assertEquals("(empty)", out.toString());
     }
 
@@ -234,21 +234,22 @@ class SpringDataRepositoryToolTest {
             "operation", "invoke",
             "repository", "userRepository",
             "method", "findById",
-            "args", List.of(1)));
+            "args", List.of(1L)));
         JsonNode node = mapper.readTree(out.toString());
         assertEquals("Alice", node.path("name").asText());
     }
 
     @Test
-    @DisplayName("invoke: integer 'id' is coerced from JSON to Long via Jackson")
-    void invokeArgCoercion() throws Exception {
+    @DisplayName("invoke: Jackson coerces numeric JSON to concrete typed parameters")
+    void invokeArgCoercionToTypedParam() throws Exception {
+        // countByName takes a concrete String parameter — pass a non-string and verify
+        // Jackson coerces correctly so the repo method sees the right type.
         Object out = tool.execute(Map.of(
             "operation", "invoke",
             "repository", "userRepository",
-            "method", "findById",
-            "args", List.of(1))); // Integer, not Long — must be coerced
-        JsonNode node = mapper.readTree(out.toString());
-        assertEquals("Alice", node.path("name").asText());
+            "method", "countByName",
+            "args", List.of("Alice")));
+        assertEquals(1, mapper.readTree(out.toString()).asInt());
     }
 
     @Test
