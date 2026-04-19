@@ -194,6 +194,46 @@ class OpenApiToolkitTest {
     }
 
     @Test
+    @DisplayName("invoke: supports synthesized operation IDs when operationId is omitted")
+    void invokeWithSynthesizedOperationId() {
+        String specWithoutIds = """
+            openapi: 3.0.1
+            info:
+              title: No OpId API
+              version: "1.0"
+            servers:
+              - url: https://example.com
+            paths:
+              /pets/{petId}:
+                get:
+                  summary: Read pet
+                  parameters:
+                    - in: path
+                      name: petId
+                      required: true
+                      schema:
+                        type: string
+                  responses:
+                    '200':
+                      description: ok
+            """;
+        stubOk("{\"id\":\"42\"}");
+
+        Object listOut = tool.execute(Map.of("operation", "list_operations", "spec", specWithoutIds));
+        String synthesizedOperationId = "get__pets_petId_";
+        assertTrue(listOut.toString().contains("**" + synthesizedOperationId + "**"), listOut.toString());
+
+        Object invokeOut = tool.execute(Map.of(
+            "operation", "invoke",
+            "spec", specWithoutIds,
+            "operation_id", synthesizedOperationId,
+            "path_params", Map.of("petId", "42")));
+
+        assertTrue(invokeOut.toString().contains("HTTP 200"), invokeOut.toString());
+        verify(restTemplate).exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class));
+    }
+
+    @Test
     @DisplayName("invoke: HTTP 4xx surfaces status + response body, doesn't throw")
     void invoke4xx() {
         when(restTemplate.exchange(any(URI.class), any(HttpMethod.class), any(HttpEntity.class), eq(String.class)))

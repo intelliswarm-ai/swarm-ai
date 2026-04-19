@@ -127,11 +127,7 @@ public class OpenApiToolkit implements BaseTool {
             String path = pe.getKey();
             for (Map.Entry<PathItem.HttpMethod, Operation> me : pe.getValue().readOperationsMap().entrySet()) {
                 Operation op = me.getValue();
-                String opId = op.getOperationId();
-                if (opId == null || opId.isBlank()) {
-                    // Synthesize a stable ID from method+path so agents can always reference it.
-                    opId = me.getKey().name().toLowerCase() + "_" + path.replaceAll("[{}/]", "_").replaceAll("_+", "_");
-                }
+                String opId = operationIdFor(op, me.getKey(), path);
                 out.append("• **").append(opId).append("** — `")
                    .append(me.getKey().name()).append(' ').append(path).append("`\n");
                 if (op.getSummary() != null && !op.getSummary().isBlank()) {
@@ -250,11 +246,21 @@ public class OpenApiToolkit implements BaseTool {
         for (Map.Entry<String, PathItem> pe : spec.getPaths().entrySet()) {
             for (Map.Entry<PathItem.HttpMethod, Operation> me : pe.getValue().readOperationsMap().entrySet()) {
                 Operation op = me.getValue();
-                String id = op.getOperationId();
+                String id = operationIdFor(op, me.getKey(), pe.getKey());
                 if (opId.equals(id)) return new OpResolved(pe.getKey(), me.getKey(), op);
             }
         }
         return null;
+    }
+
+    private String operationIdFor(Operation operation, PathItem.HttpMethod method, String path) {
+        String operationId = operation.getOperationId();
+        if (operationId != null && !operationId.isBlank()) {
+            return operationId;
+        }
+        // Synthesize a stable ID from method+path so agents can always reference operations.
+        return method.name().toLowerCase() + "_" +
+               path.replaceAll("[{}/]", "_").replaceAll("_+", "_");
     }
 
     private OpenAPI loadSpec(Map<String, Object> parameters) {
