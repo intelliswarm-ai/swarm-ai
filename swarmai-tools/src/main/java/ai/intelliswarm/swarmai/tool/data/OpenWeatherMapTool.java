@@ -24,6 +24,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -155,10 +156,10 @@ public class OpenWeatherMapTool implements BaseTool {
             out.append("Conditions: ").append(cap(weather.path("description").asText()))
                .append(" (").append(weather.path("main").asText()).append(")\n");
         }
-        out.append(String.format("Temperature: %.1f%s (feels like %.1f%s)%n",
+        out.append(String.format(Locale.ROOT, "Temperature: %.1f%s (feels like %.1f%s)%n",
             main.path("temp").asDouble(), tempUnit, main.path("feels_like").asDouble(), tempUnit));
         out.append("Humidity: ").append(main.path("humidity").asInt()).append("%\n");
-        out.append(String.format("Wind: %.1f %s%n", wind.path("speed").asDouble(), windUnit));
+        out.append(String.format(Locale.ROOT, "Wind: %.1f %s%n", wind.path("speed").asDouble(), windUnit));
         long sunriseUnix = n.path("sys").path("sunrise").asLong();
         long sunsetUnix = n.path("sys").path("sunset").asLong();
         if (sunriseUnix > 0 && sunsetUnix > 0) {
@@ -208,7 +209,7 @@ public class OpenWeatherMapTool implements BaseTool {
         for (String day : dayRanges.keySet()) {
             double[] r = dayRanges.get(day);
             String cond = dayCondition.getOrDefault(day, "–");
-            out.append(String.format("• %s — %s, %.1f%s … %.1f%s%n", day, cond, r[0], tempUnit, r[1], tempUnit));
+            out.append(String.format(Locale.ROOT, "• %s — %s, %.1f%s … %.1f%s%n", day, cond, r[0], tempUnit, r[1], tempUnit));
         }
         return out.toString().trim();
     }

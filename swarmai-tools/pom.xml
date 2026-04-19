@@ -8,7 +8,7 @@
     <parent>
         <groupId>ai.intelliswarm</groupId>
         <artifactId>swarmai-parent</artifactId>
-        <version>1.0.5-SNAPSHOT</version>
+        <version>1.0.7-SNAPSHOT</version>
     </parent>
 
     <artifactId>swarmai-tools</artifactId>
@@ -86,13 +86,6 @@
             <groupId>org.apache.kafka</groupId>
             <artifactId>kafka-clients</artifactId>
             <version>3.7.1</version>
-        </dependency>
-
-        <!-- Tess4J (Tesseract JNI wrapper) for OcrTool -->
-        <dependency>
-            <groupId>net.sourceforge.tess4j</groupId>
-            <artifactId>tess4j</artifactId>
-            <version>5.12.0</version>
         </dependency>
 
         <!-- Testing -->

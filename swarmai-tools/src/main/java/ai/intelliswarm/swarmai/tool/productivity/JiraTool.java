@@ -434,7 +434,9 @@ public class JiraTool implements BaseTool {
         }
     }
 
+    // Credentials (base_url/email/api_token) are config-side only — NOT exposed in the
+    // LLM-facing function schema. Models were hallucinating placeholder values for them
+    // and overriding the real Spring-property credentials via resolveCredentials().
     public record Request(String operation, String jql, String issue_key, String project, String summary,
-                          String issue_type, String description, String comment, Integer max_results,
-                          String base_url, String email, String api_token) {}
+                          String issue_type, String description, String comment, Integer max_results) {}
 }

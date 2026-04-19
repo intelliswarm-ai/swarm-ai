@@ -77,9 +77,10 @@ public class OpenApiToolkit implements BaseTool {
     public String getDescription() {
         return "Universal OpenAPI 3.x client. Use operation='list_operations' to discover every operationId " +
                "in a spec (method/path/summary/params), then operation='invoke' with the operationId and " +
-               "its parameters. Spec loaded from 'spec_url' (preferred) or inline 'spec'. Optional " +
-               "'bearer_token' attaches Authorization: Bearer. Permission: DANGEROUS — tool can call " +
-               "any endpoint described by the spec.";
+               "its parameters. Spec loaded from 'spec_url' (preferred) or inline 'spec'. " +
+               "`path_params`, `query_params`, `headers` take a JSON OBJECT STRING " +
+               "(e.g. `{\"status\":\"available\"}`); `body` takes a JSON STRING; `bearer_token` attaches " +
+               "Authorization: Bearer. Permission: DANGEROUS — tool can call any endpoint described by the spec.";
     }
 
     @Override
@@ -169,7 +170,8 @@ public class OpenApiToolkit implements BaseTool {
         Map<String, Object> pathParams   = toStringMap(parameters.get("path_params"));
         Map<String, Object> queryParams  = toStringMap(parameters.get("query_params"));
         Map<String, Object> headerParams = toStringMap(parameters.get("headers"));
-        Object body = parameters.get("body");
+        // body is a JSON string (or null) — passed through as-is on the wire.
+        String body = asString(parameters.get("body"));
         String bearerToken = asString(parameters.get("bearer_token"));
 
         // Validate required params before burning a network call.
@@ -205,9 +207,9 @@ public class OpenApiToolkit implements BaseTool {
         headers.setAccept(List.of(MediaType.APPLICATION_JSON, MediaType.ALL));
 
         HttpMethod method = HttpMethod.valueOf(found.method.name());
-        HttpEntity<String> entity = body == null
+        HttpEntity<String> entity = (body == null || body.isBlank())
             ? new HttpEntity<>(headers)
-            : new HttpEntity<>(body instanceof String s ? s : objectMapper.writeValueAsString(body), headers);
+            : new HttpEntity<>(body, headers);
 
         logger.info("OpenApiToolkit invoke: {} {}  (opId={})", method, url, opId);
 
@@ -324,14 +326,9 @@ public class OpenApiToolkit implements BaseTool {
     }
 
     @SuppressWarnings("unchecked")
+    /** Accept either a Map (legacy programmatic callers) or a JSON string (LLM path). */
     private static Map<String, Object> toStringMap(Object raw) {
-        if (raw == null) return new LinkedHashMap<>();
-        if (raw instanceof Map<?, ?> m) {
-            Map<String, Object> out = new LinkedHashMap<>();
-            for (Map.Entry<?, ?> e : m.entrySet()) out.put(String.valueOf(e.getKey()), e.getValue());
-            return out;
-        }
-        throw new IllegalArgumentException("expected a map but got: " + raw.getClass().getSimpleName());
+        return ai.intelliswarm.swarmai.tool.common.config.SpringAiToolBindingSupport.parseJsonMap(raw);
     }
 
     private static String asString(Object v) { return v == null ? null : v.toString(); }
@@ -359,24 +356,12 @@ public class OpenApiToolkit implements BaseTool {
         addStringProp(props, "spec", "Inline OpenAPI 3.x spec (JSON or YAML). Use instead of spec_url.");
         addStringProp(props, "operation_id", "For 'invoke': operationId from the spec.");
 
-        Map<String, Object> pathP = new HashMap<>();
-        pathP.put("type", "object");
-        pathP.put("description", "Path parameter map (name → value).");
-        props.put("path_params", pathP);
-
-        Map<String, Object> queryP = new HashMap<>();
-        queryP.put("type", "object");
-        queryP.put("description", "Query parameter map (name → value).");
-        props.put("query_params", queryP);
-
-        Map<String, Object> hP = new HashMap<>();
-        hP.put("type", "object");
-        hP.put("description", "Extra HTTP headers (name → value).");
-        props.put("headers", hP);
-
-        Map<String, Object> body = new HashMap<>();
-        body.put("description", "Request body: JSON string or an object (auto-serialised to JSON).");
-        props.put("body", body);
+        // Represented as JSON-object *strings* so Spring AI's auto-generated function schema
+        // passes OpenAI's validation (which rejects `type:object` with no properties).
+        addStringProp(props, "path_params", "Path parameter map as a JSON object string, e.g. '{\"petId\":42}'.");
+        addStringProp(props, "query_params", "Query parameter map as a JSON object string, e.g. '{\"status\":\"available\"}'.");
+        addStringProp(props, "headers", "Extra HTTP headers as a JSON object string, e.g. '{\"X-Trace\":\"abc\"}'.");
+        addStringProp(props, "body", "Request body as a JSON string (stringify objects before passing).");
 
         addStringProp(props, "bearer_token", "Optional bearer token attached as Authorization header.");
 
@@ -419,7 +404,10 @@ public class OpenApiToolkit implements BaseTool {
     @Override
     public String smokeTest() { return null; /* nothing to probe without a spec */ }
 
+    // Map/Object fields are serialised as String (JSON) so Spring AI's auto-generated
+    // function-calling schema stays compliant with OpenAI (which rejects
+    // {"type":"object"} without a "properties" member). Parsing happens inside invoke().
     public record Request(String operation, String spec_url, String spec, String operation_id,
-                          Map<String, Object> path_params, Map<String, Object> query_params,
-                          Map<String, Object> headers, Object body, String bearer_token) {}
+                          String path_params, String query_params,
+                          String headers, String body, String bearer_token) {}
 }

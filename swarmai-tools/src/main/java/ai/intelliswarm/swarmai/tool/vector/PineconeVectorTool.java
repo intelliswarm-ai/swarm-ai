@@ -24,6 +24,7 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -160,7 +161,15 @@ public class PineconeVectorTool implements BaseTool {
 
     private String upsert(String key, String host, Map<String, Object> parameters) throws Exception {
         Object raw = parameters.get("vectors");
-        if (!(raw instanceof List<?> list) || list.isEmpty()) {
+        List<?> list;
+        try {
+            list = raw instanceof List<?> lst
+                ? lst
+                : ai.intelliswarm.swarmai.tool.common.config.SpringAiToolBindingSupport.parseJsonList(raw);
+        } catch (IllegalArgumentException e) {
+            return "Error: 'vectors' must be a non-empty list of {id, values, metadata?} objects (JSON array).";
+        }
+        if (list == null || list.isEmpty()) {
             return "Error: 'vectors' must be a non-empty list of {id, values, metadata?} objects.";
         }
         if (list.size() > MAX_UPSERT_BATCH) {
@@ -245,7 +254,7 @@ public class PineconeVectorTool implements BaseTool {
         out.append("**Pinecone index stats**\n");
         out.append("Dimension:       ").append(dim).append('\n');
         out.append("Total vectors:   ").append(total).append('\n');
-        out.append(String.format("Index fullness:  %.1f%%%n", fullness * 100));
+        out.append(String.format(Locale.ROOT, "Index fullness:  %.1f%%%n", fullness * 100));
 
         JsonNode namespaces = n.path("namespaces");
         if (namespaces.isObject()) {
@@ -271,7 +280,7 @@ public class PineconeVectorTool implements BaseTool {
         int i = 1;
         for (JsonNode m : matches) {
             out.append(i++).append(". id=`").append(m.path("id").asText()).append("`  score=")
-               .append(String.format("%.4f", m.path("score").asDouble())).append('\n');
+               .append(String.format(Locale.ROOT, "%.4f", m.path("score").asDouble())).append('\n');
             JsonNode meta = m.path("metadata");
             if (meta.isObject() && !meta.isEmpty()) {
                 meta.fieldNames().forEachRemaining(name ->
@@ -395,11 +404,9 @@ public class PineconeVectorTool implements BaseTool {
         filter.put("description", "Raw Pinecone metadata filter JSON (for 'query').");
         props.put("filter", filter);
 
-        Map<String, Object> vecs = new HashMap<>();
-        vecs.put("type", "array");
-        vecs.put("items", Map.of("type", "object"));
-        vecs.put("description", "For 'upsert': list of {id, values, metadata?}. Max " + MAX_UPSERT_BATCH + ".");
-        props.put("vectors", vecs);
+        addStringProp(props, "vectors",
+            "For 'upsert': JSON ARRAY STRING of {id, values, metadata?} objects. Max "
+                + MAX_UPSERT_BATCH + ". Example: '[{\"id\":\"a\",\"values\":[0.1,0.2]}]'.");
 
         Map<String, Object> ids = new HashMap<>();
         ids.put("type", "array");
@@ -479,8 +486,10 @@ public class PineconeVectorTool implements BaseTool {
         }
     }
 
+    // `vectors` is a JSON array string to keep Spring AI's auto-generated function schema
+    // compatible with OpenAI (nested Map schemas lack `properties` and get rejected).
     public record Request(String operation, List<Double> vector, String id, String namespace,
-                          Integer top_k, String filter, List<Map<String, Object>> vectors,
+                          Integer top_k, String filter, String vectors,
                           List<String> ids, Boolean delete_all, Boolean include_metadata,
                           Boolean include_values, String index_host) {}
 }
