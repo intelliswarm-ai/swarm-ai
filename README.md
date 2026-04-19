@@ -201,7 +201,7 @@ Available on **[Maven Central](https://central.sonatype.com/search?q=g:ai.intell
         <artifactId>swarmai-core</artifactId>
     </dependency>
 
-    <!-- Optional: 24 built-in tools (web, PDF, CSV, shell, etc.) -->
+    <!-- Optional: 26 built-in tools (web, PDF, CSV, shell, etc.) -->
     <dependency>
         <groupId>ai.intelliswarm</groupId>
         <artifactId>swarmai-tools</artifactId>
