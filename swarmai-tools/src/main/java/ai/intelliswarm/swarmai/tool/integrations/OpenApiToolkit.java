@@ -170,8 +170,10 @@ public class OpenApiToolkit implements BaseTool {
         Map<String, Object> pathParams   = toStringMap(parameters.get("path_params"));
         Map<String, Object> queryParams  = toStringMap(parameters.get("query_params"));
         Map<String, Object> headerParams = toStringMap(parameters.get("headers"));
-        // body is a JSON string (or null) — passed through as-is on the wire.
-        String body = asString(parameters.get("body"));
+        // body accepts three shapes: null, a JSON string (LLM path), or a Map/List/POJO
+        // (programmatic callers). In the POJO case we JSON-serialise ourselves so the
+        // wire format is always valid JSON.
+        String body = serialiseBody(parameters.get("body"));
         String bearerToken = asString(parameters.get("bearer_token"));
 
         // Validate required params before burning a network call.
@@ -329,6 +331,18 @@ public class OpenApiToolkit implements BaseTool {
     /** Accept either a Map (legacy programmatic callers) or a JSON string (LLM path). */
     private static Map<String, Object> toStringMap(Object raw) {
         return ai.intelliswarm.swarmai.tool.common.config.SpringAiToolBindingSupport.parseJsonMap(raw);
+    }
+
+    /** Body can be null, a String (JSON already — pass through), or a Map/List/POJO
+     *  (JSON-encode via Jackson). Keeps programmatic callers ergonomic. */
+    private String serialiseBody(Object raw) {
+        if (raw == null) return null;
+        if (raw instanceof String s) return s;
+        try {
+            return objectMapper.writeValueAsString(raw);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Could not serialise 'body' to JSON: " + e.getMessage());
+        }
     }
 
     private static String asString(Object v) { return v == null ? null : v.toString(); }
