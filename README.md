@@ -9,7 +9,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Tests](https://img.shields.io/badge/tests-1457%20passing-brightgreen.svg)](#)
 
-**A self-improving multi-agent orchestration framework for Java, designed for enterprise use.** Built on Spring AI 1.0.4 GA and Spring Boot 3.4 with type-safe state management, dynamic skill generation, RL-powered decision making, and enterprise features.
+**A multi-agent orchestration framework for Java, designed for enterprise use.** Built on Spring AI 1.0.4 GA and Spring Boot 3.4 with type-safe state management, dynamic skill generation, RL-powered decision making, and enterprise features.
 
 **[www.intelliswarm.ai](https://www.intelliswarm.ai)** | [Documentation](#documentation) | [Quick Start](#quick-start) | [Migration Guide](docs/MIGRATION_GUIDE.md)
 
@@ -56,14 +56,6 @@ graph TB
         RL["RL Policy Engine<br/>LinUCB · Thompson"]:::runtime
     end
 
-    subgraph Improve["③ Self-Improving Loop — 10% of every budget"]
-        direction LR
-        Gap["Capability<br/>Gap Detector"]:::improve
-        Gen["Skill Generator"]:::improve
-        Val["Sandbox Validator"]:::improve
-        Ledger["Community<br/>Investment Ledger"]:::improve
-    end
-
     LLM[("LLM providers<br/>OpenAI · Anthropic · Ollama<br/><i>via Spring AI ChatClient</i>")]:::ext
     World[("External world<br/>DBs · MCP · Web<br/>Shell · Email · Slack")]:::ext
 
@@ -94,14 +86,9 @@ graph TB
     A1 -. reads/writes .-> Mem
     Engine -. asks .-> RL
 
-    A2 -. gap .-> Gap
-    Gap --> Gen --> Val
-    Val -->|registers skill| Tools
-    Val --> Ledger
-    Budget -. 10% reserve .-> Improve
 ```
 
-The engine picks one of 8 process strategies, runs agents that call LLMs and tools, and enforces budget, governance, and tenant guardrails along the way. Every execution feeds the self-improving loop, which generates new skills and publishes framework-level improvements to the Community Investment Ledger.
+The engine picks one of 8 process strategies, runs agents that call LLMs and tools, and enforces budget, governance, and tenant guardrails along the way.
 
 ## Try it in 30 seconds
 
@@ -137,38 +124,15 @@ Live playground: **[intelliswarm.ai/demo](https://www.intelliswarm.ai/demo)** �
 | Budget enforcement              | ✓          | ✗         | ✗           | ✗         |
 | Governance / approval gates     | ✓          | partial   | ✗           | ✗         |
 | RBAC on tool execution          | ✓          | ✗         | ✗           | ✗         |
-| Self-improvement loop           | ✓          | ✗         | ✗           | ✗         |
 | Production maturity             | new (1.0)  | mature    | mature      | mature    |
 | Community size                  | small      | large     | medium      | large     |
 
 If you don't need multi-agent orchestration with governance, use Spring AI directly. If you're on Python, use LangGraph. SwarmAI's wedge is JVM teams that need an opinionated agent layer with budget, RBAC, and approval gates baked in.
 
-## The 10% Self-Improvement Investment
-
-SwarmAI is the first agentic framework where **every workflow makes the framework better for everyone**.
-
-Every SwarmAI workflow automatically reserves 10% of its token budget for framework-level self-improvement. This isn't per-workflow optimization -- it produces improvements that ship in the next release and benefit all users on upgrade. The same YAML workflow, unchanged, runs cheaper and better on every new version.
-
-**How it works:**
-- After your workflow completes, the 10% phase analyzes what happened -- failures, expensive tasks, convergence patterns, tool selection, skill effectiveness
-- It extracts **generic** rules (never domain-specific) that apply across all workflow types
-- These rules flow into intelligence artifacts: learned policy weights, convergence defaults, tool routing hints, anti-patterns, graduated skills
-- Validated automatically by the full test suite. If tests pass, improvements ship in the next release
-
-**What this means for users:**
-- `v1.1.0`: Framework uses hardcoded defaults. Your workflow uses 95K tokens.
-- `v1.2.0`: Learned from thousands of runs. Same workflow: 62K tokens, same quality.
-- `v1.3.0`: Process auto-selected, anti-patterns caught at compile time. Same workflow: 41K tokens, better quality.
-
-**The Community Investment Ledger** tracks the aggregate impact -- total tokens invested, improvements shipped, skills graduated, anti-patterns discovered, and ROI. This is the collective intelligence of every SwarmAI user, compounding with every release.
-
-> *SwarmAI doesn't just run agents. It invests 10% of every execution into becoming a better framework -- and the 10% pays for itself within 5 runs.*
-
 ## What's New
 
-- **Self-Improving Module** (`swarmai-self-improving`) -- 10% token budget reserve for automatic framework improvement. Community Investment Ledger for tracking collective impact. Three-tier improvement pipeline: automatic data updates, reviewed PRs, architecture proposals
 - **Enterprise Module** (`swarmai-enterprise`) -- Commercial tier with license-gated multi-tenancy, advanced governance, RBAC, audit, and SSO
-- **Self-Evaluation Module** (`swarmai-eval`) -- Framework for agentic self-evaluation, competitive benchmarks, and continuous quality improvement
+- **Self-Evaluation Module** (`swarmai-eval`) -- Framework for agentic self-evaluation and competitive benchmarks
 - **Resilience** -- Circuit breaker + exponential backoff retry on LLM calls via resilience4j
 - **Thread-Safe Observability** -- `ObservabilityContext` now propagates across parallel threads via `Snapshot` API
 - **Typed Exception Hierarchy** -- `SwarmException`, `AgentExecutionException`, `ProcessExecutionException`, `ToolExecutionException`, `ConfigurationException`, `PermissionDeniedException`
@@ -298,7 +262,7 @@ swarm-ai/                        (parent POM, 11 modules)
 ├── swarmai-tools/               25 built-in tools (web, file, shell, PDF, CSV, security, etc.)
 ├── swarmai-dsl/                 YAML DSL parser & compiler (38 definition types)
 ├── swarmai-enterprise/          Enterprise: multi-tenancy, advanced governance, RBAC, audit, SSO
-├── swarmai-self-improving/      10% token budget self-improvement pipeline & reporting
+├── swarmai-self-improving/      Dynamic skill generation pipeline (opt-in)
 ├── swarmai-distributed/         RAFT consensus, distributed goals, intelligence mesh
 ├── swarmai-eval/                Self-evaluation swarm & competitive benchmarks
 ├── swarmai-studio/              Web dashboard for workflow monitoring
@@ -317,7 +281,7 @@ swarm-ai/                        (parent POM, 11 modules)
 | `HIERARCHICAL` | Manager delegates to workers, synthesizes results |
 | `ITERATIVE` | Execute -> review -> refine loop until approved |
 | `SELF_IMPROVING` | Iterative + dynamic skill generation for capability gaps |
-| `SWARM` | Distributed fan-out with parallel self-improving agents |
+| `SWARM` | Distributed fan-out with parallel agents and cross-agent skill sharing |
 | `DISTRIBUTED` | RAFT consensus, declarative goals, work partitioning, resilience-oriented coordination |
 | `COMPOSITE` | Chain processes into pipelines |
 
@@ -348,7 +312,7 @@ Core defines extension points that enterprise (or custom) modules implement:
 | `BudgetTracker` | Token/cost tracking (in-memory default) |
 | `ApprovalGateHandler` | Approval workflow (in-memory default) |
 | `TenantQuotaEnforcer` | Per-tenant resource limits |
-| `PolicyEngine` | RL policy for self-improving decisions |
+| `PolicyEngine` | RL policy for adaptive decision making |
 
 ### Typed Exception Hierarchy
 
@@ -393,7 +357,6 @@ SwarmException (base, carries swarmId + correlationId)
 - **[Getting Started Guide](GETTING_STARTED.md)** -- Comprehensive tutorial with full code examples
 - **[API Keys Setup](docs/API_KEYS_SETUP_GUIDE.md)** -- Configure LLM provider API keys
 - **[Docker Guide](docs/DOCKER_EXAMPLE_GUIDE.md)** -- Run SwarmAI in Docker
-- **[Self-Improving Workflows](docs/SELF_IMPROVING_WORKFLOWS.md)** -- Skill generation deep dive
 - **[RL Benchmarking](docs/benchmarks/BENCHMARKING_METHODOLOGY.md)** -- Algorithm comparison methodology and results
 - **[YAML DSL Guide](GETTING_STARTED.md#yaml-dsl)** -- Define workflows in YAML
 
