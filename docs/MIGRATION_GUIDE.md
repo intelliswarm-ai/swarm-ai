@@ -245,10 +245,8 @@ spring:
 
 swarmai:
   self-improving:
-    enabled: true
-    reserve-percent: 0.10
-    github-token: ${GITHUB_TOKEN:}
-    telemetry-enabled: true
+    enabled: false              # opt-in; off by default
+    telemetry-enabled: false    # no outbound calls unless you opt in
   budget:
     enabled: true
     default-max-tokens: 500000
@@ -299,27 +297,13 @@ If you already use Spring Boot but have custom agent logic:
     <artifactId>swarmai-dsl</artifactId>
     <version>1.0.0-SNAPSHOT</version>
 </dependency>
-<dependency>
-    <groupId>ai.intelliswarm</groupId>
-    <artifactId>swarmai-self-improving</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
-</dependency>
 ```
 
 ### Step 2: Create YAML workflow
 
 Move your agent definitions and orchestration logic into a YAML file. See Step 4 above.
 
-### Step 3: Enable self-improvement
-
-Add to `application.yml`:
-```yaml
-swarmai:
-  self-improving:
-    enabled: true
-```
-
-That's it. Your existing Spring beans, REST controllers, and services stay unchanged.
+Your existing Spring beans, REST controllers, and services stay unchanged.
 
 ---
 
@@ -336,9 +320,8 @@ Spring AI provides the LLM integration layer. SwarmAI adds orchestration on top.
 ### What SwarmAI adds
 - Multi-agent orchestration (7 process types)
 - YAML-defined workflows
-- Self-improving loop (10% token investment)
 - Budget tracking and governance
-- Skill generation and promotion
+- Dynamic skill generation
 
 ```yaml
 # Your agents are now defined declaratively
@@ -358,7 +341,7 @@ swarm:
 
 ## Migration from LangGraph4J
 
-LangGraph4J gives you a graph execution engine. SwarmAI gives you 7 orchestration strategies + self-improvement.
+LangGraph4J gives you a graph execution engine. SwarmAI gives you 7 orchestration strategies with budget tracking and governance.
 
 | LangGraph4J | SwarmAI |
 |---|---|
@@ -371,79 +354,8 @@ LangGraph4J gives you a graph execution engine. SwarmAI gives you 7 orchestratio
 
 ### Key differences
 - LangGraph4J: you design the graph manually
-- SwarmAI: you pick a process type (SEQUENTIAL, PARALLEL, SELF_IMPROVING, etc.) and the framework handles orchestration
-- SwarmAI adds: budget tracking, governance gates, skill generation, self-improvement
-
----
-
-## Self-Improvement Setup Checklist
-
-After migration, verify the self-improvement pipeline is wired correctly:
-
-### Connected Environment (has internet)
-
-```yaml
-swarmai:
-  self-improving:
-    enabled: true
-    github-token: ${GITHUB_TOKEN}  # enables auto-PR creation
-    telemetry-enabled: true         # anonymized telemetry
-```
-
-Verify with test:
-```java
-@Autowired ImprovementPhase phase;
-@Autowired ImprovementReportingService reporting;
-@Autowired TelemetryReporter telemetry;
-
-@Test
-void selfImprovementWired() {
-    assertNotNull(phase);
-    assertNotNull(reporting);
-    assertEquals(0.10, config.getReservePercent());
-}
-```
-
-### Firewalled Environment (no internet)
-
-```yaml
-swarmai:
-  self-improving:
-    enabled: true
-    telemetry-enabled: false  # no outbound calls
-    # no github-token set
-```
-
-Improvements accumulate locally. The framework nudges ops to export:
-
-- `/actuator/health` shows pending improvement count
-- Startup banner reminds to export
-- Periodic log messages with export instructions
-- Export via: `POST /actuator/self-improving/export`
-
-Submit the export file via:
-1. GitHub issue at `github.com/intelliswarm-ai/swarm-ai/issues/new`
-2. Email to `contributions@intelliswarm.ai`
-3. Web form at `intelliswarm.ai/contribute`
-
-### Verify Self-Improvement Health
-
-```
-GET /actuator/health
-
-{
-  "components": {
-    "selfImprovement": {
-      "status": "UP",
-      "details": {
-        "pendingImprovements": 0,
-        "reportingStatus": "ONLINE",
-        "communityROI": "0.0x"
-      }
-    }
-  }
-}
-```
+- SwarmAI: you pick a process type (SEQUENTIAL, PARALLEL, HIERARCHICAL, etc.) and the framework handles orchestration
+- SwarmAI adds: budget tracking, governance gates, dynamic skill generation
 
 ---
 
@@ -484,8 +396,6 @@ Fix: Let Spring Boot manage the httpclient5 version (remove explicit `<version>`
 
 - **7 orchestration strategies** instead of custom orchestrator code
 - **YAML-defined workflows** — change agent behavior without recompiling
-- **10% self-improvement** — framework gets better on every run
 - **Budget tracking** — know exactly what each workflow costs
 - **Governance gates** — approval workflows for sensitive operations
 - **Observability** — correlation IDs, tracing, health indicators
-- **Community intelligence** — benefit from collective improvements on upgrade
