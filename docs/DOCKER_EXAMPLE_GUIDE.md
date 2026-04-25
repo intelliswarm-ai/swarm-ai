@@ -1,4 +1,4 @@
-# 🐳 SwarmAI Framework - Docker Example Guide
+# SwarmAI Framework - Docker Example Guide
 
 ## Complete Agentic Workflow with Ollama Integration
 
@@ -6,7 +6,7 @@ This guide demonstrates an agentic workflow using the SwarmAI Framework with Doc
 
 ---
 
-## 🎯 **Workflow Overview: Competitive Analysis Research**
+## **Workflow Overview: Competitive Analysis Research**
 
 ### **The Challenge**
 Conduct a comprehensive competitive analysis of the AI/ML platform market, generating executive-ready reports with strategic recommendations.
@@ -91,7 +91,7 @@ open http://localhost:11434          # Ollama API
 
 ---
 
-## 🏗️ **Architecture Deep Dive**
+## **Architecture Deep Dive**
 
 ### **Container Architecture**
 ```yaml
