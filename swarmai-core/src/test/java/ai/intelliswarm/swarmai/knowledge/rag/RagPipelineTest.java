@@ -116,6 +116,23 @@ class RagPipelineTest {
             // should not throw
             assertDoesNotThrow(() -> rag.ingestText("doc.md", "some content"));
         }
+
+        @Test
+        @DisplayName("re-ingesting same source clears prior chunks before indexing new ones")
+        void reingest_same_source_clears_old_chunks() {
+            RagPipeline rag = RagPipeline.builder()
+                    .vectorStore(vectorStore).chatClient(chatClient)
+                    .config(RagConfig.defaults().withChunkSize(12).withChunkOverlap(0))
+                    .build();
+
+            rag.ingestText("doc.md", "one two three four five six seven");
+            rag.ingestText("doc.md", "short text");
+
+            ArgumentCaptor<List<String>> deleteCap = ArgumentCaptor.forClass(List.class);
+            verify(vectorStore).delete(deleteCap.capture());
+            assertTrue(deleteCap.getValue().size() > 1, "first ingest should have produced multiple chunks");
+            assertTrue(deleteCap.getValue().stream().allMatch(id -> id.startsWith("doc.md#")));
+        }
     }
 
     @Nested

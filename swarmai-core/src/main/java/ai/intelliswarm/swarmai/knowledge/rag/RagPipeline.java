@@ -73,6 +73,9 @@ public final class RagPipeline {
         Objects.requireNonNull(sourceId, "sourceId");
         Objects.requireNonNull(content, "content");
         if (content.isBlank()) return;
+        if (bySource.containsKey(sourceId)) {
+            removeSource(sourceId);
+        }
 
         List<String> chunks = splitter.split(content);
         List<Document> docs = new ArrayList<>(chunks.size());
