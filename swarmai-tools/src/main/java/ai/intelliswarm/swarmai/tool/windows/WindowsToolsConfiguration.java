@@ -4,6 +4,7 @@ import ai.intelliswarm.swarmai.governance.ApprovalGateHandler;
 import ai.intelliswarm.swarmai.tool.common.config.SpringAiToolBindingSupport;
 import ai.intelliswarm.swarmai.tool.safety.AuditLogger;
 import ai.intelliswarm.swarmai.tool.safety.AuditingMutationGuard;
+import ai.intelliswarm.swarmai.tool.safety.AutoApproveMutationGuard;
 import ai.intelliswarm.swarmai.tool.safety.ConsoleApprovalGateHandler;
 import ai.intelliswarm.swarmai.tool.safety.KillSwitchMutationGuard;
 import ai.intelliswarm.swarmai.tool.safety.MutationGuard;
@@ -73,18 +74,21 @@ public class WindowsToolsConfiguration {
 
     /**
      * Guard chain (outermost → innermost):
-     * {@link KillSwitchMutationGuard} → {@link AuditingMutationGuard} → {@link SupervisedMutationGuard}.
-     * Operators flipping the kill-switch silences the prompt and audit log entirely;
-     * everything that survives the switch is logged before and after the human decides.
+     * {@link KillSwitchMutationGuard} → {@link AuditingMutationGuard} → inner guard.
+     *
+     * <p>The inner guard is {@link SupervisedMutationGuard} (human prompt) by default,
+     * or {@link AutoApproveMutationGuard} when {@code swarmai.tools.windows.auto-approve=true}.
+     * Either way, the kill-switch and audit log still apply.
      */
     @Bean
     @ConditionalOnMissingBean(MutationGuard.class)
     public MutationGuard windowsMutationGuard(ApprovalGateHandler approvalHandler,
                                               AuditLogger auditLogger,
                                               WindowsToolsProperties props) {
-        MutationGuard supervised = new SupervisedMutationGuard(
-                approvalHandler, props.getApprovalTimeout(), "default");
-        MutationGuard audited = new AuditingMutationGuard(supervised, auditLogger);
+        MutationGuard inner = props.isAutoApprove()
+                ? new AutoApproveMutationGuard()
+                : new SupervisedMutationGuard(approvalHandler, props.getApprovalTimeout(), "default");
+        MutationGuard audited = new AuditingMutationGuard(inner, auditLogger);
         return new KillSwitchMutationGuard(audited);
     }
 

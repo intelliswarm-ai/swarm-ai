@@ -25,6 +25,13 @@ public class WindowsToolsProperties {
     /** Directory the AuditLogger writes JSONL files to. {@code ${...}} placeholders are expanded. */
     private String auditDir = "${user.home}/.swarmai/audit";
 
+    /**
+     * If true, replace the supervised approval guard with an auto-approve guard:
+     * every mutation is allowed without prompting. Audit log still records each
+     * op and the kill-switch still aborts. Demo / unattended use only.
+     */
+    private boolean autoApprove = false;
+
     private final FileSystem filesystem = new FileSystem();
     private final Process process = new Process();
     private final Window window = new Window();
@@ -36,6 +43,8 @@ public class WindowsToolsProperties {
     public void setApprovalTimeout(Duration approvalTimeout) { this.approvalTimeout = approvalTimeout; }
     public String getAuditDir() { return auditDir; }
     public void setAuditDir(String auditDir) { this.auditDir = auditDir; }
+    public boolean isAutoApprove() { return autoApprove; }
+    public void setAutoApprove(boolean autoApprove) { this.autoApprove = autoApprove; }
     public FileSystem getFilesystem() { return filesystem; }
     public Process getProcess() { return process; }
     public Window getWindow() { return window; }
