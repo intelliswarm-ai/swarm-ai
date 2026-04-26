@@ -57,6 +57,7 @@ class EodhdFormatterFixtureTest {
         assertThat(md).contains("2025-02-10");
         assertThat(md).contains("0.2500");        // value
         assertThat(md).contains("USD");
+        assertThat(md).contains("Quarterly");     // period column (added in formatter)
         assertThat(md).contains("2025-01-30");    // declarationDate
         assertThat(md).contains("[EODHD: div");
     }

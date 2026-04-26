@@ -228,15 +228,17 @@ public class EodhdReportFormatter {
     private void appendDividends(StringBuilder sb, JsonNode divs) {
         if (divs == null || !divs.isArray() || divs.isEmpty()) return;
         sb.append("## Dividends (most recent 12)\n\n");
-        sb.append("| Date | Value | Currency | Declaration | Record | Payment |\n|---|---|---|---|---|---|\n");
+        sb.append("| Date | Value | Currency | Period | Declaration | Record | Payment |\n");
+        sb.append("|---|---|---|---|---|---|---|\n");
         int total = divs.size();
         int start = Math.max(0, total - 12);
         for (int i = total - 1; i >= start; i--) {
             JsonNode d = divs.get(i);
-            sb.append(String.format(Locale.US, "| %s | %s | %s | %s | %s | %s |%n",
+            sb.append(String.format(Locale.US, "| %s | %s | %s | %s | %s | %s | %s |%n",
                     text(d, "date"),
                     num(d, "value"),
                     text(d, "currency"),
+                    text(d, "period"),
                     text(d, "declarationDate"),
                     text(d, "recordDate"),
                     text(d, "paymentDate")));
