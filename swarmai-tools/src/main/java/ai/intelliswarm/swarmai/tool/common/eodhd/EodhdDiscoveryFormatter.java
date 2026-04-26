@@ -1,6 +1,8 @@
 package ai.intelliswarm.swarmai.tool.common.eodhd;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 
 import java.util.Locale;
 
@@ -116,23 +118,31 @@ public class EodhdDiscoveryFormatter {
 
     public String formatTrends(String symbols, JsonNode payload) {
         StringBuilder sb = new StringBuilder();
-        sb.append("# EODHD Analyst Trends for ").append(symbols).append("\n\n");
-        JsonNode rows = (payload != null && payload.has("trends")) ? payload.path("trends")
+        sb.append("# EODHD Earnings Trends for ").append(symbols).append("\n\n");
+        JsonNode rawRows = (payload != null && payload.has("trends")) ? payload.path("trends")
                 : (payload != null && payload.has("data")) ? payload.path("data") : payload;
+        JsonNode rows = flattenNestedTrendRows(rawRows);
         if (rows == null || !rows.isArray() || rows.isEmpty()) {
             sb.append("_No trend data returned._\n");
             return sb.toString();
         }
-        sb.append("| Date | Code | Strong Buy | Buy | Hold | Sell | Strong Sell |\n");
-        sb.append("|---|---|---|---|---|---|---|\n");
+        sb.append("| Date | Code | Period | Earnings Est Avg | EPS Trend Current | EPS Trend 7D | EPS Trend 30D | EPS Trend 60D | Revisions Up | Revisions Down |\n");
+        sb.append("|---|---|---|---|---|---|---|---|---|---|\n");
         int max = Math.min(rows.size(), 24);
         for (int i = 0; i < max; i++) {
             JsonNode r = rows.get(i);
-            sb.append(String.format(Locale.US, "| %s | %s | %s | %s | %s | %s | %s |%n",
-                    text(r, "date"), text(r, "code"),
-                    num(r, "strong_buy"), num(r, "buy"),
-                    num(r, "hold"),
-                    num(r, "sell"), num(r, "strong_sell")));
+            sb.append(String.format(Locale.US,
+                    "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |%n",
+                    textAny(r, "date", "reportDate"),
+                    textAny(r, "code", "symbol"),
+                    text(r, "period"),
+                    num(r, "earningsEstimateAvg"),
+                    numAny(r, "epsTrendCurrent", "epsTrend0"),
+                    numAny(r, "epsTrend7daysAgo", "epsTrend7dAgo"),
+                    numAny(r, "epsTrend30daysAgo", "epsTrend30dAgo"),
+                    numAny(r, "epsTrend60daysAgo", "epsTrend60dAgo"),
+                    numAny(r, "upLast7days", "upLast30days", "epsRevisionsUp"),
+                    numAny(r, "downLast7days", "downLast30days", "epsRevisionsDown")));
         }
         sb.append("\n_Citation: [EODHD: calendar/trends, symbols=").append(symbols).append("]_\n");
         return sb.toString();
@@ -174,6 +184,15 @@ public class EodhdDiscoveryFormatter {
         return s.isEmpty() ? "—" : s;
     }
 
+    private String textAny(JsonNode node, String... fields) {
+        if (node == null) return "—";
+        for (String field : fields) {
+            String value = text(node, field);
+            if (!"—".equals(value)) return value;
+        }
+        return "—";
+    }
+
     private String num(JsonNode node, String field) {
         if (node == null) return "—";
         JsonNode v = node.path(field);
@@ -187,6 +206,34 @@ public class EodhdDiscoveryFormatter {
         }
         String s = v.asText("");
         return s.isEmpty() ? "—" : s;
+    }
+
+    private String numAny(JsonNode node, String... fields) {
+        if (node == null) return "—";
+        for (String field : fields) {
+            String value = num(node, field);
+            if (!"—".equals(value)) return value;
+        }
+        return "—";
+    }
+
+    private JsonNode flattenNestedTrendRows(JsonNode rows) {
+        if (rows == null || !rows.isArray() || rows.isEmpty()) {
+            return rows;
+        }
+        boolean hasNestedArrays = false;
+        ArrayNode flattened = JsonNodeFactory.instance.arrayNode();
+        for (JsonNode row : rows) {
+            if (row != null && row.isArray()) {
+                hasNestedArrays = true;
+                for (JsonNode nestedRow : row) {
+                    flattened.add(nestedRow);
+                }
+                continue;
+            }
+            flattened.add(row);
+        }
+        return hasNestedArrays ? flattened : rows;
     }
 
     private String money(JsonNode node, String field) {
