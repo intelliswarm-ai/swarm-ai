@@ -25,6 +25,8 @@ import ai.intelliswarm.swarmai.tool.common.DatabaseQueryTool;
 import ai.intelliswarm.swarmai.tool.common.SemanticSearchTool;
 import ai.intelliswarm.swarmai.tool.common.DataAnalysisTool;
 import ai.intelliswarm.swarmai.tool.common.ReportGeneratorTool;
+import ai.intelliswarm.swarmai.tool.common.EodhdDiscoveryTool;
+import ai.intelliswarm.swarmai.tool.common.EodhdMarketDataTool;
 import ai.intelliswarm.swarmai.tool.common.FinancialDataTool;
 import ai.intelliswarm.swarmai.tool.common.SECFilingsTool;
 import ai.intelliswarm.swarmai.tool.common.SimulatedWebSearchTool;
@@ -74,6 +76,18 @@ public class ToolsConfiguration {
     public FinancialDataTool financialDataTool() {
         logger.info("Registering FinancialDataTool as Spring bean");
         return new FinancialDataTool();
+    }
+
+    @Bean
+    public EodhdMarketDataTool eodhdMarketDataTool() {
+        logger.info("Registering EodhdMarketDataTool as Spring bean");
+        return new EodhdMarketDataTool();
+    }
+
+    @Bean
+    public EodhdDiscoveryTool eodhdDiscoveryTool() {
+        logger.info("Registering EodhdDiscoveryTool as Spring bean");
+        return new EodhdDiscoveryTool();
     }
 
     @Bean
@@ -206,6 +220,38 @@ public class ToolsConfiguration {
     public Function<FinancialDataRequest, String> financial_data(FinancialDataTool financialDataTool) {
         logger.info("Registering financial_data function for Spring AI");
         return request -> (String) financialDataTool.execute(Map.of("input", request.input()));
+    }
+
+    /**
+     * Request record for the eodhd_market_data Spring AI function. Input grammar:
+     * {@code <SYMBOL>[.<EXCHANGE>][:<endpoint>[:<from>[:<to>]]]} — see
+     * {@link EodhdMarketDataTool#parseInput(String)}.
+     */
+    public record EodhdMarketDataRequest(String input) {}
+
+    @Bean
+    @Description("Fetches global market data from EODHD: historical end-of-day OHLCV, " +
+            "intraday OHLCV (1m/5m/1h), real-time quotes, fundamentals, dividends, splits, " +
+            "news, server-computed technical indicators (RSI, MACD, SMA, EMA, BBANDS, …), " +
+            "and macro economic indicators by country. Covers 60+ exchanges. Input examples: " +
+            "'AAPL', 'BMW.XETRA:eod', 'AAPL.US:intraday:5m', 'AAPL.US:technical:rsi:14', " +
+            "'USA:macro:gdp_current_usd'.")
+    public Function<EodhdMarketDataRequest, String> eodhd_market_data(EodhdMarketDataTool eodhdMarketDataTool) {
+        logger.info("Registering eodhd_market_data function for Spring AI");
+        return request -> (String) eodhdMarketDataTool.execute(Map.of("input", request.input()));
+    }
+
+    /** Request record for the eodhd_discovery Spring AI function. */
+    public record EodhdDiscoveryRequest(String input) {}
+
+    @Bean
+    @Description("Symbol and event discovery via EODHD: fuzzy ticker search, stock screener, " +
+            "earnings/IPO/analyst-trends/economic-event calendars. Input: " +
+            "'<operation>[:<arg1>[:<arg2>[:<arg3>]]]'. Examples: 'search:apple', " +
+            "'earnings:2026-05-01:2026-05-31', 'ipos', 'trends:AAPL.US', 'economic:US'.")
+    public Function<EodhdDiscoveryRequest, String> eodhd_discovery(EodhdDiscoveryTool eodhdDiscoveryTool) {
+        logger.info("Registering eodhd_discovery function for Spring AI");
+        return request -> (String) eodhdDiscoveryTool.execute(Map.of("input", request.input()));
     }
 
     @Bean
