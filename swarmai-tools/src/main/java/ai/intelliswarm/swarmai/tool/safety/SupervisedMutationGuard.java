@@ -1,4 +1,4 @@
-yespackage ai.intelliswarm.swarmai.tool.safety;
+package ai.intelliswarm.swarmai.tool.safety;
 
 import ai.intelliswarm.swarmai.governance.ApprovalGate;
 import ai.intelliswarm.swarmai.governance.ApprovalGateHandler;
