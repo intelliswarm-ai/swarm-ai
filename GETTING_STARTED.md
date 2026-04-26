@@ -1261,7 +1261,7 @@ Add the DSL dependency to your project:
 <dependency>
     <groupId>ai.intelliswarm</groupId>
     <artifactId>swarmai-dsl</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>1.0.9</version>
 </dependency>
 ```
 

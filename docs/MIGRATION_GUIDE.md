@@ -54,7 +54,7 @@ This is the migration path demonstrated by the VulnPatcher project.
 
 <properties>
     <java.version>21</java.version>
-    <swarmai.version>1.0.0-SNAPSHOT</swarmai.version>
+    <swarmai.version>1.0.9</swarmai.version>
 </properties>
 
 <!-- SwarmAI Framework -->
@@ -290,12 +290,12 @@ If you already use Spring Boot but have custom agent logic:
 <dependency>
     <groupId>ai.intelliswarm</groupId>
     <artifactId>swarmai-core</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>1.0.9</version>
 </dependency>
 <dependency>
     <groupId>ai.intelliswarm</groupId>
     <artifactId>swarmai-dsl</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>1.0.9</version>
 </dependency>
 ```
 

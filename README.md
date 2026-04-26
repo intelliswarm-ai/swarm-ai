@@ -151,7 +151,7 @@ Available on **[Maven Central](https://central.sonatype.com/search?q=g:ai.intell
         <dependency>
             <groupId>ai.intelliswarm</groupId>
             <artifactId>swarmai-bom</artifactId>
-            <version>1.0.0</version>
+            <version>1.0.9</version>
             <type>pom</type>
             <scope>import</scope>
         </dependency>
