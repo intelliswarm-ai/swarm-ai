@@ -22,6 +22,9 @@ public class WindowsToolsProperties {
     /** Approval timeout used by SupervisedMutationGuard for these tools. */
     private Duration approvalTimeout = Duration.ofMinutes(5);
 
+    /** Directory the AuditLogger writes JSONL files to. {@code ${...}} placeholders are expanded. */
+    private String auditDir = "${user.home}/.swarmai/audit";
+
     private final FileSystem filesystem = new FileSystem();
     private final Process process = new Process();
     private final Window window = new Window();
@@ -31,6 +34,8 @@ public class WindowsToolsProperties {
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
     public Duration getApprovalTimeout() { return approvalTimeout; }
     public void setApprovalTimeout(Duration approvalTimeout) { this.approvalTimeout = approvalTimeout; }
+    public String getAuditDir() { return auditDir; }
+    public void setAuditDir(String auditDir) { this.auditDir = auditDir; }
     public FileSystem getFilesystem() { return filesystem; }
     public Process getProcess() { return process; }
     public Window getWindow() { return window; }

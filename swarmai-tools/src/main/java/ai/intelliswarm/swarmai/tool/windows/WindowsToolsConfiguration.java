@@ -2,7 +2,10 @@ package ai.intelliswarm.swarmai.tool.windows;
 
 import ai.intelliswarm.swarmai.governance.ApprovalGateHandler;
 import ai.intelliswarm.swarmai.tool.common.config.SpringAiToolBindingSupport;
+import ai.intelliswarm.swarmai.tool.safety.AuditLogger;
+import ai.intelliswarm.swarmai.tool.safety.AuditingMutationGuard;
 import ai.intelliswarm.swarmai.tool.safety.ConsoleApprovalGateHandler;
+import ai.intelliswarm.swarmai.tool.safety.KillSwitchMutationGuard;
 import ai.intelliswarm.swarmai.tool.safety.MutationGuard;
 import ai.intelliswarm.swarmai.tool.safety.SupervisedMutationGuard;
 import ai.intelliswarm.swarmai.tool.windows.internal.AwtScreenCapturer;
@@ -64,10 +67,25 @@ public class WindowsToolsConfiguration {
     }
 
     @Bean
+    public AuditLogger windowsAuditLogger(WindowsToolsProperties props) {
+        return new AuditLogger(java.nio.file.Paths.get(PathGuard.expand(props.getAuditDir())));
+    }
+
+    /**
+     * Guard chain (outermost → innermost):
+     * {@link KillSwitchMutationGuard} → {@link AuditingMutationGuard} → {@link SupervisedMutationGuard}.
+     * Operators flipping the kill-switch silences the prompt and audit log entirely;
+     * everything that survives the switch is logged before and after the human decides.
+     */
+    @Bean
     @ConditionalOnMissingBean(MutationGuard.class)
     public MutationGuard windowsMutationGuard(ApprovalGateHandler approvalHandler,
+                                              AuditLogger auditLogger,
                                               WindowsToolsProperties props) {
-        return new SupervisedMutationGuard(approvalHandler, props.getApprovalTimeout(), "default");
+        MutationGuard supervised = new SupervisedMutationGuard(
+                approvalHandler, props.getApprovalTimeout(), "default");
+        MutationGuard audited = new AuditingMutationGuard(supervised, auditLogger);
+        return new KillSwitchMutationGuard(audited);
     }
 
     // ---------- tools ----------
