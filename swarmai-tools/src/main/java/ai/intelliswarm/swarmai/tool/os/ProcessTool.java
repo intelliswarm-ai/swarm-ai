@@ -269,14 +269,31 @@ public class ProcessTool implements BaseTool {
                 return m;
             }).orElseGet(() -> error("no process with pid " + pid));
         }
-        // Kill by name: kill all matches whose command contains the substring
+        // Kill by name: target command substrings, but enforce denylist per matched process too.
         final String needle = resolvedName.toLowerCase(Locale.ROOT);
-        long killed = ProcessHandle.allProcesses()
-                .filter(h -> h.info().command().map(c ->
-                        c.toLowerCase(Locale.ROOT).contains(needle)).orElse(false))
-                .mapToLong(h -> h.destroy() ? 1L : 0L)
-                .sum();
-        return Map.of("ok", killed > 0, "op", "kill", "matched", killed, "name", resolvedName);
+        long killed = 0;
+        long skippedDenylisted = 0;
+        for (ProcessHandle handle : ProcessHandle.allProcesses().toList()) {
+            String command = handle.info().command().orElse(null);
+            if (command == null) continue;
+            String commandLower = command.toLowerCase(Locale.ROOT);
+            if (!commandLower.contains(needle)) continue;
+            if (isDenylisted(commandLower)) {
+                skippedDenylisted++;
+                continue;
+            }
+            if (handle.destroy()) killed++;
+        }
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("ok", killed > 0);
+        out.put("op", "kill");
+        out.put("matched", killed);
+        out.put("name", resolvedName);
+        if (skippedDenylisted > 0) {
+            out.put("skippedDenylisted", skippedDenylisted);
+        }
+        return out;
     }
 
     private boolean isDenylisted(String name) {

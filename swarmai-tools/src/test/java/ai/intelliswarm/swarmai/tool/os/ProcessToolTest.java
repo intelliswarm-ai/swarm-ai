@@ -82,6 +82,19 @@ class ProcessToolTest {
         assertThat(result.get("error").toString()).contains("denied").contains("systemd");
     }
 
+
+    @Test
+    @DisplayName("kill by name re-checks denylist for each matched process")
+    void killByNameRechecksDenylistPerMatch() {
+        ProcessTool t = tool(new OsContext().type(), new AutoApproveMutationGuard(), List.of("java"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> result = (Map<String, Object>) t.execute(Map.of(
+                "operation", "kill", "name", "jav", "apply", true));
+        assertThat(result.get("matched")).isEqualTo(0L);
+        assertThat(result).containsKey("skippedDenylisted");
+        assertThat(((Number) result.get("skippedDenylisted")).longValue()).isGreaterThan(0L);
+    }
+
     @Test
     @DisplayName("kill plan-only (apply omitted) returns a plan with HIGH risk and no kill action")
     void killPlanOnly() {

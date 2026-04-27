@@ -12,6 +12,7 @@ import ai.intelliswarm.swarmai.tool.safety.ConsoleApprovalGateHandler;
 import ai.intelliswarm.swarmai.tool.safety.KillSwitchMutationGuard;
 import ai.intelliswarm.swarmai.tool.safety.MutationGuard;
 import ai.intelliswarm.swarmai.tool.safety.SupervisedMutationGuard;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -75,7 +76,7 @@ public class OsToolsConfiguration {
     @Bean
     @ConditionalOnMissingBean(MutationGuard.class)
     public MutationGuard osMutationGuard(ApprovalGateHandler approvalHandler,
-                                         AuditLogger auditLogger,
+                                         @Qualifier("osAuditLogger") AuditLogger auditLogger,
                                          OsToolsProperties props) {
         MutationGuard inner = props.isAutoApprove()
                 ? new AutoApproveMutationGuard()
@@ -87,7 +88,7 @@ public class OsToolsConfiguration {
     // ---------- tools ----------
 
     @Bean
-    public FileSystemTool osFileSystemTool(PathGuard pathGuard,
+    public FileSystemTool osFileSystemTool(@Qualifier("osPathGuard") PathGuard pathGuard,
                                            MutationGuard mutationGuard,
                                            OsToolsProperties props) {
         return new FileSystemTool(pathGuard, mutationGuard,
