@@ -4,6 +4,7 @@ import ai.intelliswarm.swarmai.tool.base.BaseTool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Component;
@@ -20,6 +21,7 @@ import java.util.List;
  * Safety: rate limited, configurable allowed recipients.
  */
 @Component
+@ConditionalOnClass(name = "org.springframework.mail.javamail.JavaMailSender")
 public class EmailTool implements BaseTool {
 
     private static final Logger logger = LoggerFactory.getLogger(EmailTool.class);

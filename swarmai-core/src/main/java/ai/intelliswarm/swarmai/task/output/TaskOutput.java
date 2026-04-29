@@ -27,6 +27,14 @@ public class TaskOutput {
     private final Long completionTokens;
     private final Long totalTokens;
 
+    /**
+     * Pre-parsed typed output, set when the task declared a target type via
+     * {@code Task.builder().outputType(MyType.class)}. Use {@link #as(Class)}
+     * for type-safe retrieval.
+     */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private final Object typedOutput;
+
     private TaskOutput(Builder builder) {
         this.taskId = builder.taskId;
         this.agentId = builder.agentId;
@@ -40,6 +48,7 @@ public class TaskOutput {
         this.promptTokens = builder.promptTokens;
         this.completionTokens = builder.completionTokens;
         this.totalTokens = builder.totalTokens;
+        this.typedOutput = builder.typedOutput;
     }
 
     public <T> T parseAsType(Class<T> type) {
@@ -53,6 +62,27 @@ public class TaskOutput {
         }
         throw new IllegalStateException("Output format is not JSON");
     }
+
+    /**
+     * Returns the typed output that was parsed automatically when the task
+     * declared an {@code outputType(...)}. Falls back to {@link #parseAsType(Class)}
+     * (parsing the raw JSON now) when no typed output was attached.
+     *
+     * @throws ClassCastException if a typed output exists but does not match {@code type}
+     */
+    public <T> T as(Class<T> type) {
+        if (typedOutput != null) {
+            if (!type.isInstance(typedOutput)) {
+                throw new ClassCastException(
+                        "Typed output is " + typedOutput.getClass().getName()
+                                + " but caller asked for " + type.getName());
+            }
+            return type.cast(typedOutput);
+        }
+        return parseAsType(type);
+    }
+
+    public Object getTypedOutput() { return typedOutput; }
 
     public Map<String, Object> parseAsMap() {
         return parseAsType(Map.class);
@@ -101,6 +131,7 @@ public class TaskOutput {
         private Long promptTokens;
         private Long completionTokens;
         private Long totalTokens;
+        private Object typedOutput;
 
         public Builder taskId(String taskId) {
             this.taskId = taskId;
@@ -154,6 +185,12 @@ public class TaskOutput {
 
         public Builder totalTokens(Long totalTokens) {
             this.totalTokens = totalTokens;
+            return this;
+        }
+
+        /** Attach a pre-parsed typed instance so {@link TaskOutput#as(Class)} returns without re-parsing. */
+        public Builder typedOutput(Object typedOutput) {
+            this.typedOutput = typedOutput;
             return this;
         }
 

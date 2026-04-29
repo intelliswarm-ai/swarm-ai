@@ -22,6 +22,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.converter.BeanOutputConverter;
 import org.springframework.util.StringUtils;
 
 import ai.intelliswarm.swarmai.exception.AgentExecutionException;
@@ -248,6 +249,11 @@ public class Agent {
                 outputBuilder.metadata("compactedTurns", conversation.getCompactedTurnCount());
             }
 
+            // Auto-parse into the declared outputType when present (multi-turn path).
+            if (task.getOutputType() != null && finalResponse != null && !finalResponse.isBlank()) {
+                outputBuilder.typedOutput(tryParseTypedOutput(finalResponse, task.getOutputType()));
+            }
+
             return outputBuilder.build();
 
         } catch (AgentExecutionException e) {
@@ -314,6 +320,14 @@ public class Agent {
             publishAgentCompleted(response, 1,
                     totalTokens != null ? totalTokens : 0L, executionTimeMs);
 
+            // Auto-parse into the declared outputType when present.
+            // We do this best-effort: parse failures are logged but do not fail the
+            // task. The caller can still introspect rawOutput.
+            Object typedOutput = null;
+            if (task.getOutputType() != null && response != null && !response.isBlank()) {
+                typedOutput = tryParseTypedOutput(response, task.getOutputType());
+            }
+
             return TaskOutput.builder()
                 .agentId(id)
                 .taskId(task.getId())
@@ -324,6 +338,7 @@ public class Agent {
                 .promptTokens(promptTokens)
                 .completionTokens(completionTokens)
                 .totalTokens(totalTokens)
+                .typedOutput(typedOutput)
                 .build();
 
         } catch (AgentExecutionException e) {
@@ -334,6 +349,34 @@ public class Agent {
             logger.error("Agent [{}] failed task after {} ms: {}", role, executionTimeMs, e.getMessage());
             publishAgentFailed(e);
             throw new AgentExecutionException("Failed to execute task: " + task.getId(), e, id, task.getId());
+        }
+    }
+
+    /**
+     * Best-effort parse of an LLM response into the declared outputType.
+     * Strips common Markdown code-fence wrappers (```json ... ```) before
+     * delegating to Spring AI's {@link BeanOutputConverter}. Returns {@code null}
+     * on any parse failure so the calling code path is unbroken — the raw
+     * output is still attached to the {@link TaskOutput}.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private Object tryParseTypedOutput(String response, Class<?> targetType) {
+        String body = response.trim();
+        // Strip ```json ... ``` or generic ``` ... ``` fences if the model wrapped its response.
+        if (body.startsWith("```")) {
+            int firstNewline = body.indexOf('\n');
+            int closingFence = body.lastIndexOf("```");
+            if (firstNewline > 0 && closingFence > firstNewline) {
+                body = body.substring(firstNewline + 1, closingFence).trim();
+            }
+        }
+        try {
+            return new BeanOutputConverter<>((Class) targetType).convert(body);
+        } catch (Exception parseFailure) {
+            logger.warn("Agent [{}] could not parse response into {}: {}. " +
+                            "Raw output preserved on TaskOutput.",
+                    role, targetType.getSimpleName(), parseFailure.getMessage());
+            return null;
         }
     }
 
@@ -793,6 +836,14 @@ public class Agent {
         prompt.append("Task: ").append(task.getDescription()).append("\n");
         if (StringUtils.hasText(task.getExpectedOutput())) {
             prompt.append("Expected Output: ").append(task.getExpectedOutput()).append("\n");
+        }
+
+        // Inject JSON-schema format instructions when the task declared a target type.
+        // Spring AI's BeanOutputConverter generates schema-aligned instructions that
+        // most modern chat models follow reliably.
+        if (task.getOutputType() != null) {
+            String formatInstructions = new BeanOutputConverter<>(task.getOutputType()).getFormat();
+            prompt.append("\n").append(formatInstructions).append("\n");
         }
 
         return prompt.toString();

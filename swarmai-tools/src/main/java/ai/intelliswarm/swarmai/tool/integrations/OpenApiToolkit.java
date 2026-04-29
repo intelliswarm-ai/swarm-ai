@@ -14,6 +14,7 @@ import io.swagger.v3.parser.OpenAPIV3Parser;
 import io.swagger.v3.parser.core.models.SwaggerParseResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -53,6 +54,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * endpoints (including POST/DELETE) on behalf of the agent. Gate accordingly.
  */
 @Component
+@ConditionalOnClass(name = "io.swagger.v3.parser.OpenAPIV3Parser")
 public class OpenApiToolkit implements BaseTool {
 
     private static final Logger logger = LoggerFactory.getLogger(OpenApiToolkit.class);

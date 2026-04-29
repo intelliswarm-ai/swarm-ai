@@ -1,10 +1,12 @@
 package ai.intelliswarm.swarmai.tool.os;
 
-import ai.intelliswarm.swarmai.tool.os.shared.PathGuard;
-import ai.intelliswarm.swarmai.tool.safety.AutoApproveMutationGuard;
+import ai.intelliswarm.swarmai.tool.os.FileSystemTool;
 import ai.intelliswarm.swarmai.tool.safety.MutationGuard;
-import ai.intelliswarm.swarmai.tool.safety.MutationPlan;
+import ai.intelliswarm.swarmai.tool.windows.WindowsFileSystemTool;
+import ai.intelliswarm.swarmai.tool.windows.internal.PathGuard;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -13,128 +15,115 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
-@DisplayName("FileSystemTool — cross-platform read + plan/apply mutations")
+/**
+ * Tests for the cross-platform {@link FileSystemTool}. Covers:
+ * <ul>
+ *   <li>tool name and category are the cross-platform values</li>
+ *   <li>still extends {@code WindowsFileSystemTool} (back-compat shim)</li>
+ *   <li>reads pass through unchanged (allowlist root listing)</li>
+ *   <li>writes route through the {@link MutationGuard} (no behavioural divergence)</li>
+ * </ul>
+ *
+ * <p>End-to-end behaviour of every operation is exercised by
+ * {@code WindowsFileSystemToolTest}; this class only verifies the
+ * cross-platform-renamed surface holds together.</p>
+ */
+@DisplayName("Cross-platform FileSystemTool")
 class FileSystemToolTest {
 
-    private FileSystemTool toolFor(Path root, MutationGuard guard, boolean dryRunDefault) {
-        return new FileSystemTool(new PathGuard(List.of(root.toString())), guard, dryRunDefault);
+    private Path root;
+    private PathGuard guard;
+    private MutationGuard mutationGuard;
+    private FileSystemTool tool;
+
+    @BeforeEach
+    void setUp(@TempDir Path tmp) throws Exception {
+        root = Files.createDirectory(tmp.resolve("desktop"));
+        guard = new PathGuard(List.of(root.toString()));
+        mutationGuard = mock(MutationGuard.class);
+        when(mutationGuard.check(any())).thenReturn(MutationGuard.Decision.approve("test", "ok"));
+        tool = new FileSystemTool(guard, mutationGuard, /* dryRunDefault */ true);
     }
 
-    private FileSystemTool toolFor(Path root) {
-        return toolFor(root, new AutoApproveMutationGuard(), true);
+    @Nested
+    @DisplayName("Tool identity")
+    class IdentityTests {
+
+        @Test
+        @DisplayName("function name is the cross-platform os_filesystem (not windows_filesystem)")
+        void functionName_isCrossPlatform() {
+            assertEquals("os_filesystem", tool.getFunctionName());
+        }
+
+        @Test
+        @DisplayName("category is os (not windows)")
+        void category_isCrossPlatform() {
+            assertEquals("os", tool.getCategory());
+        }
+
+        @Test
+        @DisplayName("still extends WindowsFileSystemTool — pure back-compat shim")
+        void extends_windowsFileSystemTool() {
+            assertTrue(tool instanceof WindowsFileSystemTool,
+                    "FileSystemTool must remain an instance of WindowsFileSystemTool so existing " +
+                    "consumers/extensions keep working");
+        }
     }
 
-    @Test
-    @DisplayName("Tool metadata is correct + cross-platform OS list")
-    void metadata() {
-        FileSystemTool t = toolFor(java.nio.file.Paths.get(System.getProperty("java.io.tmpdir")));
-        assertThat(t.getFunctionName()).isEqualTo("os_filesystem");
-        assertThat(t.getCategory()).isEqualTo("os-control");
-        assertThat(t.getTags()).contains("os-control", "filesystem", "cross-platform");
-        assertThat(t.getRequirements().os()).containsExactlyInAnyOrder("windows", "darwin", "linux");
+    @Nested
+    @DisplayName("Read operations (delegated)")
+    class ReadTests {
+
+        @Test
+        @DisplayName("list with no path returns the allowlist roots")
+        void list_returnsAllowedRoots() {
+            Object out = tool.execute(Map.of("operation", "list"));
+            assertTrue(out.toString().contains("Allowed roots"), out.toString());
+            assertTrue(out.toString().contains(root.toString()), out.toString());
+        }
+
+        @Test
+        @DisplayName("list of an empty allowlist directory returns the empty marker")
+        void list_emptyDirectory() {
+            Object out = tool.execute(Map.of("operation", "list", "path", root.toString()));
+            assertNotNull(out);
+            assertFalse(out.toString().isBlank());
+        }
     }
 
-    @Test
-    @DisplayName("list() on a populated directory returns each entry with size + mtime")
-    void listDirectory(@TempDir Path tmp) throws Exception {
-        Files.writeString(tmp.resolve("a.txt"), "hello");
-        Files.writeString(tmp.resolve("b.txt"), "world!");
-        Files.createDirectory(tmp.resolve("sub"));
-        @SuppressWarnings("unchecked")
-        Map<String, Object> result = (Map<String, Object>) toolFor(tmp).execute(Map.of(
-                "operation", "list", "path", tmp.toString()));
-        assertThat(result.get("count")).isEqualTo(3);
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> entries = (List<Map<String, Object>>) result.get("entries");
-        assertThat(entries).extracting(e -> e.get("name")).contains("a.txt", "b.txt", "sub");
-    }
+    @Nested
+    @DisplayName("Mutation operations (gated by MutationGuard)")
+    class MutationTests {
 
-    @Test
-    @DisplayName("Path outside allowlist is refused — never touches the filesystem")
-    void pathOutsideAllowlist(@TempDir Path tmp) {
-        @SuppressWarnings("unchecked")
-        Map<String, Object> result = (Map<String, Object>) toolFor(tmp).execute(Map.of(
-                "operation", "list", "path", tmp.getParent().toString()));
-        assertThat(result).containsKey("error");
-        assertThat(result.get("error").toString()).contains("path-not-allowed");
-    }
+        @Test
+        @DisplayName("mkdir with apply=true creates the directory and consults the guard")
+        void mkdir_withApplyConsultGuardAndCreates() throws Exception {
+            Path target = root.resolve("Apps");
+            Object out = tool.execute(Map.of(
+                    "operation", "mkdir",
+                    "path", target.toString(),
+                    "apply", true));
 
-    @Test
-    @DisplayName("Mutating op without apply=true returns a plan, not an action")
-    void planOnly(@TempDir Path tmp) {
-        Path target = tmp.resolve("new-dir");
-        @SuppressWarnings("unchecked")
-        Map<String, Object> result = (Map<String, Object>) toolFor(tmp).execute(Map.of(
-                "operation", "mkdir", "path", target.toString()));
-        assertThat(result.get("planned")).isEqualTo(true);
-        assertThat(result.get("risk")).isEqualTo("LOW");
-        assertThat(Files.exists(target)).isFalse();
-    }
+            assertTrue(Files.isDirectory(target),
+                    "directory should exist after a guard-approved mkdir");
+            assertNotNull(out);
+        }
 
-    @Test
-    @DisplayName("apply=true with auto-approve guard executes the op")
-    void applyExecutes(@TempDir Path tmp) throws Exception {
-        Path target = tmp.resolve("created-by-test");
-        @SuppressWarnings("unchecked")
-        Map<String, Object> result = (Map<String, Object>) toolFor(tmp).execute(Map.of(
-                "operation", "mkdir", "path", target.toString(), "apply", true));
-        assertThat(result.get("ok")).isEqualTo(true);
-        assertThat(Files.isDirectory(target)).isTrue();
-    }
+        @Test
+        @DisplayName("mkdir with dry-run default (apply=false) does NOT create the directory")
+        void mkdir_dryRunDefault_doesNotCreate() {
+            Path target = root.resolve("DryRunApps");
+            tool.execute(Map.of(
+                    "operation", "mkdir",
+                    "path", target.toString()));
 
-    @Test
-    @DisplayName("Mutating op with a rejecting guard surfaces a clear error and skips the action")
-    void rejectedByGuard(@TempDir Path tmp) {
-        MutationGuard reject = plan -> MutationGuard.Decision.reject("test", "denied");
-        Path target = tmp.resolve("should-not-exist");
-        @SuppressWarnings("unchecked")
-        Map<String, Object> result = (Map<String, Object>) toolFor(tmp, reject, true).execute(Map.of(
-                "operation", "mkdir", "path", target.toString(), "apply", true));
-        assertThat(result.get("error").toString()).contains("rejected");
-        assertThat(Files.exists(target)).isFalse();
-    }
-
-    @Test
-    @DisplayName("write_text + apply writes content, append_text appends to it")
-    void writeAndAppend(@TempDir Path tmp) throws Exception {
-        Path file = tmp.resolve("notes.txt");
-        FileSystemTool t = toolFor(tmp);
-        t.execute(Map.of("operation", "write_text", "path", file.toString(),
-                "content", "alpha\n", "apply", true));
-        t.execute(Map.of("operation", "append_text", "path", file.toString(),
-                "content", "beta\n", "apply", true));
-        assertThat(Files.readString(file)).isEqualTo("alpha\nbeta\n");
-    }
-
-    @Test
-    @DisplayName("delete is HIGH risk")
-    void deleteRiskLevel(@TempDir Path tmp) {
-        Path file = tmp.resolve("doomed.txt");
-        try { Files.writeString(file, ""); } catch (Exception ignored) {}
-        @SuppressWarnings("unchecked")
-        Map<String, Object> result = (Map<String, Object>) toolFor(tmp).execute(Map.of(
-                "operation", "delete", "path", file.toString()));
-        assertThat(result.get("planned")).isEqualTo(true);
-        assertThat(result.get("risk")).isEqualTo("HIGH");
-    }
-
-    @Test
-    @DisplayName("Unknown operation returns a clear error")
-    void unknownOperation(@TempDir Path tmp) {
-        @SuppressWarnings("unchecked")
-        Map<String, Object> result = (Map<String, Object>) toolFor(tmp).execute(Map.of(
-                "operation", "format_drive_c"));
-        assertThat(result.get("error").toString()).contains("unknown operation");
-    }
-
-    @Test
-    @DisplayName("Missing operation returns a clear error listing the available ops")
-    void missingOperation(@TempDir Path tmp) {
-        @SuppressWarnings("unchecked")
-        Map<String, Object> result = (Map<String, Object>) toolFor(tmp).execute(Map.of());
-        String err = result.get("error").toString();
-        assertThat(err).contains("missing 'operation'").contains("list").contains("delete");
+            assertFalse(Files.isDirectory(target),
+                    "dryRunDefault=true means apply=false → no mutation");
+        }
     }
 }

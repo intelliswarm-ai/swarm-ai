@@ -20,7 +20,14 @@ import java.util.*;
  * PDF Read Tool — extracts text and metadata from PDF files.
  *
  * Features: page range support, metadata extraction, configurable base directory, security checks.
+ *
+ * <p><b>Bean registration:</b> {@code @Component} gated by
+ * {@code @ConditionalOnClass(PDDocument)} — Spring's component-scan only
+ * registers this bean when pdfbox is on the classpath. Without the guard,
+ * Spring's bean-factory reflection crashes with NoClassDefFoundError.</p>
  */
+@org.springframework.boot.autoconfigure.condition.ConditionalOnClass(
+        name = "org.apache.pdfbox.pdmodel.PDDocument")
 @Component
 public class PDFReadTool implements BaseTool {
 

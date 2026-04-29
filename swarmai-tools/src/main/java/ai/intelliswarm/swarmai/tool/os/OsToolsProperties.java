@@ -7,33 +7,35 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Configuration for the cross-platform OS-control tools. Bound from {@code swarmai.tools.os.*}.
+ * Configuration for the cross-platform OS tools. Bound from
+ * {@code swarmai.tools.os.*}.
  *
- * <p>Defaults are deliberately conservative: a small allowlist of user-owned directories,
- * dry-run on for mutations, and a denylist that covers system processes on all three OSes
- * (Windows, macOS, Linux) so an over-eager agent can't kill them on any platform.
+ * <p>Defaults match the historical {@code swarmai.tools.windows.*} defaults so
+ * that the {@code desktop-tidy-windows} example and any other consumer of the
+ * cross-platform name behaves identically on Windows, macOS, and Linux. The
+ * {@code ${user.home}} placeholder is expanded by {@code PathGuard} at
+ * construction time and works on every supported OS.
  */
 @ConfigurationProperties(prefix = "swarmai.tools.os")
 public class OsToolsProperties {
 
-    /** Master switch for the cross-platform OS tool category. */
+    /** Master switch for the whole cross-platform tool category. */
     private boolean enabled = false;
 
-    /** Approval timeout used by SupervisedMutationGuard for these tools. */
+    /** Approval timeout used by the supervised mutation guard. */
     private Duration approvalTimeout = Duration.ofMinutes(5);
 
-    /** Directory the AuditLogger writes JSONL files to. {@code ${...}} placeholders expand. */
+    /** Directory the AuditLogger writes JSONL files to. {@code ${...}} placeholders are expanded. */
     private String auditDir = "${user.home}/.swarmai/audit";
 
     /**
      * If true, replace the supervised approval guard with an auto-approve guard:
-     * every mutation is allowed without prompting. Audit log still records each
-     * op and the kill-switch still aborts. Demo / unattended use only.
+     * every mutation is allowed without prompting. The audit log still records
+     * each op and the kill-switch still aborts. Demo / unattended use only.
      */
     private boolean autoApprove = false;
 
     private final FileSystem filesystem = new FileSystem();
-    private final Process process = new Process();
 
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -44,13 +46,13 @@ public class OsToolsProperties {
     public boolean isAutoApprove() { return autoApprove; }
     public void setAutoApprove(boolean autoApprove) { this.autoApprove = autoApprove; }
     public FileSystem getFilesystem() { return filesystem; }
-    public Process getProcess() { return process; }
 
     public static class FileSystem {
         /**
-         * Roots that may be read or modified. Empty means: no roots → tool refuses every op.
-         * The {@code ${user.home}} expansion gives the right path on every OS without
-         * hard-coding a {@code C:\Users\…} or {@code /home/…} path.
+         * Roots that may be read or modified. Empty means: no roots → tool is
+         * effectively disabled. Path strings may include {@code ${user.home}}
+         * which will be expanded at construction time. Defaults are the same
+         * three user-owned directories every OS exposes by default.
          */
         private List<String> allowedRoots = new ArrayList<>(List.of(
                 "${user.home}/Desktop",
@@ -69,30 +71,5 @@ public class OsToolsProperties {
         public void setDryRunDefault(boolean dryRunDefault) { this.dryRunDefault = dryRunDefault; }
         public int getMaxFilesPerOp() { return maxFilesPerOp; }
         public void setMaxFilesPerOp(int maxFilesPerOp) { this.maxFilesPerOp = maxFilesPerOp; }
-    }
-
-    public static class Process {
-        /**
-         * Process names that may never be killed, regardless of approval. The default
-         * union covers Windows, macOS, and Linux system processes so the same denylist
-         * works everywhere — runtime denylist match is a substring check, so e.g.
-         * {@code "system"} catches both Windows {@code System} and Linux {@code systemd}.
-         */
-        private List<String> denylist = new ArrayList<>(List.of(
-                // Windows
-                "system", "smss", "csrss", "wininit", "winlogon", "services",
-                "lsass", "svchost", "dwm", "explorer", "fontdrvhost",
-                // macOS
-                "kernel_task", "launchd", "loginwindow", "WindowServer",
-                // Linux
-                "systemd", "init", "kthreadd"));
-
-        /** Per-invocation timeout for process ops. */
-        private Duration timeout = Duration.ofSeconds(15);
-
-        public List<String> getDenylist() { return denylist; }
-        public void setDenylist(List<String> denylist) { this.denylist = denylist; }
-        public Duration getTimeout() { return timeout; }
-        public void setTimeout(Duration timeout) { this.timeout = timeout; }
     }
 }
