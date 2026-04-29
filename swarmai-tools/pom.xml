@@ -44,6 +44,15 @@
             <artifactId>htmlunit</artifactId>
         </dependency>
 
+        <!-- Real-Chromium browser automation via Chrome DevTools Protocol → BrowserTool.
+             Optional because Playwright auto-downloads ~150 MB of browser binaries on first
+             use. Consumers without browser-automation needs shouldn't be forced to ship that. -->
+        <dependency>
+            <groupId>com.microsoft.playwright</groupId>
+            <artifactId>playwright</artifactId>
+            <optional>true</optional>
+        </dependency>
+
         <!-- PDF processing -->
         <dependency>
             <groupId>org.apache.pdfbox</groupId>
