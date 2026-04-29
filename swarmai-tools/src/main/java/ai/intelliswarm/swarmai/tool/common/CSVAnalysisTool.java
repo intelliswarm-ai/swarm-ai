@@ -26,7 +26,15 @@ import java.util.stream.Collectors;
  * - head: First N rows as markdown table
  * - filter: Filter rows by column value
  * - count: Group and count by column
+ *
+ * <p><b>Bean registration:</b> {@code @Component} gated by
+ * {@code @ConditionalOnClass(CSVRecord)} — Spring's component-scan only
+ * registers this bean if commons-csv is on the classpath. Without the guard,
+ * Spring's bean-factory reflection crashes with NoClassDefFoundError when
+ * commons-csv is missing.</p>
  */
+@org.springframework.boot.autoconfigure.condition.ConditionalOnClass(
+        name = "org.apache.commons.csv.CSVRecord")
 @Component
 public class CSVAnalysisTool implements BaseTool {
 

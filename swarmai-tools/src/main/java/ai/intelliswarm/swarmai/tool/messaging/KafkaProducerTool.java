@@ -39,7 +39,13 @@ import java.util.function.Function;
  *
  * <p>Permission level is {@code WORKSPACE_WRITE} — the tool can publish side-effecting
  * events into shared infrastructure. Message value is always a String; binary not supported.
+ *
+ * <p><b>Bean registration:</b> {@code @Component} gated by
+ * {@code @ConditionalOnClass(KafkaProducer)} — only registers when kafka-clients
+ * is on the classpath.</p>
  */
+@org.springframework.boot.autoconfigure.condition.ConditionalOnClass(
+        name = "org.apache.kafka.clients.producer.KafkaProducer")
 @Component
 public class KafkaProducerTool implements BaseTool {
 

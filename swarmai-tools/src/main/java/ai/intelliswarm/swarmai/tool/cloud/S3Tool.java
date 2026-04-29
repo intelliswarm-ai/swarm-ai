@@ -46,7 +46,14 @@ import java.util.function.Supplier;
  * / MinIO. When set, {@code path-style-access} is automatically enabled.
  *
  * <p>Permission level = {@code WORKSPACE_WRITE} because put/delete mutate buckets.
+ *
+ * <p><b>Bean registration:</b> {@code @Component} gated by
+ * {@code @ConditionalOnClass(S3Client)} — only registers when AWS SDK S3 is on
+ * the classpath. Consumers of {@code swarmai-tools} that don't need S3 don't
+ * pay the AWS SDK transitive cost.</p>
  */
+@org.springframework.boot.autoconfigure.condition.ConditionalOnClass(
+        name = "software.amazon.awssdk.services.s3.S3Client")
 @Component
 public class S3Tool implements BaseTool {
 

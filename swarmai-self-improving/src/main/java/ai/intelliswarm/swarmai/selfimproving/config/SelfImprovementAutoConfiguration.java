@@ -253,13 +253,27 @@ public class SelfImprovementAutoConfiguration {
         return new ImprovementExporter(aggregator);
     }
 
-    @Bean
-    @ConditionalOnMissingBean
+    /**
+     * Health indicator wiring lives in a nested {@code @Configuration} so the
+     * {@code @ConditionalOnClass} guard is evaluated before Spring introspects
+     * any method return type. With the bean defined directly on the outer class,
+     * Spring's {@code getDeclaredMethods()} pass would transitively load
+     * {@link SelfImprovementHealthIndicator} — which {@code implements HealthIndicator}
+     * — and crash with {@code NoClassDefFoundError} when actuator is not on the
+     * classpath. Inside a nested config the methods are never reached unless
+     * the conditional approves first.
+     */
+    @Configuration
     @ConditionalOnClass(name = "org.springframework.boot.actuate.health.HealthIndicator")
-    public SelfImprovementHealthIndicator selfImprovementHealthIndicator(
-            ImprovementExporter exporter, SelfImprovementConfig config) {
-        boolean autoReporting = config.getGithubToken() != null || config.isTelemetryEnabled();
-        return new SelfImprovementHealthIndicator(exporter, autoReporting);
+    public static class HealthIndicatorConfiguration {
+
+        @Bean
+        @ConditionalOnMissingBean
+        public SelfImprovementHealthIndicator selfImprovementHealthIndicator(
+                ImprovementExporter exporter, SelfImprovementConfig config) {
+            boolean autoReporting = config.getGithubToken() != null || config.isTelemetryEnabled();
+            return new SelfImprovementHealthIndicator(exporter, autoReporting);
+        }
     }
 
     @Bean

@@ -41,6 +41,13 @@ public class Task {
     private final Integer maxExecutionTime;
     private final Predicate<String> condition;
     private final Map<String, Object> context;
+    /**
+     * Optional target type for typed structured output. When set, the agent
+     * appends a JSON-schema format instruction to the user prompt and parses
+     * the LLM response into an instance of this type. {@link TaskOutput#as(Class)}
+     * exposes the parsed instance to callers.
+     */
+    private final Class<?> outputType;
 
     @JsonIgnore
     private TaskOutput output;
@@ -58,7 +65,12 @@ public class Task {
         this.agent = builder.agent;
         this.dependencyTaskIds = new ArrayList<>(builder.dependencyTaskIds);
         this.asyncExecution = builder.asyncExecution;
-        this.outputFormat = builder.outputFormat;
+        // If a target type is set, default the wire format to JSON so the
+        // raw output is always parseable. Caller can still override via outputFormat(...).
+        this.outputType = builder.outputType;
+        this.outputFormat = (builder.outputType != null && builder.outputFormat == OutputFormat.TEXT)
+                ? OutputFormat.JSON
+                : builder.outputFormat;
         this.outputFile = builder.outputFile;
         this.maxExecutionTime = builder.maxExecutionTime;
         this.condition = builder.condition;
@@ -204,6 +216,7 @@ public class Task {
         private Integer maxExecutionTime;
         private Predicate<String> condition;
         private Map<String, Object> context = new HashMap<>();
+        private Class<?> outputType;
 
         public Builder id(String id) {
             this.id = id;
@@ -275,6 +288,20 @@ public class Task {
             return this;
         }
 
+        /**
+         * Declares the expected return type. The agent will append JSON-schema
+         * format instructions to the prompt and parse the LLM response into
+         * an instance of {@code type}. Retrieve via
+         * {@code taskOutput.as(MyType.class)} after execution.
+         *
+         * <p>Setting this auto-flips {@link #outputFormat(OutputFormat)} to
+         * {@code JSON} unless explicitly overridden.</p>
+         */
+        public <T> Builder outputType(Class<T> type) {
+            this.outputType = type;
+            return this;
+        }
+
         public Task build() {
             Objects.requireNonNull(description, "Description cannot be null");
 
@@ -293,6 +320,7 @@ public class Task {
     public boolean isAsyncExecution() { return asyncExecution; }
     public OutputFormat getOutputFormat() { return outputFormat; }
     public String getOutputFile() { return outputFile; }
+    public Class<?> getOutputType() { return outputType; }
     public Integer getMaxExecutionTime() { return maxExecutionTime; }
     public Predicate<String> getCondition() { return condition; }
     public Map<String, Object> getContext() { return new HashMap<>(context); }

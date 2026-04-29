@@ -31,7 +31,15 @@ import java.util.stream.Collectors;
  * - Replacing Wikipedia API as the default data source
  *
  * Pure Java (HtmlUnit) — no Chrome/Chromium binary required.
+ *
+ * <p><b>Bean registration:</b> {@code @Component} gated by
+ * {@code @ConditionalOnClass(WebClient)} — Spring's component-scan only
+ * registers this bean when htmlunit is on the classpath. Without the guard,
+ * Spring's bean-factory reflection crashes with NoClassDefFoundError on the
+ * htmlunit-javascript transitive dep.</p>
  */
+@org.springframework.boot.autoconfigure.condition.ConditionalOnClass(
+        name = "org.htmlunit.WebClient")
 @Component
 public class HeadlessBrowserTool implements BaseTool {
 

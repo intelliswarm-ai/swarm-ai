@@ -132,11 +132,6 @@ public class ToolsConfiguration {
         return new WebScrapeTool();
     }
 
-    @Bean
-    public HeadlessBrowserTool headlessBrowserTool() {
-        logger.info("Registering HeadlessBrowserTool as Spring bean");
-        return new HeadlessBrowserTool();
-    }
 
     @Bean
     public HttpRequestTool httpRequestTool() {
@@ -148,18 +143,6 @@ public class ToolsConfiguration {
     public JSONTransformTool jsonTransformTool() {
         logger.info("Registering JSONTransformTool as Spring bean");
         return new JSONTransformTool();
-    }
-
-    @Bean
-    public PDFReadTool pdfReadTool() {
-        logger.info("Registering PDFReadTool as Spring bean");
-        return new PDFReadTool();
-    }
-
-    @Bean
-    public CSVAnalysisTool csvAnalysisTool() {
-        logger.info("Registering CSVAnalysisTool as Spring bean");
-        return new CSVAnalysisTool();
     }
 
     @Bean
@@ -367,10 +350,10 @@ public class ToolsConfiguration {
     }
 
     @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnBean(PDFReadTool.class)
     @Description("Extract text and metadata from PDF files with page range support.")
-    public Function<PDFReadTool.Request, String> pdf_read() {
+    public Function<PDFReadTool.Request, String> pdf_read(PDFReadTool tool) {
         logger.info("Registering pdf_read function for Spring AI");
-        PDFReadTool tool = pdfReadTool();
         return request -> {
             Map<String, Object> params = new HashMap<>();
             params.put("path", request.path());
@@ -381,10 +364,10 @@ public class ToolsConfiguration {
     }
 
     @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnBean(CSVAnalysisTool.class)
     @Description("Read and analyze CSV/TSV data. Supports describe, stats, head, filter, and count operations.")
-    public Function<CSVAnalysisTool.Request, String> csv_analysis() {
+    public Function<CSVAnalysisTool.Request, String> csv_analysis(CSVAnalysisTool tool) {
         logger.info("Registering csv_analysis function for Spring AI");
-        CSVAnalysisTool tool = csvAnalysisTool();
         return request -> {
             Map<String, Object> params = new HashMap<>();
             if (request.path() != null) params.put("path", request.path());
@@ -459,10 +442,12 @@ public class ToolsConfiguration {
     public record BrowseRequest(String url, String selector, Integer waitMs) {}
 
     @Bean
-    @Description("Browse a web page with JavaScript rendering using a headless browser. Returns clean text, tables as markdown, and page content. Use for Yahoo Finance, Google Finance, company websites, and dynamic pages.")
-    public Function<BrowseRequest, String> browse() {
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnBean(HeadlessBrowserTool.class)
+    @Description("Browse a web page with JavaScript rendering using a headless browser. " +
+            "Returns clean text, tables as markdown, and page content. Use for Yahoo Finance, " +
+            "Google Finance, company websites, and dynamic pages.")
+    public Function<BrowseRequest, String> browse(HeadlessBrowserTool tool) {
         logger.info("Registering browse function for Spring AI");
-        HeadlessBrowserTool tool = headlessBrowserTool();
         return request -> {
             Map<String, Object> params = new HashMap<>();
             params.put("url", request.url());
@@ -527,4 +512,5 @@ public class ToolsConfiguration {
         String content,
         String filePath
     ) {}
+
 }

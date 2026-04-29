@@ -52,7 +52,14 @@ import java.util.regex.Pattern;
  * which almost certainly contains sensitive data. Gate with permission modes per tenant /
  * agent as you would any SQL tool. Write methods ({@code save}, {@code delete}, {@code update})
  * are refused by default; set {@code allow_writes=true} in a call to opt in.
+ *
+ * <p><b>Bean registration:</b> {@code @Component} gated by
+ * {@code @ConditionalOnClass(Repository)} — only registers when Spring Data is
+ * on the classpath. Consumers of {@code swarmai-tools} that don't use Spring
+ * Data don't pay its transitive cost.</p>
  */
+@org.springframework.boot.autoconfigure.condition.ConditionalOnClass(
+        name = "org.springframework.data.repository.Repository")
 @Component
 public class SpringDataRepositoryTool implements BaseTool {
 
