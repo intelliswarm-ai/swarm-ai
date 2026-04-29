@@ -146,4 +146,23 @@ class McpServerHostTest {
         assertThat(kept).hasSize(1);
         assertThat(kept.get(0).getFunctionName()).isEqualTo("greet");
     }
+
+    @Test
+    void filterTools_nullIncludeAndExcludeLists_doNotNpe() throws Exception {
+        // Reproduces the codex P2 finding — yaml `~` or programmatic setNullList(null)
+        // used to NPE on startup. Properties setters now normalise null to empty list,
+        // and the filter() helper defends as a second line of safety.
+        McpServerProperties p = new McpServerProperties();
+        p.setIncludeTools(null);
+        p.setExcludeTools(null);
+        assertThat(p.getIncludeTools()).isEmpty();
+        assertThat(p.getExcludeTools()).isEmpty();
+
+        McpServerHost h = host(List.of(new GreeterTool()), p);
+        java.lang.reflect.Method m = McpServerHost.class.getDeclaredMethod("filterTools", List.class);
+        m.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        List<BaseTool> kept = (List<BaseTool>) m.invoke(h, List.of(new GreeterTool()));
+        assertThat(kept).hasSize(1);
+    }
 }

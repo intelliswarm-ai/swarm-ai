@@ -73,15 +73,28 @@ public class McpServerProperties {
     public String getTransport() { return transport; }
     public void setTransport(String transport) { this.transport = transport; }
 
+    // Filter setters normalise {@code null} → empty list. Spring's relaxed binding can
+    // pass null when a config key is set explicitly to ~ (yaml null), and programmatic
+    // callers using setters on the bean directly might do the same. Without this guard
+    // McpServerHost#filter would NPE on startup the first time a list is consulted.
+
     public List<String> getIncludeTools() { return includeTools; }
-    public void setIncludeTools(List<String> includeTools) { this.includeTools = includeTools; }
+    public void setIncludeTools(List<String> includeTools) {
+        this.includeTools = includeTools != null ? includeTools : List.of();
+    }
 
     public List<String> getExcludeTools() { return excludeTools; }
-    public void setExcludeTools(List<String> excludeTools) { this.excludeTools = excludeTools; }
+    public void setExcludeTools(List<String> excludeTools) {
+        this.excludeTools = excludeTools != null ? excludeTools : List.of();
+    }
 
     public List<String> getIncludeAgents() { return includeAgents; }
-    public void setIncludeAgents(List<String> includeAgents) { this.includeAgents = includeAgents; }
+    public void setIncludeAgents(List<String> includeAgents) {
+        this.includeAgents = includeAgents != null ? includeAgents : List.of();
+    }
 
     public List<String> getExcludeAgents() { return excludeAgents; }
-    public void setExcludeAgents(List<String> excludeAgents) { this.excludeAgents = excludeAgents; }
+    public void setExcludeAgents(List<String> excludeAgents) {
+        this.excludeAgents = excludeAgents != null ? excludeAgents : List.of();
+    }
 }

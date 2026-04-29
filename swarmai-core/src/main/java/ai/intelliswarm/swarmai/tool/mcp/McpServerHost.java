@@ -367,9 +367,15 @@ public class McpServerHost {
     /**
      * Applies whitelist/blacklist rules. When {@code include} is non-empty it wins
      * (only matching items kept). Otherwise items in {@code exclude} are dropped.
+     *
+     * <p>Defends against null lists even though {@link McpServerProperties} setters
+     * already normalise to empty — defence in depth in case a caller constructs the
+     * host directly.
      */
     private static <T> List<T> filter(List<T> all, Function<T, String> nameOf,
                                        List<String> include, List<String> exclude) {
+        if (include == null) include = List.of();
+        if (exclude == null) exclude = List.of();
         List<T> out = new ArrayList<>(all.size());
         for (T item : all) {
             String n = nameOf.apply(item);

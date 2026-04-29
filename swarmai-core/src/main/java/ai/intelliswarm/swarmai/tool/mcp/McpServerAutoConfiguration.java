@@ -2,11 +2,11 @@ package ai.intelliswarm.swarmai.tool.mcp;
 
 import ai.intelliswarm.swarmai.agent.Agent;
 import ai.intelliswarm.swarmai.tool.base.BaseTool;
+import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 
 import java.util.List;
 
@@ -42,14 +42,24 @@ import java.util.List;
  * skipped if a consumer hasn't pulled in the MCP SDK transitively (the same
  * {@code <optional>true</optional>} pattern we use for the rest of the
  * tools layer).
+ *
+ * <p>Discovery: registered in
+ * {@code META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports}
+ * so downstream Spring Boot apps that depend on swarmai-core pick it up
+ * without needing to component-scan {@code ai.intelliswarm.swarmai} themselves.
  */
-@Configuration
+@AutoConfiguration
 @ConditionalOnClass(name = "io.modelcontextprotocol.server.McpServer")
 @ConditionalOnProperty(prefix = "swarmai.mcp.server", name = "enabled", havingValue = "true")
 @EnableConfigurationProperties(McpServerProperties.class)
 public class McpServerAutoConfiguration {
 
-    @Bean(destroyMethod = "stop")
+    /**
+     * The bean's lifecycle is driven by {@link McpServerHost}'s {@code @PostConstruct}
+     * / {@code @PreDestroy} pair — we deliberately don't add {@code destroyMethod}
+     * here because that would make Spring call {@code stop()} twice on shutdown.
+     */
+    @Bean
     public McpServerHost mcpServerHost(McpServerProperties props,
                                        List<BaseTool> tools,
                                        List<Agent> agents) {
