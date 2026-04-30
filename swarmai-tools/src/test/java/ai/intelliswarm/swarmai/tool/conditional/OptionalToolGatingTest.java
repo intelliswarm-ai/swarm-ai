@@ -60,4 +60,19 @@ class OptionalToolGatingTest {
                     assertThat(ctx).doesNotHaveBean(OpenApiToolkit.class);
                 });
     }
+
+    // ------------------------------------------------------------------ BrowserTool
+
+    @Test
+    void browserTool_isAbsent_whenPlaywrightNotOnClasspath() {
+        new ApplicationContextRunner()
+                .withUserConfiguration(ScanConfig.class)
+                .withPropertyValues("swarmai.tools.browser.enabled=true")
+                .withClassLoader(new FilteredClassLoader(
+                        "com.microsoft.playwright"))
+                .run(ctx -> {
+                    assertThat(ctx).hasNotFailed();
+                    assertThat(ctx).doesNotHaveBean(ai.intelliswarm.swarmai.tool.common.BrowserTool.class);
+                });
+    }
 }

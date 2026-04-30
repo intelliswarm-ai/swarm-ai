@@ -8,7 +8,7 @@
     <parent>
         <groupId>ai.intelliswarm</groupId>
         <artifactId>swarmai-parent</artifactId>
-        <version>1.0.15-SNAPSHOT</version>
+        <version>1.0.16-SNAPSHOT</version>
     </parent>
 
     <artifactId>swarmai-tools</artifactId>
@@ -42,6 +42,15 @@
         <dependency>
             <groupId>org.htmlunit</groupId>
             <artifactId>htmlunit</artifactId>
+        </dependency>
+
+        <!-- Real-Chromium browser automation via Chrome DevTools Protocol → BrowserTool.
+             Optional because Playwright auto-downloads ~150 MB of browser binaries on first
+             use. Consumers without browser-automation needs shouldn't be forced to ship that. -->
+        <dependency>
+            <groupId>com.microsoft.playwright</groupId>
+            <artifactId>playwright</artifactId>
+            <optional>true</optional>
         </dependency>
 
         <!-- PDF processing -->
