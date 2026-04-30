@@ -130,9 +130,14 @@ public final class AgentEventSse {
      */
     public static Flux<ServerSentEvent<AgentEvent>> toServerSentEventsWithHeartbeat(
             Flux<AgentEvent> stream, Duration heartbeatInterval) {
+        // autoConnect(2) defers upstream subscription until both downstream
+        // consumers (the merged events branch and the takeUntilOther
+        // termination signal) have subscribed, then connects exactly once.
+        // refCount(1) would resubscribe upstream after the first synchronous
+        // subscriber completes, double-billing the source.
         Flux<ServerSentEvent<AgentEvent>> events = toServerSentEvents(stream)
                 .publish()
-                .refCount(1);
+                .autoConnect(2);
         Flux<ServerSentEvent<AgentEvent>> heartbeats = Flux.interval(heartbeatInterval)
                 .map(tick -> ServerSentEvent.<AgentEvent>builder()
                         .comment("heartbeat")
