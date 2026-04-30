@@ -271,8 +271,8 @@ public class Swarm {
         }
 
         return switch (processType) {
-            case SEQUENTIAL -> runStreamingSequential();
-            case PARALLEL   -> runStreamingParallel();
+            case SEQUENTIAL -> runStreamingSequential(inputs);
+            case PARALLEL   -> runStreamingParallel(inputs);
             default -> Flux.just(new AgentEvent.AgentError(
                     "swarm:" + id,
                     "UnsupportedProcessType",
@@ -288,14 +288,16 @@ public class Swarm {
      * (via {@link Flux#defer}) so the i-th agent's prompt is constructed AFTER
      * the (i-1)-th has emitted its {@code AgentFinished}.
      */
-    private Flux<AgentEvent> runStreamingSequential() {
+    private Flux<AgentEvent> runStreamingSequential(Map<String, Object> inputs) {
         // CopyOnWriteArrayList because the doOnNext mutator runs on the reactive
         // thread but the next agent's Flux.defer reads it on its own thread.
         java.util.List<TaskOutput> accumulated = new java.util.concurrent.CopyOnWriteArrayList<>();
+        interpolateStreamingTaskDescriptions(inputs);
+        java.util.List<Task> orderedTasks = orderTasksForStreaming(tasks);
 
         Flux<AgentEvent> chain = Flux.empty();
-        for (int i = 0; i < tasks.size(); i++) {
-            final Task t = tasks.get(i);
+        for (int i = 0; i < orderedTasks.size(); i++) {
+            final Task t = orderedTasks.get(i);
             final Agent a = pickAgentForStreaming(t, i);
             // Defer so we capture each agent's executeTaskStreaming() AFTER the
             // previous Flux completes — gives the deferred call a fresh snapshot
@@ -319,15 +321,115 @@ public class Swarm {
      * each agent sees only its own task. Use the {@code agentId} on every
      * {@link AgentEvent} to demux per-agent output on the consumer side.
      */
-    private Flux<AgentEvent> runStreamingParallel() {
-        java.util.List<Flux<AgentEvent>> streams = new java.util.ArrayList<>(tasks.size());
-        for (int i = 0; i < tasks.size(); i++) {
-            final Task t = tasks.get(i);
-            final Agent a = pickAgentForStreaming(t, i);
-            streams.add(a.executeTaskStreaming(t, java.util.List.of())
-                    .subscribeOn(Schedulers.parallel()));
+    private Flux<AgentEvent> runStreamingParallel(Map<String, Object> inputs) {
+        interpolateStreamingTaskDescriptions(inputs);
+        java.util.List<TaskOutput> completedOutputs = new java.util.concurrent.CopyOnWriteArrayList<>();
+        java.util.List<java.util.List<Task>> layers = buildParallelStreamingLayers(tasks);
+
+        Flux<AgentEvent> stream = Flux.empty();
+        for (java.util.List<Task> layer : layers) {
+            java.util.List<Flux<AgentEvent>> layerStreams = new java.util.ArrayList<>(layer.size());
+            for (Task task : layer) {
+                int taskIndex = tasks.indexOf(task);
+                final Agent agent = pickAgentForStreaming(task, taskIndex);
+                java.util.List<TaskOutput> context = contextForTask(task, completedOutputs);
+                layerStreams.add(Flux.defer(() -> agent.executeTaskStreaming(task, context)
+                        .doOnNext(evt -> {
+                            if (evt instanceof AgentEvent.AgentFinished f && f.taskOutput() != null) {
+                                completedOutputs.add(f.taskOutput());
+                            }
+                        }))
+                        .subscribeOn(Schedulers.parallel()));
+            }
+            stream = stream.concatWith(Flux.merge(layerStreams));
         }
-        return Flux.merge(streams);
+        return stream;
+    }
+
+    private void interpolateStreamingTaskDescriptions(Map<String, Object> inputs) {
+        if (inputs == null || inputs.isEmpty()) {
+            return;
+        }
+        for (Task task : tasks) {
+            task.interpolateDescription(inputs);
+        }
+    }
+
+    private java.util.List<Task> orderTasksForStreaming(java.util.List<Task> inputTasks) {
+        java.util.List<Task> ordered = new java.util.ArrayList<>();
+        java.util.Set<String> processed = new java.util.HashSet<>();
+        java.util.Set<String> queued = new java.util.HashSet<>();
+        java.util.Queue<Task> queue = new java.util.LinkedList<>();
+
+        for (Task task : inputTasks) {
+            if (task.getDependencyTaskIds().isEmpty()) {
+                queue.offer(task);
+                queued.add(task.getId());
+            }
+        }
+
+        while (!queue.isEmpty()) {
+            Task current = queue.poll();
+            ordered.add(current);
+            processed.add(current.getId());
+
+            for (Task task : inputTasks) {
+                if (!queued.contains(task.getId()) && processed.containsAll(task.getDependencyTaskIds())) {
+                    queue.offer(task);
+                    queued.add(task.getId());
+                }
+            }
+        }
+
+        if (ordered.size() != inputTasks.size()) {
+            throw new IllegalStateException("Circular dependency detected in tasks");
+        }
+        return ordered;
+    }
+
+    private java.util.List<java.util.List<Task>> buildParallelStreamingLayers(java.util.List<Task> inputTasks) {
+        java.util.Set<String> processed = new java.util.HashSet<>();
+        java.util.Set<String> allTaskIds = inputTasks.stream().map(Task::getId).collect(java.util.stream.Collectors.toSet());
+        java.util.List<java.util.List<Task>> layers = new java.util.ArrayList<>();
+
+        while (processed.size() < inputTasks.size()) {
+            java.util.List<Task> currentLayer = new java.util.ArrayList<>();
+            for (Task task : inputTasks) {
+                if (processed.contains(task.getId())) {
+                    continue;
+                }
+                boolean ready = true;
+                for (String depId : task.getDependencyTaskIds()) {
+                    if (allTaskIds.contains(depId) && !processed.contains(depId)) {
+                        ready = false;
+                        break;
+                    }
+                }
+                if (ready) {
+                    currentLayer.add(task);
+                }
+            }
+
+            if (currentLayer.isEmpty()) {
+                throw new IllegalStateException("Circular dependency detected — cannot build layers");
+            }
+
+            layers.add(currentLayer);
+            for (Task task : currentLayer) {
+                processed.add(task.getId());
+            }
+        }
+
+        return layers;
+    }
+
+    private java.util.List<TaskOutput> contextForTask(Task task, java.util.List<TaskOutput> allOutputs) {
+        if (task.getDependencyTaskIds().isEmpty()) {
+            return new java.util.ArrayList<>(allOutputs);
+        }
+        return allOutputs.stream()
+                .filter(output -> task.getDependencyTaskIds().contains(output.getTaskId()))
+                .toList();
     }
 
     /**

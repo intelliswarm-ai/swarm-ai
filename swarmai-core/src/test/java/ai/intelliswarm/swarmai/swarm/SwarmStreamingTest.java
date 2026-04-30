@@ -131,6 +131,55 @@ class SwarmStreamingTest {
         assertThat(distinctAgentIds).containsExactlyInAnyOrder(a.getId(), b.getId(), c.getId());
     }
 
+
+    @Test
+    @DisplayName("SEQUENTIAL: interpolates task descriptions with inputs before streaming")
+    void sequential_interpolatesInputs() {
+        Agent a = agent("A", "done");
+        Task templated = taskFor(a, "Write about {topic}");
+        Swarm swarm = Swarm.builder()
+                .agents(List.of(a))
+                .tasks(List.of(templated))
+                .process(ProcessType.SEQUENTIAL)
+                .build();
+
+        swarm.runStreaming(Map.of("topic", "reactive streams"))
+                .collectList()
+                .block(Duration.ofSeconds(10));
+
+        assertThat(templated.getDescription()).contains("reactive streams");
+    }
+
+    @Test
+    @DisplayName("SEQUENTIAL: respects task dependencies even if input list is out of order")
+    void sequential_ordersTasksByDependencies() {
+        Agent a = agent("A", "a-out");
+        Agent b = agent("B", "b-out");
+
+        Task first = taskFor(a, "first");
+        Task second = Task.builder()
+                .description("second")
+                .expectedOutput("output")
+                .agent(b)
+                .dependsOn(first)
+                .build();
+
+        Swarm swarm = Swarm.builder()
+                .agents(List.of(a, b))
+                .tasks(List.of(second, first))
+                .process(ProcessType.SEQUENTIAL)
+                .build();
+
+        List<AgentEvent.AgentFinished> finishes = swarm.runStreaming(Map.of())
+                .filter(e -> e instanceof AgentEvent.AgentFinished)
+                .cast(AgentEvent.AgentFinished.class)
+                .collectList()
+                .block(Duration.ofSeconds(10));
+
+        assertThat(finishes).hasSize(2);
+        assertThat(finishes.get(0).taskOutput().getTaskId()).isEqualTo(first.getId());
+        assertThat(finishes.get(1).taskOutput().getTaskId()).isEqualTo(second.getId());
+    }
     @Test
     @DisplayName("Unsupported process types emit a single AgentError and complete")
     void unsupportedProcessTypeReturnsErrorEvent() {

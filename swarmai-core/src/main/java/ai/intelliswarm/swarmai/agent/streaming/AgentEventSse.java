@@ -130,12 +130,15 @@ public final class AgentEventSse {
      */
     public static Flux<ServerSentEvent<AgentEvent>> toServerSentEventsWithHeartbeat(
             Flux<AgentEvent> stream, Duration heartbeatInterval) {
-        Flux<ServerSentEvent<AgentEvent>> events = toServerSentEvents(stream);
+        Flux<ServerSentEvent<AgentEvent>> events = toServerSentEvents(stream)
+                .publish()
+                .refCount(1);
         Flux<ServerSentEvent<AgentEvent>> heartbeats = Flux.interval(heartbeatInterval)
                 .map(tick -> ServerSentEvent.<AgentEvent>builder()
                         .comment("heartbeat")
-                        .build());
-        return Flux.merge(events, heartbeats).takeUntilOther(events.then());
+                        .build())
+                .takeUntilOther(events.ignoreElements());
+        return Flux.merge(events, heartbeats);
     }
 
     private AgentEventSse() { }
