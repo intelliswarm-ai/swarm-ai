@@ -1,5 +1,6 @@
 package ai.intelliswarm.swarmai.agent;
 
+import ai.intelliswarm.swarmai.agent.streaming.AgentEvent;
 import ai.intelliswarm.swarmai.api.PublicApi;
 import ai.intelliswarm.swarmai.config.ModelContextConfig;
 import ai.intelliswarm.swarmai.event.SwarmEvent;
@@ -22,6 +23,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatResponse;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import org.springframework.ai.converter.BeanOutputConverter;
 import org.springframework.util.StringUtils;
 
@@ -265,6 +268,118 @@ public class Agent {
             publishAgentFailed(e);
             throw new AgentExecutionException("Failed to execute task: " + task.getId(), e, id, task.getId());
         }
+    }
+
+    /**
+     * Token-level streaming execution. Returns a {@link Flux} of {@link AgentEvent}s
+     * driven by Spring AI's {@code ChatModel.stream()}. Each LLM token (or chunk)
+     * arrives as an {@link AgentEvent.TextDelta}; the stream is bracketed by an
+     * initial {@link AgentEvent.AgentStarted} and a terminal {@link AgentEvent.AgentFinished}
+     * carrying the fully-accumulated {@link TaskOutput}.
+     *
+     * <p>Design choices for Phase 1 (text-only streaming):
+     * <ul>
+     *   <li>Single-turn — no multi-turn looping like {@link #executeTaskReactive}. A
+     *       multi-turn streaming variant is straightforward to layer on top later
+     *       by chaining {@code Flux}es per turn, but most chat-UI use cases are
+     *       single-turn so we ship that first.</li>
+     *   <li>No tool calls — Phase 2 will emit {@link AgentEvent.ToolCallStart}/
+     *       {@link AgentEvent.ToolCallEnd} bracket events around tool execution,
+     *       which requires Spring AI's reactive tool-callback wiring. Skipped here
+     *       to keep the surface stable.</li>
+     *   <li>Errors become {@link AgentEvent.AgentError} on the success channel so
+     *       SSE consumers don't need to handle a separate {@code onError} signal.
+     *       The Flux always completes normally.</li>
+     *   <li>Side-effect events still publish through the existing
+     *       {@link SwarmEventBus} so observability stays consistent across modes.</li>
+     * </ul>
+     *
+     * <p>Example (chat UI consumer):
+     * <pre>{@code
+     * agent.executeTaskStreaming(task, ctx).subscribe(evt -> {
+     *     if (evt instanceof AgentEvent.TextDelta d) ui.append(d.text());
+     * });
+     * }</pre>
+     *
+     * @since 1.1.0
+     */
+    public Flux<AgentEvent> executeTaskStreaming(Task task, List<TaskOutput> context) {
+        final String aId = id;
+        final long startMs = System.currentTimeMillis();
+
+        // Build prompts off the reactive thread — same prompt semantics as
+        // executeTaskReactive's first turn. enforcePromptBudget protects against
+        // pathologically large contexts blowing the model's window.
+        final String systemPrompt;
+        final String userPrompt;
+        try {
+            String sys = buildReactiveSystemPrompt();
+            String raw = buildUserPrompt(task, context);
+            systemPrompt = sys;
+            userPrompt   = enforcePromptBudget(sys, raw);
+        } catch (RuntimeException prepError) {
+            // Prompt-build failure becomes an AgentError event — never bubbled as onError.
+            return Flux.just(new AgentEvent.AgentError(
+                    aId, prepError.getClass().getSimpleName(),
+                    prepError.getMessage() == null ? "" : prepError.getMessage(),
+                    System.currentTimeMillis()));
+        }
+
+        AgentEvent started = new AgentEvent.AgentStarted(
+                aId, role, task.getDescription(), startMs);
+
+        // Mirror the side-effect event so observability tooling sees streaming
+        // executions just like reactive/single-shot ones.
+        publishAgentStarted(task);
+
+        // Accumulate the streamed text so the terminal AgentFinished can carry
+        // a real TaskOutput with rawOutput populated. StringBuilder is fine here
+        // because the upstream Flux is sequential per subscription.
+        final StringBuilder accum = new StringBuilder();
+
+        Flux<AgentEvent> deltas = chatClient.prompt()
+                .system(systemPrompt)
+                .user(userPrompt)
+                .stream()
+                .chatResponse()
+                .mapNotNull(resp -> {
+                    if (resp == null
+                            || resp.getResult() == null
+                            || resp.getResult().getOutput() == null) {
+                        return null;
+                    }
+                    String text = resp.getResult().getOutput().getText();
+                    if (text == null || text.isEmpty()) return null;
+                    accum.append(text);
+                    return (AgentEvent) new AgentEvent.TextDelta(
+                            aId, text, System.currentTimeMillis());
+                });
+
+        Mono<AgentEvent> finished = Mono.fromSupplier(() -> {
+            long elapsed = System.currentTimeMillis() - startMs;
+            TaskOutput out = TaskOutput.builder()
+                    .taskId(task.getId())
+                    .agentId(aId)
+                    .rawOutput(accum.toString())
+                    .description(task.getDescription())
+                    .executionTimeMs(elapsed)
+                    .build();
+            // Mirror the side-effect bus event for observability parity.
+            publishAgentMessage(0, accum.toString());
+            return new AgentEvent.AgentFinished(aId, out, System.currentTimeMillis());
+        });
+
+        return Flux.just(started)
+                .concatWith(deltas)
+                .concatWith(finished)
+                .onErrorResume(err -> {
+                    publishAgentFailed(err instanceof Exception ? (Exception) err
+                            : new RuntimeException(err));
+                    return Flux.just(new AgentEvent.AgentError(
+                            aId, err.getClass().getSimpleName(),
+                            err.getMessage() == null ? "" : err.getMessage(),
+                            System.currentTimeMillis()));
+                });
     }
 
     /**

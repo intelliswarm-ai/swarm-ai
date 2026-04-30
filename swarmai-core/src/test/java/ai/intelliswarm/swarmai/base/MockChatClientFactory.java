@@ -213,4 +213,52 @@ public class MockChatClientFactory {
         public String getLastPrompt() { return capturedPrompts.isEmpty() ? null : capturedPrompts.get(capturedPrompts.size() - 1); }
         public int getCallCount() { return callCount.get(); }
     }
+
+    // -----------------------------------------------------------------------
+    //  Streaming mocks — for Agent.executeTaskStreaming() tests.
+    //  The Spring-AI fluent chain is .prompt().system(s).user(u).stream().chatResponse()
+    //  returning Flux<ChatResponse>. RETURNS_DEEP_STUBS gives non-null mocks for
+    //  every intermediate call; we override the terminal .chatResponse() to emit
+    //  our scripted Flux.
+    // -----------------------------------------------------------------------
+
+    /**
+     * Builds a ChatClient mock whose stream() emits one {@link ChatResponse} per
+     * given delta, in order. Use to drive {@code Agent.executeTaskStreaming(...)}
+     * tests that need a deterministic per-delta sequence.
+     */
+    public static ChatClient streamingClientWithDeltas(String... deltas) {
+        ChatClient mockClient = mock(ChatClient.class, Mockito.RETURNS_DEEP_STUBS);
+        java.util.List<ChatResponse> responses = new java.util.ArrayList<>();
+        for (String d : deltas) responses.add(createMockChatResponse(d));
+        reactor.core.publisher.Flux<ChatResponse> flux =
+                reactor.core.publisher.Flux.fromIterable(responses);
+
+        // Cover both system+user and user-only fluent chains; callers vary.
+        when(mockClient.prompt().system(anyString()).user(anyString())
+                .stream().chatResponse()).thenReturn(flux);
+        when(mockClient.prompt().user(anyString())
+                .stream().chatResponse()).thenReturn(flux);
+        return mockClient;
+    }
+
+    /**
+     * Builds a ChatClient mock whose stream emits the given initial deltas,
+     * then errors. Used to test {@code executeTaskStreaming}'s error-to-event
+     * conversion (Flux completes normally with a terminal AgentError event).
+     */
+    public static ChatClient streamingClientFailingAfter(Throwable error, String... initialDeltas) {
+        ChatClient mockClient = mock(ChatClient.class, Mockito.RETURNS_DEEP_STUBS);
+        java.util.List<ChatResponse> responses = new java.util.ArrayList<>();
+        for (String d : initialDeltas) responses.add(createMockChatResponse(d));
+        reactor.core.publisher.Flux<ChatResponse> flux =
+                reactor.core.publisher.Flux.fromIterable(responses)
+                        .concatWith(reactor.core.publisher.Mono.error(error));
+
+        when(mockClient.prompt().system(anyString()).user(anyString())
+                .stream().chatResponse()).thenReturn(flux);
+        when(mockClient.prompt().user(anyString())
+                .stream().chatResponse()).thenReturn(flux);
+        return mockClient;
+    }
 }
