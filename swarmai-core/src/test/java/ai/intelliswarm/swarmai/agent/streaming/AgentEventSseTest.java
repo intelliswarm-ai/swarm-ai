@@ -18,7 +18,7 @@ class AgentEventSseTest {
         Flux<AgentEvent> upstream = Flux.defer(() -> {
             subscriptions.incrementAndGet();
             return Flux.just(
-                    new AgentEvent.AgentDelta("a", "x", System.currentTimeMillis()),
+                    new AgentEvent.TextDelta("a", "x", System.currentTimeMillis()),
                     new AgentEvent.AgentFinished("a", null, System.currentTimeMillis())
             );
         });
