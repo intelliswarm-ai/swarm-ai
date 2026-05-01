@@ -1,6 +1,7 @@
 package ai.intelliswarm.swarmai.swarm;
 
 import ai.intelliswarm.swarmai.agent.Agent;
+import ai.intelliswarm.swarmai.agent.streaming.AgentEvent;
 import ai.intelliswarm.swarmai.agent.resilience.LlmHealthChecker;
 import ai.intelliswarm.swarmai.api.PublicApi;
 import ai.intelliswarm.swarmai.budget.BudgetExceededException;
@@ -20,6 +21,8 @@ import ai.intelliswarm.swarmai.event.SwarmEvent;
 import ai.intelliswarm.swarmai.observability.core.ObservabilityContext;
 import ai.intelliswarm.swarmai.tenant.TenantQuotaEnforcer;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import reactor.core.publisher.Flux;
+import reactor.core.scheduler.Schedulers;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import org.slf4j.Logger;
@@ -227,6 +230,220 @@ public class Swarm {
      */
     public SwarmOutput kickoff(AgentState state) {
         return kickoff(state != null ? state.data() : Map.of());
+    }
+
+    /**
+     * Token-level streaming variant of {@link #kickoff(Map)}: returns a single
+     * {@link Flux} of {@link AgentEvent}s spanning every agent in the swarm.
+     *
+     * <p>Currently supported process types:
+     * <ul>
+     *   <li>{@link ProcessType#SEQUENTIAL} — agent fluxes are <b>concatenated</b>:
+     *       agent N's events arrive after agent N-1 emits its terminal
+     *       {@code AgentFinished}, and each agent's {@link TaskOutput} feeds
+     *       into the next agent's context just like in non-streaming mode.</li>
+     *   <li>{@link ProcessType#PARALLEL} — agent fluxes are <b>merged</b>: every
+     *       agent runs concurrently on the parallel scheduler and their events
+     *       interleave in arrival order. Frontends use the {@code agentId}
+     *       carried on every event to demux per-agent text into separate
+     *       UI panes.</li>
+     * </ul>
+     *
+     * <p>Other process types ({@code HIERARCHICAL}, {@code ITERATIVE}, etc.)
+     * are not yet supported in streaming mode — callers receive a single
+     * {@link AgentEvent.AgentError} and the Flux completes. Use
+     * {@link #kickoff(Map)} for those (non-streaming) and call
+     * {@link Agent#executeTaskStreaming(Task, java.util.List)} directly when
+     * you need streaming for a single agent inside a complex orchestration.
+     *
+     * <p>Like {@link Agent#executeTaskStreaming}, errors become terminal
+     * {@link AgentEvent.AgentError} events on the success channel — the Flux
+     * always completes normally so SSE consumers don't need a separate
+     * error-handler hook.
+     *
+     * @since 1.1.0
+     */
+    public Flux<AgentEvent> runStreaming(Map<String, Object> inputs) {
+        if (tasks.isEmpty()) {
+            return Flux.just(new AgentEvent.AgentError(
+                    "swarm:" + id, "IllegalStateException",
+                    "Swarm has no tasks to run", System.currentTimeMillis()));
+        }
+
+        return switch (processType) {
+            case SEQUENTIAL -> runStreamingSequential(inputs);
+            case PARALLEL   -> runStreamingParallel(inputs);
+            default -> Flux.just(new AgentEvent.AgentError(
+                    "swarm:" + id,
+                    "UnsupportedProcessType",
+                    "Streaming is not yet supported for ProcessType." + processType
+                            + ". Use SEQUENTIAL or PARALLEL, or kickoff() for non-streaming execution.",
+                    System.currentTimeMillis()));
+        };
+    }
+
+    /**
+     * SEQUENTIAL streaming — runs agents one after another, threading each agent's
+     * {@link TaskOutput} into the next agent's context. The Flux is built lazily
+     * (via {@link Flux#defer}) so the i-th agent's prompt is constructed AFTER
+     * the (i-1)-th has emitted its {@code AgentFinished}.
+     */
+    private Flux<AgentEvent> runStreamingSequential(Map<String, Object> inputs) {
+        // CopyOnWriteArrayList because the doOnNext mutator runs on the reactive
+        // thread but the next agent's Flux.defer reads it on its own thread.
+        java.util.List<TaskOutput> accumulated = new java.util.concurrent.CopyOnWriteArrayList<>();
+        interpolateStreamingTaskDescriptions(inputs);
+        java.util.List<Task> orderedTasks = orderTasksForStreaming(tasks);
+
+        Flux<AgentEvent> chain = Flux.empty();
+        for (int i = 0; i < orderedTasks.size(); i++) {
+            final Task t = orderedTasks.get(i);
+            final Agent a = pickAgentForStreaming(t, i);
+            // Defer so we capture each agent's executeTaskStreaming() AFTER the
+            // previous Flux completes — gives the deferred call a fresh snapshot
+            // of `accumulated`.
+            Flux<AgentEvent> step = Flux.defer(() -> a.executeTaskStreaming(t,
+                            new java.util.ArrayList<>(accumulated))
+                    .doOnNext(evt -> {
+                        if (evt instanceof AgentEvent.AgentFinished f
+                                && f.taskOutput() != null) {
+                            accumulated.add(f.taskOutput());
+                        }
+                    }));
+            chain = chain.concatWith(step);
+        }
+        return chain;
+    }
+
+    /**
+     * PARALLEL streaming — fan out, run all agents concurrently on the reactor
+     * parallel scheduler, merge their events as they arrive. No context-passing:
+     * each agent sees only its own task. Use the {@code agentId} on every
+     * {@link AgentEvent} to demux per-agent output on the consumer side.
+     */
+    private Flux<AgentEvent> runStreamingParallel(Map<String, Object> inputs) {
+        interpolateStreamingTaskDescriptions(inputs);
+        java.util.List<TaskOutput> completedOutputs = new java.util.concurrent.CopyOnWriteArrayList<>();
+        java.util.List<java.util.List<Task>> layers = buildParallelStreamingLayers(tasks);
+
+        Flux<AgentEvent> stream = Flux.empty();
+        for (java.util.List<Task> layer : layers) {
+            java.util.List<Flux<AgentEvent>> layerStreams = new java.util.ArrayList<>(layer.size());
+            for (Task task : layer) {
+                int taskIndex = tasks.indexOf(task);
+                final Agent agent = pickAgentForStreaming(task, taskIndex);
+                java.util.List<TaskOutput> context = contextForTask(task, completedOutputs);
+                layerStreams.add(Flux.defer(() -> agent.executeTaskStreaming(task, context)
+                        .doOnNext(evt -> {
+                            if (evt instanceof AgentEvent.AgentFinished f && f.taskOutput() != null) {
+                                completedOutputs.add(f.taskOutput());
+                            }
+                        }))
+                        .subscribeOn(Schedulers.parallel()));
+            }
+            stream = stream.concatWith(Flux.merge(layerStreams));
+        }
+        return stream;
+    }
+
+    private void interpolateStreamingTaskDescriptions(Map<String, Object> inputs) {
+        if (inputs == null || inputs.isEmpty()) {
+            return;
+        }
+        for (Task task : tasks) {
+            task.interpolateDescription(inputs);
+        }
+    }
+
+    private java.util.List<Task> orderTasksForStreaming(java.util.List<Task> inputTasks) {
+        java.util.List<Task> ordered = new java.util.ArrayList<>();
+        java.util.Set<String> processed = new java.util.HashSet<>();
+        java.util.Set<String> queued = new java.util.HashSet<>();
+        java.util.Queue<Task> queue = new java.util.LinkedList<>();
+
+        for (Task task : inputTasks) {
+            if (task.getDependencyTaskIds().isEmpty()) {
+                queue.offer(task);
+                queued.add(task.getId());
+            }
+        }
+
+        while (!queue.isEmpty()) {
+            Task current = queue.poll();
+            ordered.add(current);
+            processed.add(current.getId());
+
+            for (Task task : inputTasks) {
+                if (!queued.contains(task.getId()) && processed.containsAll(task.getDependencyTaskIds())) {
+                    queue.offer(task);
+                    queued.add(task.getId());
+                }
+            }
+        }
+
+        if (ordered.size() != inputTasks.size()) {
+            throw new IllegalStateException("Circular dependency detected in tasks");
+        }
+        return ordered;
+    }
+
+    private java.util.List<java.util.List<Task>> buildParallelStreamingLayers(java.util.List<Task> inputTasks) {
+        java.util.Set<String> processed = new java.util.HashSet<>();
+        java.util.Set<String> allTaskIds = inputTasks.stream().map(Task::getId).collect(java.util.stream.Collectors.toSet());
+        java.util.List<java.util.List<Task>> layers = new java.util.ArrayList<>();
+
+        while (processed.size() < inputTasks.size()) {
+            java.util.List<Task> currentLayer = new java.util.ArrayList<>();
+            for (Task task : inputTasks) {
+                if (processed.contains(task.getId())) {
+                    continue;
+                }
+                boolean ready = true;
+                for (String depId : task.getDependencyTaskIds()) {
+                    if (allTaskIds.contains(depId) && !processed.contains(depId)) {
+                        ready = false;
+                        break;
+                    }
+                }
+                if (ready) {
+                    currentLayer.add(task);
+                }
+            }
+
+            if (currentLayer.isEmpty()) {
+                throw new IllegalStateException("Circular dependency detected — cannot build layers");
+            }
+
+            layers.add(currentLayer);
+            for (Task task : currentLayer) {
+                processed.add(task.getId());
+            }
+        }
+
+        return layers;
+    }
+
+    private java.util.List<TaskOutput> contextForTask(Task task, java.util.List<TaskOutput> allOutputs) {
+        if (task.getDependencyTaskIds().isEmpty()) {
+            return new java.util.ArrayList<>(allOutputs);
+        }
+        return allOutputs.stream()
+                .filter(output -> task.getDependencyTaskIds().contains(output.getTaskId()))
+                .toList();
+    }
+
+    /**
+     * Pair an {@link Agent} to a {@link Task}: prefer the task's explicitly-bound
+     * agent (set via {@code Task.builder().agent(...)}), then fall back to the
+     * positionally-matched swarm agent, then to the first agent. Mirrors what
+     * the existing non-streaming Process implementations do.
+     */
+    private Agent pickAgentForStreaming(Task task, int index) {
+        if (task.getAgent() != null) return task.getAgent();
+        if (index < agents.size()) return agents.get(index);
+        if (!agents.isEmpty()) return agents.get(0);
+        throw new IllegalStateException(
+                "Swarm has no agents — cannot stream task " + task.getId());
     }
 
     public CompletableFuture<SwarmOutput> kickoffAsync(Map<String, Object> inputs) {
