@@ -77,14 +77,16 @@ public class PlanAwareMutationGuard implements MutationGuard {
     public Decision check(MutationPlan plan) {
         Objects.requireNonNull(plan, "plan");
 
-        // Append the proposal to the channel.
         PlanEntry proposed = MutationPlanAdapter.toEntry(plan);
-        channel.append(proposed);
         String correlationId = proposed.id();
 
-        // Consult the policy against the plan as it now stands.
+        // Evaluate policy against the pre-append plan so policies that
+        // reason about incoming drift do not count the candidate itself.
         PlanApprovalPolicy.Decision policyDecision =
                 policy.decide(channel.get(), proposed);
+
+        // Persist the proposal after deciding routing.
+        channel.append(proposed);
 
         if (policyDecision == PlanApprovalPolicy.Decision.AUTO_APPROVE) {
             channel.markStatus(correlationId, PlanEntry.Status.APPROVED,
@@ -123,9 +125,11 @@ public class PlanAwareMutationGuard implements MutationGuard {
         String resolvedReason = success
                 ? (reason == null || reason.isBlank() ? "tool reported success" : reason)
                 : ("execution failed" + (reason == null || reason.isBlank() ? "" : ": " + reason));
-        // Carry forward the prior decidedBy — execution outcome is attributed to
-        // whoever approved the entry (typically PLAN_POLICY for auto-approve).
-        // The channel's 3-arg markStatus preserves the existing decidedBy.
-        channel.markStatus(correlationId, target, resolvedReason);
+        // Only transition APPROVED entries. If an operator/replanner already
+        // made a terminal decision, keep that status and reason intact.
+        channel.update(current -> current.byId(correlationId)
+                .filter(entry -> entry.status() == PlanEntry.Status.APPROVED)
+                .map(ignored -> current.markStatus(correlationId, target, resolvedReason))
+                .orElse(current));
     }
 }

@@ -127,6 +127,24 @@ class PlanAwareMutationGuardObserveTest {
         assertTrue(final_.reason().contains("first"));
     }
 
+
+    @Test
+    @DisplayName("late successful observe does not overwrite a terminal operator rejection")
+    void observeDoesNotOverwriteTerminalDecision() {
+        InMemoryPlanChannelAccessor channel = seededChannel();
+        PlanAwareMutationGuard guard = new PlanAwareMutationGuard(
+                alwaysApproveHuman("alice"), channel, new RiskTieredApprovalPolicy());
+
+        MutationGuard.Decision d = guard.check(plan(MutationPlan.RiskLevel.LOW));
+        channel.markStatus(d.correlationId(), PlanEntry.Status.REJECTED, "operator override", "bob");
+
+        guard.observe(d.correlationId(), true, "late tool success");
+
+        PlanEntry final_ = channel.get().byId(d.correlationId()).orElseThrow();
+        assertEquals(PlanEntry.Status.REJECTED, final_.status());
+        assertEquals("operator override", final_.reason());
+        assertEquals("bob", final_.decidedBy());
+    }
     @Test
     @DisplayName("end-to-end: bandit gets +1 reward when an auto-approved entry executes successfully")
     void banditLearnsFromSuccessfulExecution() {

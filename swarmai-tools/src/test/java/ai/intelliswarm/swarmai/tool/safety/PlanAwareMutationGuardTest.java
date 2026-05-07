@@ -150,6 +150,35 @@ class PlanAwareMutationGuardTest {
         assertEquals(1, meta.get("opCount"));
     }
 
+
+    @Test
+    @DisplayName("drift budget counts prior proposals only, not the incoming candidate")
+    void driftBudgetDoesNotCountIncomingCandidate() {
+        InMemoryPlanChannelAccessor channel = new InMemoryPlanChannelAccessor();
+        channel.append(PlanEntry.builder()
+                .id("seed").proposedBy("tool:os_filesystem")
+                .payload(plan("seed", MutationPlan.RiskLevel.MEDIUM))
+                .risk(ai.intelliswarm.swarmai.state.plan.Risk.MEDIUM)
+                .build());
+        channel.markStatus("seed", PlanEntry.Status.APPROVED, "operator seeded");
+
+        boolean[] humanCalled = {false};
+        MutationGuard human = p -> {
+            humanCalled[0] = true;
+            return MutationGuard.Decision.reject("UNREACHED", "should not be invoked");
+        };
+
+        PlanAwareMutationGuard guard = new PlanAwareMutationGuard(
+                human,
+                channel,
+                PlanApprovalPolicy.all(new RiskTieredApprovalPolicy(), new DriftBudgetApprovalPolicy(1)));
+
+        MutationGuard.Decision decision = guard.check(plan("first post-seed low-risk", MutationPlan.RiskLevel.LOW));
+
+        assertTrue(decision.approved());
+        assertEquals(PlanAwareMutationGuard.DECIDED_BY_POLICY, decision.decidedBy());
+        assertFalse(humanCalled[0], "Incoming candidate must not be counted as pre-existing drift");
+    }
     @Test
     @DisplayName("end-to-end: bandit trainer learns from operator override of a policy auto-approval")
     void endToEndBanditLearnsFromOverride() {
