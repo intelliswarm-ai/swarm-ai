@@ -111,6 +111,24 @@ public class ThompsonSampling {
     }
 
     /**
+     * Restore an action's Beta parameters from a previously-captured snapshot.
+     * Intended for cross-session persistence of bandit state — do not use to
+     * "tune" a live model.
+     *
+     * @throws IllegalArgumentException if {@code alpha <= 0} or {@code beta <= 0}
+     *                                  (Beta is only defined for positive shapes)
+     */
+    public synchronized void setParameters(int action, double alpha, double beta) {
+        if (action < 0 || action >= numActions) return;
+        if (alpha <= 0.0 || beta <= 0.0) {
+            throw new IllegalArgumentException(
+                    "alpha and beta must be positive; got alpha=" + alpha + ", beta=" + beta);
+        }
+        alphas[action] = alpha;
+        betas[action] = beta;
+    }
+
+    /**
      * Samples from a Beta(alpha, beta) distribution using the gamma distribution trick.
      * X ~ Gamma(alpha, 1), Y ~ Gamma(beta, 1), then X/(X+Y) ~ Beta(alpha, beta).
      */
