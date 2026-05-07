@@ -1,5 +1,8 @@
 package ai.intelliswarm.swarmai.state;
 
+import ai.intelliswarm.swarmai.state.plan.EvolvingPlan;
+import ai.intelliswarm.swarmai.state.plan.EvolvingPlanReducer;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
@@ -79,6 +82,17 @@ public final class Channels {
                 },
                 () -> 0L
         );
+    }
+
+    /**
+     * A channel holding the swarm's {@link EvolvingPlan} — the live, mergeable
+     * record of proposed / approved / executed / rejected / superseded plan
+     * entries. Concurrent updates from different nodes compose deterministically
+     * via {@link EvolvingPlanReducer}: an entry whose id is unknown is appended;
+     * an entry whose id matches an existing one is treated as a status update.
+     */
+    public static Channel<EvolvingPlan> evolvingPlan() {
+        return new BaseChannel<>(EvolvingPlanReducer.instance(), EvolvingPlan::empty);
     }
 
     /**
