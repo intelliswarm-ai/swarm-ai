@@ -207,7 +207,8 @@ public class ProcessTool implements BaseTool {
                 .metadata("apply", apply)
                 .build();
         if (!apply) return planResponse(plan);
-        if (!approve(plan)) return rejected(plan);
+        MutationGuard.Decision decision = requireApproved(plan);
+        if (decision == null) return rejected(plan);
 
         List<String> argv = new ArrayList<>();
         if (os.isMacOs() && !path.startsWith("/")) {
@@ -224,8 +225,11 @@ public class ProcessTool implements BaseTool {
         if (args != null) for (String a : args.trim().split("\\s+")) argv.add(a);
         try {
             new ProcessBuilder(argv).start();
+            mutationGuard.observe(decision.correlationId(), true, "started: " + path);
             return Map.of("ok", true, "op", "start", "argv", argv);
         } catch (Exception e) {
+            mutationGuard.observe(decision.correlationId(), false,
+                    "start failed: " + e.getMessage());
             return error("start failed: " + e.getMessage());
         }
     }
@@ -255,19 +259,27 @@ public class ProcessTool implements BaseTool {
                 .metadata("apply", apply)
                 .build();
         if (!apply) return planResponse(plan);
-        if (!approve(plan)) return rejected(plan);
+        MutationGuard.Decision decision = requireApproved(plan);
+        if (decision == null) return rejected(plan);
 
         // Use ProcessHandle for portability — works the same on Windows and POSIX.
         if (pid != null) {
             return ProcessHandle.of(pid).<Object>map(h -> {
                 boolean killed = h.destroy();
+                mutationGuard.observe(decision.correlationId(), killed,
+                        killed ? "killed pid " + pid
+                               : "destroy returned false for pid " + pid);
                 Map<String, Object> m = new LinkedHashMap<>();
                 m.put("ok", killed);
                 m.put("op", "kill");
                 m.put("pid", pid);
                 m.put("name", resolvedName);
                 return m;
-            }).orElseGet(() -> error("no process with pid " + pid));
+            }).orElseGet(() -> {
+                mutationGuard.observe(decision.correlationId(), false,
+                        "no process with pid " + pid);
+                return error("no process with pid " + pid);
+            });
         }
         // Kill by name: target command substrings, but enforce denylist per matched process too.
         final String needle = resolvedName.toLowerCase(Locale.ROOT);
@@ -284,6 +296,9 @@ public class ProcessTool implements BaseTool {
             }
             if (handle.destroy()) killed++;
         }
+
+        mutationGuard.observe(decision.correlationId(), killed > 0,
+                "killed " + killed + " processes matching '" + resolvedName + "'");
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("ok", killed > 0);
@@ -305,12 +320,18 @@ public class ProcessTool implements BaseTool {
 
     // ---------- safety helpers ----------
 
-    private boolean approve(MutationPlan plan) {
+    /**
+     * Run the plan past the guard. Returns the {@link MutationGuard.Decision}
+     * when approved (callers use its {@code correlationId} to {@code observe}
+     * the outcome later), or {@code null} when rejected.
+     */
+    private MutationGuard.Decision requireApproved(MutationPlan plan) {
         MutationGuard.Decision d = mutationGuard.check(plan);
         if (!d.approved()) {
             logger.info("ProcessTool plan rejected by {}: {}", d.decidedBy(), d.reason());
+            return null;
         }
-        return d.approved();
+        return d;
     }
 
     private static Object planResponse(MutationPlan plan) {

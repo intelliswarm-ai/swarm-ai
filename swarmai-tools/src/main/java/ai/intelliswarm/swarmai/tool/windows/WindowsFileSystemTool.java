@@ -2,6 +2,7 @@ package ai.intelliswarm.swarmai.tool.windows;
 
 import ai.intelliswarm.swarmai.tool.base.BaseTool;
 import ai.intelliswarm.swarmai.tool.base.ToolRequirements;
+import ai.intelliswarm.swarmai.tool.safety.GuardedOperation;
 import ai.intelliswarm.swarmai.tool.safety.MutationGuard;
 import ai.intelliswarm.swarmai.tool.safety.MutationPlan;
 import ai.intelliswarm.swarmai.tool.windows.internal.PathGuard;
@@ -165,8 +166,12 @@ public class WindowsFileSystemTool implements BaseTool {
         MutationGuard.Decision d = mutationGuard.check(plan);
         if (!d.approved()) return rejected(plan, d);
 
-        Files.createDirectories(target);
-        return "Created directory: " + target;
+        return GuardedOperation.runObserved(mutationGuard, d,
+                "Created directory: " + target,
+                () -> {
+                    Files.createDirectories(target);
+                    return "Created directory: " + target;
+                });
     }
 
     private String doMove(String pathArg, String toArg, boolean apply) throws IOException {
@@ -188,9 +193,13 @@ public class WindowsFileSystemTool implements BaseTool {
         MutationGuard.Decision d = mutationGuard.check(plan);
         if (!d.approved()) return rejected(plan, d);
 
-        ensureParentDir(dst);
-        Files.move(src, dst, StandardCopyOption.ATOMIC_MOVE);
-        return "Moved " + src + " → " + dst;
+        return GuardedOperation.runObserved(mutationGuard, d,
+                "Moved " + src + " → " + dst,
+                () -> {
+                    ensureParentDir(dst);
+                    Files.move(src, dst, StandardCopyOption.ATOMIC_MOVE);
+                    return "Moved " + src + " → " + dst;
+                });
     }
 
     private String doCopy(String pathArg, String toArg, boolean apply) throws IOException {
@@ -212,9 +221,13 @@ public class WindowsFileSystemTool implements BaseTool {
         MutationGuard.Decision d = mutationGuard.check(plan);
         if (!d.approved()) return rejected(plan, d);
 
-        ensureParentDir(dst);
-        Files.copy(src, dst, StandardCopyOption.COPY_ATTRIBUTES);
-        return "Copied " + src + " → " + dst;
+        return GuardedOperation.runObserved(mutationGuard, d,
+                "Copied " + src + " → " + dst,
+                () -> {
+                    ensureParentDir(dst);
+                    Files.copy(src, dst, StandardCopyOption.COPY_ATTRIBUTES);
+                    return "Copied " + src + " → " + dst;
+                });
     }
 
     private String doRename(String pathArg, String name, boolean apply) throws IOException {
@@ -243,8 +256,12 @@ public class WindowsFileSystemTool implements BaseTool {
         MutationGuard.Decision d = mutationGuard.check(plan);
         if (!d.approved()) return rejected(plan, d);
 
-        Files.move(src, dst, StandardCopyOption.ATOMIC_MOVE);
-        return "Renamed " + src + " → " + dst;
+        return GuardedOperation.runObserved(mutationGuard, d,
+                "Renamed " + src + " → " + dst,
+                () -> {
+                    Files.move(src, dst, StandardCopyOption.ATOMIC_MOVE);
+                    return "Renamed " + src + " → " + dst;
+                });
     }
 
     private String doDelete(String pathArg, boolean apply) throws IOException {
@@ -268,8 +285,12 @@ public class WindowsFileSystemTool implements BaseTool {
         MutationGuard.Decision d = mutationGuard.check(plan);
         if (!d.approved()) return rejected(plan, d);
 
-        Files.delete(target);
-        return "Deleted " + target;
+        return GuardedOperation.runObserved(mutationGuard, d,
+                "Deleted " + target,
+                () -> {
+                    Files.delete(target);
+                    return "Deleted " + target;
+                });
     }
 
     // ---------- helpers ----------
