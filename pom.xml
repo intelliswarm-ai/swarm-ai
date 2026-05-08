@@ -7,7 +7,7 @@
 
     <groupId>ai.intelliswarm</groupId>
     <artifactId>swarmai-parent</artifactId>
-    <version>1.0.19-SNAPSHOT</version>
+    <version>1.0.20-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>SwarmAI Parent</name>
