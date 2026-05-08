@@ -2,6 +2,7 @@ package ai.intelliswarm.swarmai.tool.windows;
 
 import ai.intelliswarm.swarmai.tool.base.BaseTool;
 import ai.intelliswarm.swarmai.tool.base.ToolRequirements;
+import ai.intelliswarm.swarmai.tool.safety.GuardedOperation;
 import ai.intelliswarm.swarmai.tool.safety.MutationGuard;
 import ai.intelliswarm.swarmai.tool.safety.MutationPlan;
 import ai.intelliswarm.swarmai.tool.windows.internal.PathGuard;
@@ -106,8 +107,12 @@ public class WindowsScreenshotTool implements BaseTool {
         MutationGuard.Decision d = mutationGuard.check(plan);
         if (!d.approved()) return rejected(plan, d);
 
-        Path file = capturer.capturePrimary(outputDir, "screen-" + timestamp());
-        return "Saved: " + file;
+        return GuardedOperation.runObservedUnchecked(mutationGuard, d,
+                "Captured primary screen",
+                () -> {
+                    Path file = capturer.capturePrimary(outputDir, "screen-" + timestamp());
+                    return "Saved: " + file;
+                });
     }
 
     private String doMonitor(int index, boolean apply) {
@@ -122,8 +127,13 @@ public class WindowsScreenshotTool implements BaseTool {
         MutationGuard.Decision d = mutationGuard.check(plan);
         if (!d.approved()) return rejected(plan, d);
 
-        Path file = capturer.captureMonitor(index, outputDir, "monitor" + index + "-" + timestamp());
-        return "Saved: " + file;
+        return GuardedOperation.runObservedUnchecked(mutationGuard, d,
+                "Captured monitor " + index,
+                () -> {
+                    Path file = capturer.captureMonitor(index, outputDir,
+                            "monitor" + index + "-" + timestamp());
+                    return "Saved: " + file;
+                });
     }
 
     private String doWindow(String title, boolean apply) {
@@ -141,6 +151,12 @@ public class WindowsScreenshotTool implements BaseTool {
         MutationGuard.Decision d = mutationGuard.check(plan);
         if (!d.approved()) return rejected(plan, d);
 
+        return GuardedOperation.runObservedUnchecked(mutationGuard, d,
+                "Captured window matching '" + title + "'",
+                () -> doWindowCapture(title));
+    }
+
+    private String doWindowCapture(String title) {
         // Resolve window bounds via PowerShell + GetWindowRect.
         String script = ""
                 + "Add-Type -Name R -Namespace W -MemberDefinition @\"\n"

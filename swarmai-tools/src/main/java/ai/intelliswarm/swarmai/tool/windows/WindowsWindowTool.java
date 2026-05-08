@@ -2,6 +2,7 @@ package ai.intelliswarm.swarmai.tool.windows;
 
 import ai.intelliswarm.swarmai.tool.base.BaseTool;
 import ai.intelliswarm.swarmai.tool.base.ToolRequirements;
+import ai.intelliswarm.swarmai.tool.safety.GuardedOperation;
 import ai.intelliswarm.swarmai.tool.safety.MutationGuard;
 import ai.intelliswarm.swarmai.tool.safety.MutationPlan;
 import ai.intelliswarm.swarmai.tool.windows.internal.PowerShellRunner;
@@ -145,19 +146,23 @@ public class WindowsWindowTool implements BaseTool {
         MutationGuard.Decision d = mutationGuard.check(plan);
         if (!d.approved()) return rejected(plan, d);
 
-        String script = USER32_HEADER
-                + "$p = Get-Process | Where-Object { $_.MainWindowTitle -like '*" + escape(title)
-                + "*' } | Select-Object -First 1; "
-                + "if (-not $p) { Write-Output 'no-match' } "
-                + "else { " + action.render("$p.MainWindowHandle")
-                + "; Write-Output ('ok:' + $p.Name + ':' + $p.Id) }";
+        return GuardedOperation.runObservedUnchecked(mutationGuard, d,
+                capitalise(opName) + " window matching '" + title + "'",
+                () -> {
+                    String script = USER32_HEADER
+                            + "$p = Get-Process | Where-Object { $_.MainWindowTitle -like '*" + escape(title)
+                            + "*' } | Select-Object -First 1; "
+                            + "if (-not $p) { Write-Output 'no-match' } "
+                            + "else { " + action.render("$p.MainWindowHandle")
+                            + "; Write-Output ('ok:' + $p.Name + ':' + $p.Id) }";
 
-        PowerShellRunner.Result r = ps.run(script, timeout);
-        if (!r.ok()) return "Error: PowerShell exit=" + r.exitCode()
-                + (r.stderr().isBlank() ? "" : " stderr=" + r.stderr().trim());
-        String out = r.stdout().trim();
-        if ("no-match".equals(out)) return "No window matched title containing '" + title + "'";
-        return capitalise(opName) + ": " + out;
+                    PowerShellRunner.Result r = ps.run(script, timeout);
+                    if (!r.ok()) return "Error: PowerShell exit=" + r.exitCode()
+                            + (r.stderr().isBlank() ? "" : " stderr=" + r.stderr().trim());
+                    String out = r.stdout().trim();
+                    if ("no-match".equals(out)) return "No window matched title containing '" + title + "'";
+                    return capitalise(opName) + ": " + out;
+                });
     }
 
     // ---------- helpers ----------

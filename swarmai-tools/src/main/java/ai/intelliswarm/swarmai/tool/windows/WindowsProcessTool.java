@@ -2,6 +2,7 @@ package ai.intelliswarm.swarmai.tool.windows;
 
 import ai.intelliswarm.swarmai.tool.base.BaseTool;
 import ai.intelliswarm.swarmai.tool.base.ToolRequirements;
+import ai.intelliswarm.swarmai.tool.safety.GuardedOperation;
 import ai.intelliswarm.swarmai.tool.safety.MutationGuard;
 import ai.intelliswarm.swarmai.tool.safety.MutationPlan;
 import ai.intelliswarm.swarmai.tool.windows.internal.PowerShellRunner;
@@ -127,15 +128,19 @@ public class WindowsProcessTool implements BaseTool {
         MutationGuard.Decision d = mutationGuard.check(plan);
         if (!d.approved()) return rejected(plan, d);
 
-        String script = (args == null || args.isBlank())
-                ? "Start-Process -FilePath '" + escape(path) + "' -PassThru | Select-Object Id,Name | ConvertTo-Csv -NoTypeInformation"
-                : "Start-Process -FilePath '" + escape(path) + "' -ArgumentList '" + escape(args)
-                        + "' -PassThru | Select-Object Id,Name | ConvertTo-Csv -NoTypeInformation";
+        return GuardedOperation.runObservedUnchecked(mutationGuard, d,
+                "Started process " + path,
+                () -> {
+                    String script = (args == null || args.isBlank())
+                            ? "Start-Process -FilePath '" + escape(path) + "' -PassThru | Select-Object Id,Name | ConvertTo-Csv -NoTypeInformation"
+                            : "Start-Process -FilePath '" + escape(path) + "' -ArgumentList '" + escape(args)
+                                    + "' -PassThru | Select-Object Id,Name | ConvertTo-Csv -NoTypeInformation";
 
-        PowerShellRunner.Result r = ps.run(script, timeout);
-        if (!r.ok()) return "Error: failed to start, PowerShell exit=" + r.exitCode()
-                + (r.stderr().isBlank() ? "" : " stderr=" + r.stderr().trim());
-        return "Started:\n" + r.stdout();
+                    PowerShellRunner.Result r = ps.run(script, timeout);
+                    if (!r.ok()) return "Error: failed to start, PowerShell exit=" + r.exitCode()
+                            + (r.stderr().isBlank() ? "" : " stderr=" + r.stderr().trim());
+                    return "Started:\n" + r.stdout();
+                });
     }
 
     private String doKill(String pidArg, String name, boolean apply) {
@@ -164,25 +169,29 @@ public class WindowsProcessTool implements BaseTool {
         MutationGuard.Decision d = mutationGuard.check(plan);
         if (!d.approved()) return rejected(plan, d);
 
-        String script;
-        if (hasPid) {
-            int pid = parsePidOrThrow(pidArg);
-            script = "Stop-Process -Id " + pid + " -Force; "
-                    + "Write-Output 'killed:" + pid + "'";
-        } else {
-            // Re-check denylist post-resolution by name pattern to be safe.
-            script = "$matched = Get-Process -Name '" + escape(name) + "' -ErrorAction SilentlyContinue; "
-                    + "if (-not $matched) { Write-Output 'no-match' } "
-                    + "else { $matched | Stop-Process -Force; "
-                    + "Write-Output ('killed:' + ($matched | Measure-Object).Count) }";
-        }
+        return GuardedOperation.runObservedUnchecked(mutationGuard, d,
+                "Killed process " + (hasPid ? "pid=" + pidArg : "name=" + name),
+                () -> {
+                    String script;
+                    if (hasPid) {
+                        int pid = parsePidOrThrow(pidArg);
+                        script = "Stop-Process -Id " + pid + " -Force; "
+                                + "Write-Output 'killed:" + pid + "'";
+                    } else {
+                        // Re-check denylist post-resolution by name pattern to be safe.
+                        script = "$matched = Get-Process -Name '" + escape(name) + "' -ErrorAction SilentlyContinue; "
+                                + "if (-not $matched) { Write-Output 'no-match' } "
+                                + "else { $matched | Stop-Process -Force; "
+                                + "Write-Output ('killed:' + ($matched | Measure-Object).Count) }";
+                    }
 
-        PowerShellRunner.Result r = ps.run(script, timeout);
-        if (!r.ok()) return "Error: PowerShell exit=" + r.exitCode()
-                + (r.stderr().isBlank() ? "" : " stderr=" + r.stderr().trim());
-        String out = r.stdout().trim();
-        if ("no-match".equals(out)) return "No process matched name '" + name + "'";
-        return "Killed: " + out;
+                    PowerShellRunner.Result r = ps.run(script, timeout);
+                    if (!r.ok()) return "Error: PowerShell exit=" + r.exitCode()
+                            + (r.stderr().isBlank() ? "" : " stderr=" + r.stderr().trim());
+                    String out = r.stdout().trim();
+                    if ("no-match".equals(out)) return "No process matched name '" + name + "'";
+                    return "Killed: " + out;
+                });
     }
 
     // ---------- helpers ----------

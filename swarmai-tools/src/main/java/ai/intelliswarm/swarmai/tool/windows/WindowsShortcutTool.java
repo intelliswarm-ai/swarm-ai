@@ -2,6 +2,7 @@ package ai.intelliswarm.swarmai.tool.windows;
 
 import ai.intelliswarm.swarmai.tool.base.BaseTool;
 import ai.intelliswarm.swarmai.tool.base.ToolRequirements;
+import ai.intelliswarm.swarmai.tool.safety.GuardedOperation;
 import ai.intelliswarm.swarmai.tool.safety.MutationGuard;
 import ai.intelliswarm.swarmai.tool.safety.MutationPlan;
 import ai.intelliswarm.swarmai.tool.windows.internal.PathGuard;
@@ -147,25 +148,29 @@ public class WindowsShortcutTool implements BaseTool {
         MutationGuard.Decision d = mutationGuard.check(plan);
         if (!d.approved()) return rejected(plan, d);
 
-        StringBuilder sb = new StringBuilder();
-        sb.append("$wsh = New-Object -ComObject WScript.Shell; ");
-        sb.append("$s = $wsh.CreateShortcut('").append(escape(file.toString())).append("'); ");
-        sb.append("$s.TargetPath = '").append(escape(target)).append("'; ");
-        if (args != null && !args.isBlank()) {
-            sb.append("$s.Arguments = '").append(escape(args)).append("'; ");
-        }
-        if (workingDir != null && !workingDir.isBlank()) {
-            sb.append("$s.WorkingDirectory = '").append(escape(workingDir)).append("'; ");
-        }
-        if (icon != null && !icon.isBlank()) {
-            sb.append("$s.IconLocation = '").append(escape(icon)).append("'; ");
-        }
-        sb.append("$s.Save(); Write-Output 'created'");
+        return GuardedOperation.runObservedUnchecked(mutationGuard, d,
+                "Created shortcut " + file,
+                () -> {
+                    StringBuilder sb = new StringBuilder();
+                    sb.append("$wsh = New-Object -ComObject WScript.Shell; ");
+                    sb.append("$s = $wsh.CreateShortcut('").append(escape(file.toString())).append("'); ");
+                    sb.append("$s.TargetPath = '").append(escape(target)).append("'; ");
+                    if (args != null && !args.isBlank()) {
+                        sb.append("$s.Arguments = '").append(escape(args)).append("'; ");
+                    }
+                    if (workingDir != null && !workingDir.isBlank()) {
+                        sb.append("$s.WorkingDirectory = '").append(escape(workingDir)).append("'; ");
+                    }
+                    if (icon != null && !icon.isBlank()) {
+                        sb.append("$s.IconLocation = '").append(escape(icon)).append("'; ");
+                    }
+                    sb.append("$s.Save(); Write-Output 'created'");
 
-        PowerShellRunner.Result r = ps.run(sb.toString(), timeout);
-        if (!r.ok()) return "Error: PowerShell exit=" + r.exitCode()
-                + (r.stderr().isBlank() ? "" : " stderr=" + r.stderr().trim());
-        return "Created shortcut: " + file;
+                    PowerShellRunner.Result r = ps.run(sb.toString(), timeout);
+                    if (!r.ok()) return "Error: PowerShell exit=" + r.exitCode()
+                            + (r.stderr().isBlank() ? "" : " stderr=" + r.stderr().trim());
+                    return "Created shortcut: " + file;
+                });
     }
 
     // ---------- helpers ----------
