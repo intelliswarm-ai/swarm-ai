@@ -236,15 +236,26 @@ public final class SignalDispatcher {
             return false;
         }
 
-        matched.status = WaitStatus.COMPLETED;
-        matched.received = signal;
-        matched.completedAt = Instant.now();
-        matched.future.complete(signal);
+        WaitForSignalRequest snapshot;
+        synchronized (matched) {
+            if (matched.status.isTerminal()) {
+                droppedSignals.incrementAndGet();
+                for (Consumer<Signal> l : unmatchedListeners) {
+                    try { l.accept(signal); } catch (RuntimeException ignored) {}
+                }
+                return false;
+            }
+            matched.status = WaitStatus.COMPLETED;
+            matched.received = signal;
+            matched.completedAt = Instant.now();
+            matched.future.complete(signal);
+            snapshot = matched.snapshot();
+        }
+
         // Cancel the auto-expiry timer (no-op if it already fired or never scheduled)
         ScheduledFuture<?> handle = expiryHandles.remove(matched.id);
         if (handle != null) handle.cancel(false);
-        // Fire completion listeners outside the queue lock; throws are swallowed.
-        WaitForSignalRequest snapshot = matched.snapshot();
+        // Fire completion listeners outside the queue/entry lock; throws are swallowed.
         for (Consumer<WaitForSignalRequest> l : completionListeners) {
             try { l.accept(snapshot); } catch (RuntimeException ignored) {}
         }
