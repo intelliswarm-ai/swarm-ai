@@ -98,16 +98,23 @@ public class CodingAgentSubagentSpawner implements SubagentSpawner {
             return failedStub(spec.id(), "failed to start " + cliCommand + ": " + e.getMessage());
         }
 
-        // STDIN injection: write the prompt + close stdin BEFORE handing to ProcessSubagent
-        if (injection == PromptInjection.STDIN) {
-            try (OutputStream out = process.getOutputStream()) {
+        // Always close stdin before handing off to ProcessSubagent — this gives
+        // the child an empty stdin (EOF on first read) for ARG/NONE injection,
+        // and the user prompt followed by EOF for STDIN injection. Using a
+        // closed PIPE rather than a redirect-from-file keeps this cross-platform
+        // (no /dev/null on Windows; no NUL on Linux).
+        try (OutputStream out = process.getOutputStream()) {
+            if (injection == PromptInjection.STDIN) {
                 out.write(spec.userPrompt().getBytes(StandardCharsets.UTF_8));
                 out.flush();
-            } catch (IOException e) {
-                process.destroyForcibly();
-                workspace.close();
-                return failedStub(spec.id(), "failed to write prompt to stdin: " + e.getMessage());
             }
+            // ARG / NONE: just let try-with-resources close stdin → child sees EOF.
+        } catch (IOException e) {
+            process.destroyForcibly();
+            workspace.close();
+            return failedStub(spec.id(),
+                    (injection == PromptInjection.STDIN ? "failed to write prompt to stdin: " : "failed to close stdin: ")
+                            + e.getMessage());
         }
 
         return new ProcessSubagent(spec.id(), process, workspace, timeout, executor, parser);
@@ -140,12 +147,10 @@ public class CodingAgentSubagentSpawner implements SubagentSpawner {
         }
         pb.environment().putAll(env);
 
-        // Don't wire the CLI's stdin to ours unless we're injecting via stdin.
-        if (injection == PromptInjection.STDIN) {
-            pb.redirectInput(ProcessBuilder.Redirect.PIPE);
-        } else {
-            pb.redirectInput(ProcessBuilder.Redirect.from(new java.io.File("/dev/null")));
-        }
+        // Always pipe stdin — caller closes it after start (and writes the
+        // prompt first for STDIN injection). Avoids platform-specific paths
+        // like /dev/null vs NUL.
+        pb.redirectInput(ProcessBuilder.Redirect.PIPE);
         return pb.start();
     }
 

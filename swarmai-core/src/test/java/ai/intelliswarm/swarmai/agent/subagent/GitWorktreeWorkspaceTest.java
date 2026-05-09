@@ -272,6 +272,31 @@ class GitWorktreeWorkspaceTest {
             }
         }
 
+        /**
+         * Regression: untracked files must surface in the unified diff text,
+         * not only in {@code diff()}/{@code hasChanges()}. Without the
+         * intent-to-add step, generated files were silently absent from
+         * the patch output.
+         */
+        @Test
+        @DisplayName("diffAsPatch() includes brand-new untracked files (intent-to-add)")
+        void diffAsPatchIncludesUntrackedFiles() throws IOException {
+            try (GitWorktreeWorkspace ws = new GitWorktreeWorkspace(repoPath)) {
+                // Brand-new file the agent might create — never tracked.
+                Files.writeString(ws.root().resolve("generated.txt"),
+                        "freshly generated\n", StandardCharsets.UTF_8);
+
+                // Sanity: diff() and hasChanges() report it.
+                assertTrue(ws.hasChanges(), "hasChanges() must report the untracked file");
+
+                String patch = ws.diffAsPatch();
+                assertTrue(patch.contains("generated.txt"),
+                        "diffAsPatch() must mention the untracked file: " + patch);
+                assertTrue(patch.contains("+freshly generated"),
+                        "diffAsPatch() must include the new file's contents: " + patch);
+            }
+        }
+
         @Test
         void changesInWorktreeDoNotAffectMainRepo() throws IOException {
             try (GitWorktreeWorkspace ws = new GitWorktreeWorkspace(repoPath)) {

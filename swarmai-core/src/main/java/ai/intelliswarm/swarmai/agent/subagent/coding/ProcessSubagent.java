@@ -112,21 +112,13 @@ public final class ProcessSubagent implements Subagent {
 
     /** The driver loop — reads streams, waits for exit, finalises. */
     private void driveProcess(ExecutorService executor) {
-        // Read both streams concurrently to avoid pipe-buffer deadlock.
-        CompletableFuture<String> stdoutFuture = CompletableFuture.supplyAsync(() -> {
-            try (var s = process.getInputStream()) {
-                return new String(s.readAllBytes(), StandardCharsets.UTF_8);
-            } catch (IOException e) {
-                throw new UncheckedIOException(e);
-            }
-        }, executor);
-        CompletableFuture<String> stderrFuture = CompletableFuture.supplyAsync(() -> {
-            try (var s = process.getErrorStream()) {
-                return new String(s.readAllBytes(), StandardCharsets.UTF_8);
-            } catch (IOException e) {
-                throw new UncheckedIOException(e);
-            }
-        }, executor);
+        // Read both streams on dedicated virtual threads — never on `executor`.
+        // The driver itself already occupies one slot in `executor`; if we ran
+        // the readers there too, a single-thread executor would deadlock (the
+        // child fills its pipe buffer waiting for a reader that can never start).
+        // Virtual threads are a perfect fit here: short-lived, blocking I/O.
+        CompletableFuture<String> stdoutFuture = readStreamAsync(process.getInputStream());
+        CompletableFuture<String> stderrFuture = readStreamAsync(process.getErrorStream());
 
         boolean exitedInTime;
         try {
@@ -206,5 +198,23 @@ public final class ProcessSubagent implements Subagent {
         } catch (Exception e) {
             return "";
         }
+    }
+
+    /**
+     * Drain a process stream on a dedicated virtual thread, completing
+     * the returned future when EOF is reached or with an
+     * {@link UncheckedIOException} on read failure. Independent of the
+     * caller's executor so single-thread executors don't deadlock.
+     */
+    private static CompletableFuture<String> readStreamAsync(java.io.InputStream stream) {
+        CompletableFuture<String> future = new CompletableFuture<>();
+        Thread.startVirtualThread(() -> {
+            try (var s = stream) {
+                future.complete(new String(s.readAllBytes(), StandardCharsets.UTF_8));
+            } catch (IOException e) {
+                future.completeExceptionally(new UncheckedIOException(e));
+            }
+        });
+        return future;
     }
 }

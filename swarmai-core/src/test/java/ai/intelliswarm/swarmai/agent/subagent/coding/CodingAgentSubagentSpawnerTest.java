@@ -444,4 +444,91 @@ class CodingAgentSubagentSpawnerTest {
             assertEquals(2, r.metrics().get("exitCode"));
         }
     }
+
+    // =================================================================
+    // Regression tests for the three review findings:
+    // 1) Stream readers must NOT depend on the caller's executor capacity.
+    // 2) Cross-platform stdin redirection (no /dev/null path).
+    // (Fix 3 — patch text including untracked files — is in
+    //  GitWorktreeWorkspaceTest, since it lives in a different file.)
+    // =================================================================
+    @Nested
+    @DisplayName("regression: review findings")
+    class RegressionReviewFindings {
+
+        @Test
+        @DisplayName("single-thread executor still produces stdout/stderr (readers run on virtual threads)")
+        void singleThreadExecutor_doesNotStarveStreamReaders() {
+            // Drive everything through a single-thread executor. Before the
+            // fix, this deadlocked: driveProcess took the only thread and
+            // the stream readers never started, so waitFor timed out and
+            // readSafely returned empty stdout/stderr.
+            ExecutorService single = Executors.newSingleThreadExecutor();
+            try {
+                CodingAgentSubagentSpawner spawner = CodingAgentSubagentSpawner.builder()
+                        .cliCommand("sh")
+                        .baseArgs("-c")
+                        .promptInjection(PromptInjection.ARG)
+                        .executor(single)
+                        .defaultWorkspaceFactory(wsFactory)
+                        .outputParser((id, out) -> SubagentResult.success(id, out.stdout(),
+                                Map.of("stderr", out.stderr(), "exitCode", out.exitCode())))
+                        .build();
+
+                SubagentSpec spec = SubagentSpec.builder()
+                        .id("single-exec-test")
+                        .userPrompt("printf 'OUT'; printf 'ERR' 1>&2; exit 0")
+                        .timeout(Duration.ofSeconds(5))
+                        .build();
+
+                Subagent agent = spawner.spawn(spec);
+                SubagentResult r = agent.awaitResult(Duration.ofSeconds(10));
+
+                assertEquals(SubagentStatus.COMPLETED, r.status(),
+                        "single-thread executor must not deadlock the readers");
+                assertEquals("OUT", r.output(),
+                        "stdout must be captured even when the executor only has one thread");
+                assertEquals("ERR", r.metrics().get("stderr"),
+                        "stderr must also be captured (independent reader)");
+            } finally {
+                single.shutdownNow();
+            }
+        }
+
+        @Test
+        @DisplayName("ARG injection works without /dev/null (closed PIPE substitutes)")
+        void argInjection_doesNotDependOnDevNull() {
+            // Before the fix, pb.redirectInput(Redirect.from(new File("/dev/null")))
+            // failed on Windows because the path doesn't exist there. The new
+            // path is a closed PIPE, which works on every OS. We can't simulate
+            // Windows from this Linux test, but we can verify the spawner does
+            // not reach for any host-specific file path: a successful run that
+            // reads stdin and gets EOF immediately is the proof.
+            CodingAgentSubagentSpawner spawner = CodingAgentSubagentSpawner.builder()
+                    .cliCommand("sh")
+                    .baseArgs("-c")
+                    .promptInjection(PromptInjection.ARG)
+                    .executor(executor)
+                    .defaultWorkspaceFactory(wsFactory)
+                    .outputParser((id, out) -> SubagentResult.success(id, out.stdout(),
+                            Map.of("exitCode", out.exitCode())))
+                    .build();
+
+            SubagentSpec spec = SubagentSpec.builder()
+                    .id("stdin-eof-test")
+                    // `cat <&0` echoes whatever stdin holds. With closed pipe,
+                    // it reads zero bytes and prints empty + exits 0.
+                    .userPrompt("cat <&0; echo done")
+                    .timeout(Duration.ofSeconds(5))
+                    .build();
+
+            Subagent agent = spawner.spawn(spec);
+            SubagentResult r = agent.awaitResult(Duration.ofSeconds(10));
+
+            assertEquals(SubagentStatus.COMPLETED, r.status(),
+                    "ARG injection must complete with closed-stdin pipe (no /dev/null)");
+            assertEquals("done\n", r.output(),
+                    "child should see EOF on first read of stdin and produce only 'done'");
+        }
+    }
 }

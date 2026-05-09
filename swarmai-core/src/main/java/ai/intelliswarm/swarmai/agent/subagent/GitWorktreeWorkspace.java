@@ -189,6 +189,11 @@ public final class GitWorktreeWorkspace implements IsolatedWorkspace {
         if (!open) {
             throw new IllegalStateException("workspace is closed");
         }
+        // Mirror diff(): make untracked files visible to `git diff` first.
+        // Without this, newly created files are silently absent from the
+        // patch text — diff()/hasChanges() report them but the patch is
+        // incomplete, hiding generated files from audit/review workflows.
+        markUntrackedAsIntentToAdd();
         try {
             GitResult r = runGit(worktreePath, gitTimeout,
                     "diff", baseRef);
