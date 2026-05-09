@@ -1,0 +1,25 @@
+{
+  "id" : "aaeabadd",
+  "slug" : "stub_distance_skill",
+  "displayName" : "stub distance skill",
+  "status" : "ACTIVE",
+  "skillType" : "CODE",
+  "usageCount" : 0,
+  "successCount" : 0,
+  "createdAt" : "2026-05-09T21:40:03.408301968",
+  "parentSkillId" : null,
+  "latest" : {
+    "version" : "1.0.0",
+    "publishedAt" : 1778355605572
+  },
+  "history" : [ ],
+  "qualityScore" : {
+    "documentation" : 15,
+    "testCoverage" : 8,
+    "errorHandling" : 0,
+    "codeComplexity" : 20,
+    "outputFormat" : 0,
+    "total" : 43,
+    "grade" : "F"
+  }
+}

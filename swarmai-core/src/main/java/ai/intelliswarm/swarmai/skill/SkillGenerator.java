@@ -26,7 +26,7 @@ import java.util.stream.Collectors;
  *
  * The LLM decides the appropriate skill type based on the gap description.
  */
-public class SkillGenerator {
+public class SkillGenerator implements SkillEngine {
 
     private static final Logger logger = LoggerFactory.getLogger(SkillGenerator.class);
 

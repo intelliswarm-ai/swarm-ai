@@ -62,6 +62,13 @@ public class SelfImprovingProcess implements Process {
     private List<Agent> currentAgents;
     private int skillsReused = 0;
     private ScanResultCache scanCache;
+    /**
+     * Optional override for the skill-generation backend. When null, a default
+     * {@link SkillGenerator} (LLM-driven) is constructed per iteration. Set to
+     * a {@link ai.intelliswarm.swarmai.skill.CodingAgentSkillGenerator} to drive
+     * skill creation through an external coding agent (Codex, Claude Code).
+     */
+    private ai.intelliswarm.swarmai.skill.SkillEngine skillEngineOverride;
 
     public SelfImprovingProcess(List<Agent> agents, Agent reviewerAgent,
                                  ApplicationEventPublisher eventPublisher,
@@ -121,6 +128,26 @@ public class SelfImprovingProcess implements Process {
         this.memory = null;
         this.policyEngine = null;
         // Do NOT call loadPersistedSkills() — shared registry is already populated
+    }
+
+    /**
+     * Plug in an alternate skill-generation backend.
+     *
+     * <p>Defaults to {@code null} — meaning the process constructs a fresh
+     * {@link SkillGenerator} (LLM-driven) per iteration. Pass a
+     * {@link ai.intelliswarm.swarmai.skill.CodingAgentSkillGenerator} (or any
+     * {@link ai.intelliswarm.swarmai.skill.SkillEngine}) to delegate skill
+     * creation to an external coding agent like Codex or Claude Code.
+     *
+     * <p>Set this <em>before</em> calling {@code execute()}; the override is
+     * read once at the start of each generation pass.
+     *
+     * @param engine the engine to use, or {@code null} to revert to default
+     * @return this, for chaining
+     */
+    public SelfImprovingProcess setSkillEngine(ai.intelliswarm.swarmai.skill.SkillEngine engine) {
+        this.skillEngineOverride = engine;
+        return this;
     }
 
     /**
@@ -545,9 +572,18 @@ public class SelfImprovingProcess implements Process {
             .flatMap(a -> a.getTools().stream())
             .collect(Collectors.toMap(BaseTool::getFunctionName, t -> t, (a, b) -> a));
 
-        // Create generator once and discover formats once (cached, skips generated skills)
-        SkillGenerator generator = new SkillGenerator(reviewerAgent.getChatClient());
-        generator.discoverToolFormats(existingToolsMap);
+        // Resolve the skill engine. Override (e.g. CodingAgentSkillGenerator) wins;
+        // otherwise build a fresh LLM-driven SkillGenerator and warm its tool-format
+        // hints. discoverToolFormats only matters to the LLM path — coding agents
+        // discover tools themselves.
+        ai.intelliswarm.swarmai.skill.SkillEngine generator;
+        if (skillEngineOverride != null) {
+            generator = skillEngineOverride;
+        } else {
+            SkillGenerator llmGenerator = new SkillGenerator(reviewerAgent.getChatClient());
+            llmGenerator.discoverToolFormats(existingToolsMap);
+            generator = llmGenerator;
+        }
 
         for (String gap : genuineGaps) {
             // --- Semantic Deduplication: check for existing similar skills ---
@@ -646,7 +682,8 @@ public class SelfImprovingProcess implements Process {
      * Generate a single skill for a capability gap, validate it, and if invalid attempt one refinement.
      * Returns the validated skill wrapped in Optional, or empty if generation/validation fails.
      */
-    private Optional<GeneratedSkill> generateAndValidateSkill(String gap, SkillGenerator generator,
+    private Optional<GeneratedSkill> generateAndValidateSkill(String gap,
+                                                               ai.intelliswarm.swarmai.skill.SkillEngine generator,
                                                                Map<String, BaseTool> existingToolsMap,
                                                                List<String> existingNames,
                                                                String swarmId, int iteration) {

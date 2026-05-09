@@ -30,12 +30,41 @@ public class SkillValidator {
 
     private final RuntimeRegistry runtimes;
 
+    /**
+     * When true, integration-test failures are demoted to warnings and the
+     * skill is still accepted (validation passes, quality score reflects
+     * the integration-test outcome). Security violations, syntax errors,
+     * and missing-name/description checks remain blocking.
+     *
+     * <p>Designed for coding-agent-generated skills (Codex, Claude Code)
+     * where the agent's own assertion strings often don't perfectly match
+     * the runtime output (off-by-one rounding, locale formatting). The
+     * skill is real and runnable even when its self-assertions fail.
+     */
+    private final boolean permissive;
+
     public SkillValidator() {
-        this(defaultRegistry());
+        this(defaultRegistry(), false);
     }
 
+    /** Strict-by-default if you want the runtime registry only. */
     public SkillValidator(RuntimeRegistry runtimes) {
+        this(runtimes, false);
+    }
+
+    /** Use {@code permissive=true} for coding-agent-driven skill generation. */
+    public SkillValidator(boolean permissive) {
+        this(defaultRegistry(), permissive);
+    }
+
+    public SkillValidator(RuntimeRegistry runtimes, boolean permissive) {
         this.runtimes = runtimes;
+        this.permissive = permissive;
+    }
+
+    /** Whether this validator accepts skills with failing integration tests. */
+    public boolean isPermissive() {
+        return permissive;
     }
 
     private static RuntimeRegistry defaultRegistry() {
@@ -103,16 +132,25 @@ public class SkillValidator {
         if (skill.getIntegrationTests() != null && !skill.getIntegrationTests().isEmpty()) {
             integrationResults = runIntegrationTests(skill);
             if (integrationResults.failed() > 0) {
-                for (String failure : integrationResults.failureMessages()) {
-                    errors.add("Integration test failed: " + failure);
+                if (permissive) {
+                    // Permissive mode (coding-agent skills): record the IT outcome
+                    // but don't block. The skill is still callable; consumers can
+                    // inspect integrationResults if they care.
+                    logger.warn("Skill '{}' has {} of {} integration tests failing (permissive mode — accepted)",
+                        skill.getName(), integrationResults.failed(), integrationResults.total());
+                } else {
+                    for (String failure : integrationResults.failureMessages()) {
+                        errors.add("Integration test failed: " + failure);
+                    }
+                    logger.warn("Skill '{}' failed {} of {} integration tests",
+                        skill.getName(), integrationResults.failed(), integrationResults.total());
+                    // Integration test failures are blocking — skill cannot be validated
+                    return new ValidationResult(false, errors, null, integrationResults);
                 }
-                logger.warn("Skill '{}' failed {} of {} integration tests",
-                    skill.getName(), integrationResults.failed(), integrationResults.total());
-                // Integration test failures are blocking — skill cannot be validated
-                return new ValidationResult(false, errors, null, integrationResults);
+            } else {
+                logger.info("Skill '{}' passed all {} integration tests ({}ms)",
+                    skill.getName(), integrationResults.total(), integrationResults.totalDurationMs());
             }
-            logger.info("Skill '{}' passed all {} integration tests ({}ms)",
-                skill.getName(), integrationResults.total(), integrationResults.totalDurationMs());
         }
 
         // 4. Quality assessment
