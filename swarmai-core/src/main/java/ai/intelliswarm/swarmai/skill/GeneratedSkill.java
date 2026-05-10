@@ -520,6 +520,15 @@ public class GeneratedSkill implements BaseTool {
                         .network(spec.network())
                         .memory(spec.memory())
                         .timeout(spec.timeout());
+                // Preserve the original entrypoint when re-pinning to the built
+                // tag. Without this, any CONTAINER skill that overrode the
+                // image's default ENTRYPOINT (e.g. instrumentisto/nmap with
+                // `entrypoint: sh` so that command: [-c, "..."] is shell-parsed)
+                // silently runs the image default and the command list is
+                // mis-interpreted as args to the wrong binary.
+                if (spec.hasEntrypoint()) {
+                    builder.entrypoint(spec.entrypoint());
+                }
                 spec.envFromParams().forEach(builder::envFromParam);
                 runSpec = builder.build();
             } else {

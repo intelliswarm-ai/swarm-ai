@@ -1,9 +1,12 @@
 package ai.intelliswarm.swarmai.skill.runtime;
 
 import ai.intelliswarm.swarmai.agent.subagent.DockerWorkspace;
+import ai.intelliswarm.swarmai.skill.ContainerSkillSpec;
 import ai.intelliswarm.swarmai.skill.runtime.ApprovalGates.CallbackApprovalGate;
 import ai.intelliswarm.swarmai.skill.runtime.ImageApprovalGate.Decision;
 import ai.intelliswarm.swarmai.tool.base.BaseTool;
+
+import java.time.Duration;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -218,6 +221,73 @@ class DynamicCapabilityLoopIT {
                 ImageApprovalGate.ImageApprovalDeniedException.class,
                 () -> runtime.buildImage(df));
         assertTrue(ex.getMessage().contains("denied"));
+    }
+
+    // ---------------------------------------------------------------------
+    // Regression tests for Codex-flagged bugs in PR #N (3042e186ca)
+    // ---------------------------------------------------------------------
+
+    @Test
+    @DisplayName("Codex P1: execute() with a Dockerfile-only spec lazily builds + runs")
+    void executeLazilyBuildsDockerfileSpec() {
+        // Reproduce the KaliToolbox/PentestTools/ManifestToolFactory(dockerfile)
+        // pattern: caller hands a spec built via builderFromDockerfile() to
+        // execute() WITHOUT first calling buildImage. Before the fix this hit
+        // `docker run --rm ... "" -c ...` because spec.image() was empty.
+        String marker = "lazy-build-marker-" + System.nanoTime();
+        ContainerSkillSpec spec = ContainerSkillSpec
+                .builderFromDockerfile("FROM alpine:3.19\nRUN echo lazy-test\n")
+                .entrypoint("/bin/sh")
+                .command(java.util.List.of("-c", "echo " + marker))
+                .network("none")
+                .timeout(Duration.ofSeconds(60))
+                .build();
+
+        var result = runtime.execute(spec, java.util.Map.of());
+        assertEquals(0, result.exitCode(),
+                "lazy build + run should succeed; stderr: " + result.stderr());
+        assertTrue(result.stdout().contains(marker),
+                "stdout should contain the marker; got: " + result.stdout());
+    }
+
+    @Test
+    @DisplayName("Codex P2: pullImage() tracks pulled images for later pruning")
+    void pullImageIsTrackedForCleanup() throws Exception {
+        // pullImage should add to imagesWeBuilt so pruneImagesBuiltByMe()
+        // can release storage for things this runtime brought down.
+        String tinyImage = "hello-world:latest";
+        runtime.pullImage(tinyImage);
+
+        var tracked = runtime.trackedImages();
+        assertTrue(tracked.contains(tinyImage),
+                "pulled image must be tracked for cleanup; tracked=" + tracked);
+    }
+
+    @Test
+    @DisplayName("Codex P2: GeneratedSkill preserves entrypoint when rebuilding from Dockerfile")
+    void entrypointPreservedAcrossDockerfileRebuild() {
+        // Build a Dockerfile-spec whose ENTRYPOINT in-image is `cat` (no shell),
+        // then use a spec.entrypoint() override of `/bin/sh` so the command
+        // ["-c", "echo X"] is interpreted by sh instead of cat.
+        // Without entrypoint preservation, the rebuilt spec would call cat with
+        // -c "echo X" as args → cat fails to read those files → empty output.
+        String marker = "entrypoint-preserved-" + System.nanoTime();
+        String dockerfile =
+                "FROM alpine:3.19\n" +
+                "ENTRYPOINT [\"cat\"]\n";   // image default is cat — wrong for our cmd
+        ContainerSkillSpec spec = ContainerSkillSpec.builderFromDockerfile(dockerfile)
+                .entrypoint("/bin/sh")     // we override to sh
+                .command(java.util.List.of("-c", "echo " + marker))
+                .network("none")
+                .timeout(Duration.ofSeconds(60))
+                .build();
+
+        var result = runtime.execute(spec, java.util.Map.of());
+        assertEquals(0, result.exitCode(),
+                "entrypoint override must reach docker run; stderr: " + result.stderr());
+        assertTrue(result.stdout().contains(marker),
+                "sh -c should produce the echo marker; got stdout: " + result.stdout()
+                + " stderr: " + result.stderr());
     }
 
     @Test

@@ -222,6 +222,33 @@ public final class ContainerSkillRuntime implements AutoCloseable {
 
         ensureDockerAvailable();
 
+        // Resolve the image tag we actually run. If the spec carries an inline
+        // Dockerfile (the path used by KaliToolbox, PentestTools, and any
+        // ManifestToolFactory wired with .dockerfile(...)), we build it lazily
+        // here and use the resulting SHA1-tagged image. This lets callers pass
+        // Dockerfile-shaped specs to execute() directly without first calling
+        // buildImage themselves. Already-built/cached images are no-ops.
+        String resolvedImage = spec.image();
+        if (spec.hasDockerfile() && (resolvedImage == null || resolvedImage.isBlank())) {
+            try {
+                resolvedImage = buildImage(spec.dockerfile());
+            } catch (Exception e) {
+                logger.warn("inline Dockerfile build failed during execute(): {}", e.getMessage());
+                return new ExecResult(
+                        -1, "",
+                        "container build failed: " + e.getMessage(),
+                        Duration.ZERO,
+                        "(build-failed)");
+            }
+        }
+        if (resolvedImage == null || resolvedImage.isBlank()) {
+            return new ExecResult(
+                    -1, "",
+                    "spec has neither image nor dockerfile",
+                    Duration.ZERO,
+                    "(invalid-spec)");
+        }
+
         String containerName = CONTAINER_PREFIX + UUID.randomUUID().toString().substring(0, 8);
 
         List<String> cmd = new ArrayList<>(List.of(
@@ -254,8 +281,10 @@ public final class ContainerSkillRuntime implements AutoCloseable {
             cmd.add("-e");
             cmd.add(envName + "=" + (value == null ? "" : String.valueOf(value)));
         }
-        // Image + optional command override.
-        cmd.add(spec.image());
+        // Image + optional command override. Use the resolved tag (which
+        // may have been derived from a lazy Dockerfile build above), not
+        // spec.image() which is empty for Dockerfile-only specs.
+        cmd.add(resolvedImage);
         cmd.addAll(spec.command());
 
         containersWeStarted.add(containerName);
@@ -495,6 +524,10 @@ public final class ContainerSkillRuntime implements AutoCloseable {
             throw new IOException("docker pull " + image + " failed: "
                     + abbreviate(result.stderr(), 500));
         }
+        // Track pulled images alongside built ones so pruneImagesBuiltByMe()
+        // can clean them up. Without this entry the runtime "owns" the
+        // pulled image but has no way to release it across runs.
+        imagesWeBuilt.add(image);
         logger.info("pulled image {}", image);
     }
 
