@@ -180,6 +180,14 @@ public class SkillDefinition {
      */
     private String fallbackBehavior;
 
+    /**
+     * Container metadata for {@link SkillType#CONTAINER} skills. Carries the
+     * Docker image (or, in Phase 2, an inline Dockerfile), parameter→env
+     * mapping, network policy, resource caps, and timeout. Null for skill
+     * types that don't use a container.
+     */
+    private ContainerSkillSpec containerSpec;
+
     // ==================== Constructors ====================
 
     public SkillDefinition() {
@@ -230,6 +238,33 @@ public class SkillDefinition {
                 sb.append("  sections: [").append(String.join(", ", outputFormat.sections())).append("]\n");
             }
         }
+        // CONTAINER skills serialise their config under a nested container:
+        // block. The Dockerfile (if any) goes in the body's ## Dockerfile
+        // section so multi-line content survives the YAML round-trip.
+        if (containerSpec != null) {
+            sb.append("container:\n");
+            if (containerSpec.hasImage()) {
+                sb.append("  image: ").append(containerSpec.image()).append("\n");
+            }
+            if (containerSpec.hasEntrypoint()) {
+                sb.append("  entrypoint: ").append(containerSpec.entrypoint()).append("\n");
+            }
+            if (!containerSpec.command().isEmpty()) {
+                sb.append("  command: [")
+                  .append(String.join(", ", containerSpec.command()))
+                  .append("]\n");
+            }
+            if (!containerSpec.envFromParams().isEmpty()) {
+                sb.append("  inputs:\n");
+                containerSpec.envFromParams().forEach((param, env) ->
+                        sb.append("    ").append(param).append(": ").append(env).append("\n"));
+            }
+            sb.append("  network: ").append(containerSpec.network()).append("\n");
+            if (containerSpec.memory() != null && !containerSpec.memory().isBlank()) {
+                sb.append("  memory: ").append(containerSpec.memory()).append("\n");
+            }
+            sb.append("  timeoutSeconds: ").append(containerSpec.timeout().toSeconds()).append("\n");
+        }
         sb.append("---\n\n");
 
         // Body
@@ -240,6 +275,13 @@ public class SkillDefinition {
         // Code block (for CODE and HYBRID)
         if (code != null && !code.isBlank()) {
             sb.append("## Code\n```groovy\n").append(code).append("\n```\n\n");
+        }
+
+        // Dockerfile block (for CONTAINER skills with inline Dockerfile)
+        if (containerSpec != null && containerSpec.hasDockerfile()) {
+            sb.append("## Dockerfile\n```dockerfile\n")
+              .append(containerSpec.dockerfile())
+              .append("\n```\n\n");
         }
 
         // References
@@ -384,13 +426,49 @@ public class SkillDefinition {
             def.instructionBody = content;
         }
 
+        // Finalise any deferred container spec. The Builder accumulator is set
+        // by parseFrontmatter (frontmatter container: block) and possibly
+        // augmented by parseBody (## Dockerfile section). It builds successfully
+        // only if image OR dockerfile is present; otherwise we silently leave
+        // containerSpec null so the rest of parsing still succeeds.
+        if (def._pendingContainerBuilder != null) {
+            try {
+                def.containerSpec = def._pendingContainerBuilder.build();
+            } catch (IllegalArgumentException ignored) {
+                // Both image and dockerfile blank — surface as null spec.
+            } finally {
+                def._pendingContainerBuilder = null;
+            }
+        }
+
         return def;
     }
 
     private static void parseFrontmatter(SkillDefinition def, String frontmatter) {
-        for (String line : frontmatter.split("\n")) {
-            line = line.trim();
+        // Two-pass: first the flat top-level keys, then the nested `container:`
+        // block (recognised by indentation). The container block is the only
+        // nested structure today; rather than pull in a full YAML parser we
+        // hand-parse a small known shape.
+        String[] lines = frontmatter.split("\n", -1);
+        // Pre-scan for nested container block start.
+        Integer containerBlockStart = null;
+        for (int i = 0; i < lines.length; i++) {
+            String t = lines[i].trim();
+            if (t.equals("container:")) {
+                containerBlockStart = i;
+                break;
+            }
+        }
+
+        for (int i = 0; i < lines.length; i++) {
+            // Skip lines inside the container: block — handled in the second pass.
+            if (containerBlockStart != null && i > containerBlockStart
+                    && lines[i].startsWith(" ") && !lines[i].trim().isEmpty()) {
+                continue;
+            }
+            String line = lines[i].trim();
             if (line.isEmpty() || line.startsWith("#")) continue;
+            if (line.equals("container:")) continue; // header itself
 
             int colonIdx = line.indexOf(':');
             if (colonIdx <= 0) continue;
@@ -410,6 +488,109 @@ public class SkillDefinition {
                 case "tags" -> def.tags = parseList(value);
             }
         }
+
+        // Second pass: parse the container: nested block if present. We store
+        // a Builder rather than a finalised spec because the body's
+        // ## Dockerfile section may fill in the missing dockerfile field
+        // before parseBody finalises everything.
+        if (containerBlockStart != null) {
+            def._pendingContainerBuilder = parseContainerBlockToBuilder(lines, containerBlockStart);
+        }
+    }
+
+    /**
+     * Internal — accumulator across the two parse passes. Finalised in
+     * {@link #fromSkillMd} after both frontmatter and body have run.
+     */
+    private transient ContainerSkillSpec.Builder _pendingContainerBuilder;
+
+    /**
+     * Parse the {@code container:} frontmatter block. Recognises:
+     * <pre>
+     * container:
+     *   image: alpine:3.19              # OR (mutually exclusive)
+     *   dockerfileRef: body             # the inline Dockerfile lives in ## Dockerfile
+     *   command: [arg1, arg2]
+     *   inputs:
+     *     paramName: ENV_VAR_NAME
+     *   network: none|bridge|host       # default: none
+     *   memory: 256m
+     *   timeoutSeconds: 30
+     * </pre>
+     *
+     * <p>The actual {@code dockerfile} content (when not inline as a single
+     * line) is parsed from the body's {@code ## Dockerfile} section by
+     * {@link #parseBody}; here we just collect the other fields. If neither
+     * image nor dockerfile is found, the block is ignored (parser stays
+     * permissive — caller's job to validate).
+     */
+    private static ContainerSkillSpec.Builder parseContainerBlockToBuilder(String[] lines, int blockStart) {
+        String image = null;
+        String dockerfile = null;
+        String entrypoint = null;
+        java.util.List<String> command = java.util.List.of();
+        java.util.LinkedHashMap<String, String> inputs = new java.util.LinkedHashMap<>();
+        String network = null;
+        String memory = null;
+        java.time.Duration timeout = ContainerSkillSpec.DEFAULT_TIMEOUT;
+
+        // Walk the block; sub-keys are 2-space indented, sub-sub-keys 4-space.
+        boolean inInputs = false;
+        for (int i = blockStart + 1; i < lines.length; i++) {
+            String raw = lines[i];
+            if (raw.isBlank()) continue;
+            // Top-level key terminates the block.
+            if (!raw.startsWith(" ")) break;
+
+            // sub-sub-key (under inputs:)
+            if (inInputs && raw.startsWith("    ")) {
+                String pair = raw.trim();
+                int colon = pair.indexOf(':');
+                if (colon > 0) {
+                    inputs.put(pair.substring(0, colon).trim(),
+                            pair.substring(colon + 1).trim());
+                }
+                continue;
+            }
+            // Falling out of inputs back to a sub-key.
+            inInputs = false;
+
+            String line = raw.trim();
+            int colonIdx = line.indexOf(':');
+            if (colonIdx <= 0) continue;
+            String key = line.substring(0, colonIdx).trim();
+            String value = line.substring(colonIdx + 1).trim();
+
+            switch (key) {
+                case "image" -> image = value.isBlank() ? null : value;
+                case "dockerfile" -> dockerfile = value.isBlank() ? null : value;
+                case "entrypoint" -> entrypoint = value.isBlank() ? null : value;
+                case "command" -> command = parseList(value);
+                case "network" -> network = value.isBlank() ? null : value;
+                case "memory" -> memory = value.isBlank() ? null : value;
+                case "timeoutSeconds", "timeout" -> {
+                    try { timeout = java.time.Duration.ofSeconds(Long.parseLong(value)); }
+                    catch (NumberFormatException ignored) {}
+                }
+                case "inputs" -> inInputs = true;
+                default -> { /* ignore unknown */ }
+            }
+        }
+
+        // Return a Builder, never null. The body parser may add a Dockerfile
+        // from the ## Dockerfile section before we finalise. If image AND
+        // dockerfile are still both empty when fromSkillMd() finalises,
+        // build() will throw and the spec stays null on the definition.
+        ContainerSkillSpec.Builder b = ContainerSkillSpec.builder(image);
+        if (dockerfile != null && !dockerfile.isBlank()) {
+            b.dockerfile(dockerfile);
+        }
+        if (entrypoint != null && !entrypoint.isBlank()) {
+            b.entrypoint(entrypoint);
+        }
+        b.command(command).network(network).memory(memory).timeout(timeout);
+        inputs.forEach(b::envFromParam);
+        return b;
     }
 
     private static void parseBody(SkillDefinition def, String body) {
@@ -441,8 +622,25 @@ public class SkillDefinition {
             }
         }
 
-        // Everything before the code block (or the whole body) is instruction
-        int instrEnd = codeStart >= 0 ? codeStart : (integrationSection >= 0 ? integrationSection : body.length());
+        // Everything before the code block (or the whole body) is instruction.
+        // We also stop at the ## Dockerfile section so its body doesn't leak
+        // into instructionBody and get re-serialised twice on toSkillMd().
+        int dockerfileBoundary = body.indexOf("## Dockerfile");
+        int instrEnd;
+        if (codeStart >= 0) {
+            instrEnd = codeStart;
+        } else if (integrationSection >= 0) {
+            instrEnd = integrationSection;
+        } else if (dockerfileBoundary >= 0) {
+            instrEnd = dockerfileBoundary;
+        } else {
+            instrEnd = body.length();
+        }
+        // Even when codeStart/integrationSection bounded the search, an earlier
+        // ## Dockerfile takes precedence so it doesn't slip into instructionBody.
+        if (dockerfileBoundary >= 0 && dockerfileBoundary < instrEnd) {
+            instrEnd = dockerfileBoundary;
+        }
         String instructionPart = body.substring(0, instrEnd).trim();
         if (!instructionPart.isBlank()) {
             // Strip the "## Code" header if present
@@ -455,6 +653,32 @@ public class SkillDefinition {
         // Parse ## Integration Tests section
         if (integrationSection >= 0) {
             parseIntegrationTests(def, body.substring(integrationSection));
+        }
+
+        // Parse ## Dockerfile section — used by CONTAINER skills when the
+        // agent ships an inline Dockerfile rather than (or in addition to)
+        // a pre-built image tag. The frontmatter parser leaves a Builder on
+        // {@code def._pendingContainerBuilder}; we add the dockerfile to it
+        // here. Final {@code build()} happens in {@link #fromSkillMd}.
+        int dockerfileSection = body.indexOf("## Dockerfile");
+        if (dockerfileSection >= 0) {
+            String area = body.substring(dockerfileSection);
+            int fenceStart = area.indexOf("```");
+            if (fenceStart >= 0) {
+                int contentStart = area.indexOf('\n', fenceStart);
+                int fenceEnd = contentStart >= 0 ? area.indexOf("```", contentStart + 1) : -1;
+                if (contentStart >= 0 && fenceEnd > contentStart) {
+                    String dockerfile = area.substring(contentStart + 1, fenceEnd).trim();
+                    if (!dockerfile.isBlank()) {
+                        if (def._pendingContainerBuilder == null) {
+                            def._pendingContainerBuilder =
+                                    ContainerSkillSpec.builderFromDockerfile(dockerfile);
+                        } else {
+                            def._pendingContainerBuilder.dockerfile(dockerfile);
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -748,4 +972,7 @@ public class SkillDefinition {
     public void setDeliberationProtocol(List<DeliberationRound> protocol) { this.deliberationProtocol = protocol; }
     public String getFallbackBehavior() { return fallbackBehavior; }
     public void setFallbackBehavior(String fallbackBehavior) { this.fallbackBehavior = fallbackBehavior; }
+
+    public ContainerSkillSpec getContainerSpec() { return containerSpec; }
+    public void setContainerSpec(ContainerSkillSpec containerSpec) { this.containerSpec = containerSpec; }
 }

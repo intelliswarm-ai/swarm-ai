@@ -40,5 +40,27 @@ public enum SkillType {
      *
      * Best for: multi-capability domains (e.g., "finance" routes to analysis, reporting, alerts).
      */
-    COMPOSITE
+    COMPOSITE,
+
+    /**
+     * Container skill — the skill body is a Docker image (pre-built or built
+     * from an inline Dockerfile by the framework). The framework starts a
+     * one-shot container, passes skill parameters as environment variables,
+     * captures stdout, and returns it as the skill's result.
+     *
+     * <p>Lifts skill execution past the Groovy sandbox. The container is
+     * whatever the agent decides to make it: a Kali image with the full
+     * pentest toolkit, a Python image with pandas and scikit-learn, a
+     * dedicated build of nmap / hydra / sqlmap. Anything Linux-runnable
+     * is now a candidate skill body.
+     *
+     * <p>Configuration lives in {@link ContainerSkillSpec}. Image and
+     * container lifecycle (build, pull, start, stop, prune) is managed by
+     * a {@code ContainerSkillRuntime} so skills don't leak resources.
+     *
+     * <p>Best for: capability gaps that require real binaries, native deps,
+     * elevated I/O, or domain-specific toolchains the in-process runtime
+     * cannot reach. Pentest is the prototype use case.
+     */
+    CONTAINER
 }
