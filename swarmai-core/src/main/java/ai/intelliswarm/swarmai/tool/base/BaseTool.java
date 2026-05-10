@@ -100,6 +100,24 @@ public interface BaseTool {
         return List.of();
     }
 
+    /**
+     * Marker for tools created dynamically at runtime that are NOT
+     * registered as Spring {@code @Bean ToolCallback}s. Dynamic tools
+     * (MCP adapters, generated skills, container-backed tools loaded
+     * from a capability manifest) must be passed to Spring AI as
+     * {@code FunctionToolCallback}s rather than as bean names — otherwise
+     * Spring AI's {@code DefaultToolCallingManager} fails to resolve
+     * them ("No ToolCallback found for tool name: …").
+     *
+     * <p>Default {@code false} preserves existing behaviour for
+     * Spring-bean tools (CalculatorTool, WebSearchTool, etc.). Override
+     * to {@code true} in any tool whose lifecycle is "construct in code,
+     * register on an Agent at runtime".
+     */
+    default boolean isDynamic() {
+        return false;
+    }
+
     // ==================== Output Schema (P2) ====================
 
     /**

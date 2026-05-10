@@ -153,6 +153,7 @@ public class GeneratedSkill implements BaseTool {
                 case CODE -> executeCode(parameters);
                 case HYBRID -> executeHybrid(parameters);
                 case COMPOSITE -> executeComposite(parameters);
+                case CONTAINER -> executeContainer(parameters);
             };
             successCount++;
             return result != null ? result.toString() : "(no output)";
@@ -472,6 +473,98 @@ public class GeneratedSkill implements BaseTool {
             name, passed, passed + failed, totalDuration);
 
         return testResults;
+    }
+
+    /**
+     * CONTAINER execution — runs a one-shot Docker container, mapping skill
+     * parameters to environment variables and returning the captured stdout.
+     *
+     * <p>Lifecycle:
+     * <ol>
+     *   <li>Resolve {@link ContainerSkillSpec} from the definition.</li>
+     *   <li>Lazily acquire a {@link ai.intelliswarm.swarmai.skill.runtime.ContainerSkillRuntime}
+     *       (singleton across calls; tracks images/containers it created).</li>
+     *   <li>Pull the image if not already local.</li>
+     *   <li>Run the container with env, network, memory, name; wait up to
+     *       the configured timeout; force-remove on overrun.</li>
+     *   <li>Return stdout on success, an {@code Error: ...} string on
+     *       non-zero exit (mirrors CODE/HYBRID failure semantics).</li>
+     * </ol>
+     *
+     * <p>The runtime is shared across all CONTAINER skills in this JVM so
+     * cleanup ({@code pruneImagesBuiltByMe}, {@code stopContainersStartedByMe})
+     * has full visibility. Static singleton is intentional — image pulls and
+     * builds are expensive and should be amortised.
+     */
+    private Object executeContainer(Map<String, Object> parameters) {
+        ai.intelliswarm.swarmai.skill.ContainerSkillSpec spec = definition.getContainerSpec();
+        if (spec == null) {
+            return "Error: CONTAINER skill '" + name + "' has no containerSpec";
+        }
+
+        ai.intelliswarm.swarmai.skill.runtime.ContainerSkillRuntime runtime =
+                ContainerRuntimeHolder.shared();
+
+        // Resolve the image tag we actually run. Two paths:
+        //   1. spec has a Dockerfile → build it (deterministic SHA1 tag),
+        //      then run that tag. Build is skipped if image already present.
+        //   2. spec has only a pre-built image → pull (no-op if already local).
+        ai.intelliswarm.swarmai.skill.ContainerSkillSpec runSpec;
+        try {
+            if (spec.hasDockerfile()) {
+                // Build the inline Dockerfile to a deterministic tag, then
+                // re-pin the spec to that tag so execute() runs what we built.
+                String builtTag = runtime.buildImage(spec.dockerfile());
+                var builder = ai.intelliswarm.swarmai.skill.ContainerSkillSpec.builder(builtTag)
+                        .command(spec.command())
+                        .network(spec.network())
+                        .memory(spec.memory())
+                        .timeout(spec.timeout());
+                spec.envFromParams().forEach(builder::envFromParam);
+                runSpec = builder.build();
+            } else {
+                runtime.pullImage(spec.image());
+                runSpec = spec;
+            }
+        } catch (Exception e) {
+            logger.warn("CONTAINER [{}] image acquisition failed: {}", name, e.getMessage());
+            return "Error: container image acquisition failed: " + e.getMessage();
+        }
+
+        ai.intelliswarm.swarmai.skill.runtime.ContainerSkillRuntime.ExecResult result =
+                runtime.execute(runSpec, parameters);
+        if (result.ok()) {
+            return result.stdout();
+        }
+        // Surface stderr for non-zero exits — most CLI tools print the
+        // failure reason there. Trim to keep return values sane.
+        String stderrSummary = result.stderr() == null ? "" : result.stderr().trim();
+        if (stderrSummary.length() > 1000) {
+            stderrSummary = stderrSummary.substring(0, 1000) + "…";
+        }
+        return "Error: container exited " + result.exitCode()
+                + (stderrSummary.isEmpty() ? "" : ": " + stderrSummary);
+    }
+
+    /**
+     * Lazy holder for the JVM-wide {@link ai.intelliswarm.swarmai.skill.runtime.ContainerSkillRuntime}.
+     * Constructed on first CONTAINER skill execution; reused thereafter so
+     * image and container tracking is centralised.
+     */
+    private static final class ContainerRuntimeHolder {
+        private static volatile ai.intelliswarm.swarmai.skill.runtime.ContainerSkillRuntime instance;
+        static ai.intelliswarm.swarmai.skill.runtime.ContainerSkillRuntime shared() {
+            ai.intelliswarm.swarmai.skill.runtime.ContainerSkillRuntime r = instance;
+            if (r == null) {
+                synchronized (ContainerRuntimeHolder.class) {
+                    if (instance == null) {
+                        instance = new ai.intelliswarm.swarmai.skill.runtime.ContainerSkillRuntime();
+                    }
+                    r = instance;
+                }
+            }
+            return r;
+        }
     }
 
     /**

@@ -113,6 +113,7 @@ public class SkillValidator {
         switch (skillType) {
             case PROMPT -> validatePromptSkill(skill, errors);
             case CODE -> validateCodeSkill(skill, errors);
+            case CONTAINER -> validateContainerSkill(skill, errors);
             case HYBRID -> {
                 validatePromptSkill(skill, errors);
                 if (skill.getCode() != null && !skill.getCode().isBlank()) {
@@ -223,6 +224,70 @@ public class SkillValidator {
             logger.warn("Skill '{}' has only {} test case(s) — minimum 2 required for CODE skills",
                 skill.getName(), skill.getTestCases().size());
             // Non-blocking warning for now, but affects quality score
+        }
+    }
+
+    /**
+     * Validate a {@link ai.intelliswarm.swarmai.skill.SkillType#CONTAINER}
+     * skill. Checks structural correctness and bans Dockerfile patterns
+     * the {@code ContainerSkillRuntime} would reject anyway:
+     * <ul>
+     *   <li>spec is present</li>
+     *   <li>image or dockerfile is set (not both blank)</li>
+     *   <li>if dockerfile: must contain a {@code FROM} directive</li>
+     *   <li>dockerfile must NOT contain {@code --privileged} or {@code USER root}</li>
+     *   <li>timeout is positive (already enforced by spec, double-checked here)</li>
+     * </ul>
+     *
+     * <p>Permissive mode is unaffected — these are <em>structural</em>
+     * checks, not integration-test-result checks. A malformed CONTAINER
+     * skill is malformed regardless of permissive flag.
+     */
+    private void validateContainerSkill(GeneratedSkill skill, List<String> errors) {
+        ai.intelliswarm.swarmai.skill.ContainerSkillSpec spec =
+                skill.getDefinition().getContainerSpec();
+        if (spec == null) {
+            errors.add("CONTAINER skill has no container spec");
+            return;
+        }
+        if (!spec.hasImage() && !spec.hasDockerfile()) {
+            errors.add("CONTAINER skill must declare either image or dockerfile");
+        }
+        if (spec.hasDockerfile()) {
+            String df = spec.dockerfile();
+            // Must have a FROM directive — sanity check before we hand it
+            // to docker build.
+            boolean hasFrom = false;
+            for (String line : df.split("\\r?\\n")) {
+                String t = line.trim();
+                if (!t.isEmpty() && !t.startsWith("#") && t.toUpperCase().startsWith("FROM ")) {
+                    hasFrom = true;
+                    break;
+                }
+            }
+            if (!hasFrom) {
+                errors.add("CONTAINER skill Dockerfile lacks a FROM directive");
+            }
+            // Bans the runtime would also enforce, surfaced here so the skill
+            // never makes it to the registry in the first place.
+            if (java.util.regex.Pattern.compile("(?im)^\\s*USER\\s+root\\s*$")
+                    .matcher(df).find()) {
+                errors.add("CONTAINER skill Dockerfile contains USER root (escalates to root in container)");
+            }
+            if (df.contains("--privileged") || df.contains("--cap-add")) {
+                errors.add("CONTAINER skill Dockerfile references privileged flags the runtime will never grant");
+            }
+        }
+        if (spec.hasImage() && spec.image().endsWith(":latest")) {
+            // Quality warning, not blocking — :latest is a footgun for
+            // reproducibility but we don't reject it.
+            logger.warn("CONTAINER skill '{}' uses :latest tag — consider pinning ({})",
+                    skill.getName(), spec.image());
+        }
+        // Timeout ceiling sanity (spec constructor already requires positive,
+        // but a 24h timeout is almost certainly a mistake).
+        if (spec.timeout().toHours() > 24) {
+            errors.add("CONTAINER skill timeout exceeds 24h ceiling: " + spec.timeout());
         }
     }
 

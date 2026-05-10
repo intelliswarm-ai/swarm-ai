@@ -70,6 +70,12 @@ public class Agent {
     @NotBlank
     private final String backstory;
     
+    /**
+     * Tool list. Backed by {@link java.util.concurrent.CopyOnWriteArrayList}
+     * so {@link #registerTool} and {@link #registerTools} can hot-add new
+     * tools to a running Agent without coordination — the LLM-driven loop
+     * iterates a snapshot and any in-flight call sees a consistent view.
+     */
     private final List<BaseTool> tools;
     private final boolean verbose;
     private final boolean allowDelegation;
@@ -108,7 +114,7 @@ public class Agent {
         this.role = builder.role;
         this.goal = builder.goal;
         this.backstory = builder.backstory;
-        this.tools = new ArrayList<>(builder.tools);
+        this.tools = new java.util.concurrent.CopyOnWriteArrayList<>(builder.tools);
         this.verbose = builder.verbose;
         this.allowDelegation = builder.allowDelegation;
         this.maxIter = builder.maxIter;
@@ -519,7 +525,12 @@ public class Agent {
             List<BaseTool> dynamicTools = new ArrayList<>();
 
             for (BaseTool tool : permittedTools) {
-                if (tool instanceof McpToolAdapter || tool instanceof GeneratedSkill) {
+                // Dynamic tools (MCP adapters, generated skills, container-backed
+                // tools, anything created in code rather than registered as a
+                // Spring bean) must be passed as FunctionToolCallback objects.
+                // Spring-bean tools are passed by name and resolved by Spring AI.
+                if (tool instanceof McpToolAdapter || tool instanceof GeneratedSkill
+                        || tool.isDynamic()) {
                     dynamicTools.add(tool);
                 } else {
                     springToolNames.add(tool.getFunctionName());
@@ -548,7 +559,16 @@ public class Agent {
                                 .inputType(McpToolInput.class)
                                 .build());
                     } else {
-                        callbacks.add(org.springframework.ai.tool.function.FunctionToolCallback
+                        // Generic dynamic tool. We use DynamicToolInput +
+                        // @JsonAnySetter to absorb any field the LLM sends, but
+                        // Spring AI generates the JSON schema from the inputType.
+                        // DynamicToolInput has no concrete fields, so the inferred
+                        // schema would be empty and the LLM wouldn't know which
+                        // parameters to pass. When the tool exposes a non-empty
+                        // parameterSchema (e.g. ContainerBackedBaseTool, manifest-
+                        // backed tools), serialise it and inject via inputSchema()
+                        // — the LLM then sees the real parameter list.
+                        var dynamicBuilder = org.springframework.ai.tool.function.FunctionToolCallback
                                 .builder(tool.getFunctionName(),
                                         (java.util.function.Function<DynamicToolInput, String>)
                                                 input -> {
@@ -556,8 +576,19 @@ public class Agent {
                                             return executeToolWithHooks(tool, params);
                                         })
                                 .description(tool.getDescription())
-                                .inputType(DynamicToolInput.class)
-                                .build());
+                                .inputType(DynamicToolInput.class);
+                        Map<String, Object> paramSchema = tool.getParameterSchema();
+                        if (paramSchema != null && !paramSchema.isEmpty()) {
+                            try {
+                                String schemaJson = new com.fasterxml.jackson.databind.ObjectMapper()
+                                        .writeValueAsString(paramSchema);
+                                dynamicBuilder.inputSchema(schemaJson);
+                            } catch (Exception e) {
+                                logger.warn("Could not serialise parameterSchema for tool {}: {}",
+                                        tool.getFunctionName(), e.getMessage());
+                            }
+                        }
+                        callbacks.add(dynamicBuilder.build());
                     }
                 }
                 requestBuilder.toolCallbacks(callbacks.toArray(new org.springframework.ai.tool.ToolCallback[0]));
@@ -1309,6 +1340,47 @@ public class Agent {
     public PermissionLevel getPermissionMode() { return permissionMode; }
     public List<ToolHook> getToolHooks() { return new ArrayList<>(toolHooks); }
     public CompactionConfig getCompactionConfig() { return compactionConfig; }
+
+    /**
+     * Hot-register a new tool onto this Agent in place. The next LLM
+     * iteration sees the tool in its callable set without rebuilding the
+     * agent. Safe to call concurrently with execution because the
+     * underlying tool list is a {@link java.util.concurrent.CopyOnWriteArrayList}.
+     *
+     * <p>Returns {@code this} for fluent registration of multiple tools.
+     *
+     * <p>Use cases:
+     * <ul>
+     *   <li>Self-improving loop: build a new container, read its manifest,
+     *       materialise BaseTools, register them — agent uses them next turn.</li>
+     *   <li>Capability handoff: another agent or a planning phase
+     *       discovered a new tool and wants to add it to a running auditor.</li>
+     * </ul>
+     *
+     * <p>Skips duplicates by function name to avoid registering the same
+     * capability twice when a capability re-discovers itself across phases.
+     */
+    public Agent registerTool(BaseTool tool) {
+        if (tool == null) return this;
+        String name = tool.getFunctionName();
+        for (BaseTool existing : tools) {
+            if (name.equals(existing.getFunctionName())) {
+                logger.debug("[{}] tool '{}' already registered; skipping", role, name);
+                return this;
+            }
+        }
+        tools.add(tool);
+        logger.info("[{}] registered new tool '{}' (total tools: {})",
+                role, name, tools.size());
+        return this;
+    }
+
+    /** Bulk variant of {@link #registerTool(BaseTool)}. */
+    public Agent registerTools(List<BaseTool> newTools) {
+        if (newTools == null) return this;
+        for (BaseTool t : newTools) registerTool(t);
+        return this;
+    }
 
     /**
      * Create a copy of this agent with additional tools added to its toolkit.
