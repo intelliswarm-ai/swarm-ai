@@ -105,10 +105,21 @@ public final class TurnSnapshotStore implements AutoCloseable {
 
         Path mirror = storeRoot.resolve("workspace-" + sanitize(runId));
         try {
+            // Clear the mirror's previous contents so files removed from the
+            // source workspace don't ghost forward into later commits. Without
+            // this step `copyTree` only overwrites files that still exist,
+            // leaving stale tracked files behind — `git status` would never
+            // see the deletion. Recreate the dir afterwards so the subsequent
+            // copyTree has a target.
+            clearDirectoryContents(mirror);
             Files.createDirectories(mirror);
             copyTree(workspaceRoot.toAbsolutePath().normalize(), mirror);
 
+            // Two-pass add to capture every transition: new/modified files
+            // (default add) and deletions of previously-tracked files
+            // (setUpdate(true) — JGit's equivalent of `git add -u`).
             git.add().addFilepattern(".").call();
+            git.add().addFilepattern(".").setUpdate(true).call();
             String fullMessage = String.format("[run=%s turn=%d] %s", runId, turnIndex, message);
             RevCommit commit = git.commit()
                     .setMessage(fullMessage)
@@ -121,31 +132,42 @@ public final class TurnSnapshotStore implements AutoCloseable {
         }
     }
 
-    /** Restore the {@code targetWorkspace} to the state captured at {@code commitId}. */
+    /**
+     * Restore the {@code targetWorkspace} to the state captured at
+     * {@code commitId}. The runId is parsed from the commit's structured
+     * message ({@code [run=X turn=N] body}) to identify the right
+     * {@code workspace-<runId>} mirror — critical when the store holds
+     * multiple concurrent runs, since picking the first mirror alphabetically
+     * (the old behaviour) could replay a different run's files.
+     */
     public void restore(Path targetWorkspace, String commitId) {
         Objects.requireNonNull(targetWorkspace, "targetWorkspace must not be null");
         Objects.requireNonNull(commitId, "commitId must not be null");
-        Path mirror = storeRoot.resolve("workspace-" + extractRunIdFromCommit(commitId));
-        if (mirror.toFile().exists()) {
-            try {
-                copyTree(mirror, targetWorkspace.toAbsolutePath().normalize());
-                return;
-            } catch (IOException e) {
-                throw new SnapshotStoreException("restore failed for commit " + commitId, e);
-            }
-        }
-        // Generic path — checkout via JGit
         try {
             git.checkout().setName(commitId).call();
-            // Walk all workspace-* mirrors and replay
-            try (Stream<Path> stream = Files.list(storeRoot)) {
-                stream.filter(p -> p.getFileName().toString().startsWith("workspace-"))
-                        .findFirst()
-                        .ifPresent(src -> {
-                            try { copyTree(src, targetWorkspace.toAbsolutePath().normalize()); }
-                            catch (IOException e) { throw new SnapshotStoreException("restore mirror failed", e); }
-                        });
+
+            // Parse the commit message to learn which run this snapshot belongs to.
+            // The init commit (no [run=...] prefix) has no associated workspace.
+            String runId;
+            try (Repository repo = git.getRepository(); RevWalk walk = new RevWalk(repo)) {
+                RevCommit commit = walk.parseCommit(repo.resolve(commitId));
+                ParsedMessage pm = parseMessage(commit.getFullMessage().trim());
+                runId = pm != null ? pm.runId : null;
             }
+
+            if (runId == null) {
+                throw new SnapshotStoreException(
+                        "Cannot restore commit " + commitId
+                                + ": message lacks [run=...] header (likely the init commit)", null);
+            }
+
+            Path mirror = storeRoot.resolve("workspace-" + sanitize(runId));
+            if (!Files.exists(mirror)) {
+                throw new SnapshotStoreException(
+                        "Cannot restore commit " + commitId
+                                + ": mirror " + mirror.getFileName() + " not present at this commit", null);
+            }
+            copyTree(mirror, targetWorkspace.toAbsolutePath().normalize());
         } catch (GitAPIException | IOException e) {
             throw new SnapshotStoreException("restore failed for commit " + commitId, e);
         }
@@ -225,10 +247,25 @@ public final class TurnSnapshotStore implements AutoCloseable {
         return s.replaceAll("[^A-Za-z0-9_-]", "_");
     }
 
-    private static String extractRunIdFromCommit(String commitId) {
-        // Caller supplies commitId; we don't actually need to extract — the mirror dir is per-run
-        // and copyTree handles missing dirs gracefully.
-        return commitId;
+    /**
+     * Delete every entry under {@code dir} but leave {@code dir} itself in place.
+     * Used by {@link #snapshot} to ensure stale files from previous turns don't
+     * persist in the mirror — the git index needs to see deletions to record
+     * them in the commit.
+     */
+    private static void clearDirectoryContents(Path dir) throws IOException {
+        if (!Files.exists(dir)) return;
+        try (Stream<Path> walk = Files.walk(dir)) {
+            // Reverse order so files are deleted before their parent directories.
+            walk.sorted(java.util.Comparator.reverseOrder())
+                    .filter(p -> !p.equals(dir))
+                    .forEach(p -> {
+                        try { Files.deleteIfExists(p); }
+                        catch (IOException e) { throw new java.io.UncheckedIOException(e); }
+                    });
+        } catch (java.io.UncheckedIOException e) {
+            throw e.getCause();
+        }
     }
 
     private static ParsedMessage parseMessage(String fullMessage) {

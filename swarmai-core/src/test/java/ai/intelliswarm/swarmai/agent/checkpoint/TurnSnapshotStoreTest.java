@@ -111,4 +111,67 @@ class TurnSnapshotStoreTest {
             assertThat(snap.commitId()).isNotBlank();
         }
     }
+
+    // ---------- regression tests (Codex review of v1.0.24) ----------
+
+    @Test
+    void deletedFilesAreCapturedInLaterSnapshots(@TempDir Path tempDir) throws Exception {
+        // Regression: copyTree previously only added new/modified files. A file
+        // deleted from the workspace persisted in the mirror and got re-committed,
+        // so diffs lied about state evolution and restore brought back ghosts.
+        Path workspace = tempDir.resolve("ws");
+        Files.createDirectories(workspace);
+        Files.writeString(workspace.resolve("kept.txt"), "kept content");
+        Files.writeString(workspace.resolve("doomed.txt"), "going away soon");
+
+        try (TurnSnapshotStore store = new TurnSnapshotStore(tempDir.resolve("store"))) {
+            TurnSnapshot s1 = store.snapshot(workspace, "run-1", "before", 0, Map.of());
+
+            // Delete one file in the workspace, take another snapshot
+            Files.delete(workspace.resolve("doomed.txt"));
+            TurnSnapshot s2 = store.snapshot(workspace, "run-1", "after delete", 1, Map.of());
+
+            // The diff must show doomed.txt as removed between s1 and s2.
+            String diff = store.diff(s1.commitId(), s2.commitId());
+            assertThat(diff).contains("doomed.txt");
+            // And restoring s2 to a clean workspace must NOT bring doomed.txt back.
+            Path target = tempDir.resolve("restored");
+            Files.createDirectories(target);
+            store.restore(target, s2.commitId());
+            assertThat(target.resolve("kept.txt")).exists();
+            assertThat(target.resolve("doomed.txt")).doesNotExist();
+        }
+    }
+
+    @Test
+    void restorePicksCorrectWorkspaceWhenStoreHoldsMultipleRuns(@TempDir Path tempDir) throws Exception {
+        // Regression: restore previously walked all workspace-* mirrors with
+        // findFirst(), so a commit from run-B could replay run-A's files in
+        // a multi-run store. Verify each runId's snapshots restore the right files.
+        Path wsA = tempDir.resolve("wsA");
+        Path wsB = tempDir.resolve("wsB");
+        Files.createDirectories(wsA);
+        Files.createDirectories(wsB);
+        Files.writeString(wsA.resolve("only-in-A.txt"), "alpha");
+        Files.writeString(wsB.resolve("only-in-B.txt"), "bravo");
+
+        try (TurnSnapshotStore store = new TurnSnapshotStore(tempDir.resolve("store"))) {
+            TurnSnapshot snapA = store.snapshot(wsA, "run-A", "alpha turn", 0, Map.of());
+            TurnSnapshot snapB = store.snapshot(wsB, "run-B", "bravo turn", 0, Map.of());
+
+            // Restore commit from run-A → should only contain run-A files
+            Path restoredA = tempDir.resolve("restoredA");
+            Files.createDirectories(restoredA);
+            store.restore(restoredA, snapA.commitId());
+            assertThat(restoredA.resolve("only-in-A.txt")).exists();
+            assertThat(restoredA.resolve("only-in-B.txt")).doesNotExist();
+
+            // Restore commit from run-B → should only contain run-B files
+            Path restoredB = tempDir.resolve("restoredB");
+            Files.createDirectories(restoredB);
+            store.restore(restoredB, snapB.commitId());
+            assertThat(restoredB.resolve("only-in-B.txt")).exists();
+            assertThat(restoredB.resolve("only-in-A.txt")).doesNotExist();
+        }
+    }
 }

@@ -95,8 +95,14 @@ public final class AnthropicNativeClient {
     public AnthropicResponse send(AnthropicRequest req) {
         MessageCreateParams params = toSdkParams(req);
         try {
-            Message message = client.messages().create(params);
-            return toResponse(message, req);
+            // Use withRawResponse() so we can read the real request-id header
+            // (req_*) rather than substituting the message id (msg_*) — required
+            // for support escalation and audit-trail correlation.
+            com.anthropic.core.http.HttpResponseFor<Message> raw =
+                    client.messages().withRawResponse().create(params);
+            Message message = raw.parse();
+            String requestId = raw.requestId().orElse(null);
+            return toResponse(message, req, requestId);
         } catch (RuntimeException e) {
             throw new AnthropicClientException(
                     "Anthropic request failed: " + e.getMessage(), e, null, null);
@@ -205,19 +211,35 @@ public final class AnthropicNativeClient {
         return Optional.empty();
     }
 
-    AnthropicResponse toResponse(Message message, AnthropicRequest req) {
+    /**
+     * Translate a parsed SDK {@link Message} into an {@link AnthropicResponse}.
+     *
+     * @param requestId the actual {@code request-id} header value from the
+     *                  HTTP response (preferred for traceability) or
+     *                  {@code null} if unavailable. Callers that don't have
+     *                  the raw response should use the overload below, which
+     *                  falls back to the message id.
+     */
+    AnthropicResponse toResponse(Message message, AnthropicRequest req, String requestId) {
         List<AnthropicContent> content =
                 WireMapper.fromContentBlocks(message.content(), req.documents());
         TokenUsage usage = WireMapper.fromUsage(message.usage());
         StopReason stopReason = WireMapper.fromStopReason(message.stopReason());
-        // Request id is exposed via withRawResponse() — for the high-level API we
-        // surface null and let callers opt into raw access if they need it. The
-        // message id itself is sufficient correlation for most workflows.
         return new AnthropicResponse(
-                message.id(),
+                requestId != null ? requestId : message.id(),
                 message.model().asString(),
                 stopReason,
                 content,
                 usage);
+    }
+
+    /**
+     * Backward-compatible overload — used by tests and by batch results
+     * processing where the raw HTTP response isn't on the table. Falls back
+     * to the message id (msg_*) for traceability; prefer the 3-arg variant
+     * with the actual request-id header (req_*) when available.
+     */
+    AnthropicResponse toResponse(Message message, AnthropicRequest req) {
+        return toResponse(message, req, null);
     }
 }
