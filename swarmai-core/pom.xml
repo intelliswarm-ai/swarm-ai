@@ -8,7 +8,7 @@
     <parent>
         <groupId>ai.intelliswarm</groupId>
         <artifactId>swarmai-parent</artifactId>
-        <version>1.0.23-SNAPSHOT</version>
+        <version>1.0.24-SNAPSHOT</version>
     </parent>
 
     <artifactId>swarmai-core</artifactId>
@@ -158,6 +158,19 @@
         <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- SQLite + JGit — optional, only loaded when SessionIndex / TurnSnapshotStore are used.
+             SQLite ships FTS5 enabled; JGit gives us in-process git ops without subprocess dependency. -->
+        <dependency>
+            <groupId>org.xerial</groupId>
+            <artifactId>sqlite-jdbc</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.jgit</groupId>
+            <artifactId>org.eclipse.jgit</artifactId>
             <optional>true</optional>
         </dependency>
 

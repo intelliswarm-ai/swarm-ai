@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>ai.intelliswarm</groupId>
+        <artifactId>swarmai-parent</artifactId>
+        <version>1.0.24-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>swarmai-native-anthropic</artifactId>
+    <packaging>jar</packaging>
+
+    <name>SwarmAI Native Anthropic Adapter</name>
+    <description>Native Anthropic SDK adapter — prompt caching, extended thinking, inline citations, PDF document blocks, vision, fine-grained tool streaming</description>
+    <url>https://github.com/intelliswarm-ai/swarm-ai</url>
+
+    <scm>
+        <url>https://github.com/intelliswarm-ai/swarm-ai</url>
+        <connection>scm:git:git://github.com/intelliswarm-ai/swarm-ai.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/intelliswarm-ai/swarm-ai.git</developerConnection>
+    </scm>
+
+    <dependencies>
+        <!-- Substrate types: CachePolicy, ThinkingBudget, DocumentBlock, InlineCitation, TokenUsage, CacheUsage -->
+        <dependency>
+            <groupId>ai.intelliswarm</groupId>
+            <artifactId>swarmai-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- Official Anthropic Java SDK -->
+        <dependency>
+            <groupId>com.anthropic</groupId>
+            <artifactId>anthropic-java</artifactId>
+            <version>${anthropic-java.version}</version>
+        </dependency>
+
+        <!-- Logging -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+
+        <!-- JSON for tool schema serialisation -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+
+        <!-- Testing -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

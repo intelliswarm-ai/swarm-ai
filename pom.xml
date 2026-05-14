@@ -7,7 +7,7 @@
 
     <groupId>ai.intelliswarm</groupId>
     <artifactId>swarmai-parent</artifactId>
-    <version>1.0.23-SNAPSHOT</version>
+    <version>1.0.24-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>SwarmAI Parent</name>
@@ -66,6 +66,7 @@
         <module>swarmai-eval</module>
         <module>swarmai-self-improving</module>
         <module>swarmai-distributed</module>
+        <module>swarmai-native-anthropic</module>
     </modules>
 
     <properties>
@@ -83,6 +84,7 @@
         <slf4j.version>2.0.16</slf4j.version>
         <micrometer.version>1.13.6</micrometer.version>
         <reactor.version>3.6.10</reactor.version>
+        <anthropic-java.version>2.32.0</anthropic-java.version>
     </properties>
 
     <dependencyManagement>
@@ -135,6 +137,26 @@
                 <groupId>org.apache.pdfbox</groupId>
                 <artifactId>pdfbox</artifactId>
                 <version>3.0.4</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.poi</groupId>
+                <artifactId>poi</artifactId>
+                <version>5.3.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.poi</groupId>
+                <artifactId>poi-ooxml</artifactId>
+                <version>5.3.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.xerial</groupId>
+                <artifactId>sqlite-jdbc</artifactId>
+                <version>3.46.1.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.eclipse.jgit</groupId>
+                <artifactId>org.eclipse.jgit</artifactId>
+                <version>6.10.0.202406032230-r</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.commons</groupId>
