@@ -81,8 +81,7 @@ class AnthropicNativeClientTest {
         when(mockClient.messages()).thenReturn(mockMessages);
 
         Message stubbed = buildStubbedFinancialResponse();
-        when(mockMessages.create((MessageCreateParams) org.mockito.ArgumentMatchers.any()))
-                .thenReturn(stubbed);
+        stubRawResponse(mockMessages, stubbed, "req_demo_001");
 
         // ----- when: the adapter sends -----
         AnthropicNativeClient adapter = AnthropicNativeClient.withClient(mockClient);
@@ -90,7 +89,7 @@ class AnthropicNativeClientTest {
 
         // ----- then: the request was built correctly -----
         ArgumentCaptor<MessageCreateParams> paramCaptor = ArgumentCaptor.forClass(MessageCreateParams.class);
-        org.mockito.Mockito.verify(mockMessages).create(paramCaptor.capture());
+        org.mockito.Mockito.verify(mockMessages.withRawResponse()).create(paramCaptor.capture());
         MessageCreateParams sent = paramCaptor.getValue();
 
         assertThat(sent.model()).isEqualTo(Model.of(MODEL));
@@ -162,8 +161,7 @@ class AnthropicNativeClientTest {
                 .addContent(toolUse)
                 .usage(minimalUsage(50, 20))
                 .build();
-        when(mockMessages.create((MessageCreateParams) org.mockito.ArgumentMatchers.any()))
-                .thenReturn(msg);
+        stubRawResponse(mockMessages, msg, "req_tool_use_001");
 
         AnthropicResponse resp = AnthropicNativeClient.withClient(mockClient).send(req);
 
@@ -186,21 +184,95 @@ class AnthropicNativeClientTest {
         AnthropicClient mockClient = mock(AnthropicClient.class);
         MessageService mockMessages = mock(MessageService.class);
         when(mockClient.messages()).thenReturn(mockMessages);
-        when(mockMessages.create((MessageCreateParams) org.mockito.ArgumentMatchers.any()))
-                .thenReturn(messageBuilder("msg_final", com.anthropic.models.messages.StopReason.END_TURN)
-                        .addContent(TextBlock.builder()
-                                .text("The answer is 4.")
-                                .citations(java.util.Optional.empty())
-                                .build())
-                        .usage(minimalUsage(60, 8))
-                        .build());
+        Message msg = messageBuilder("msg_final", com.anthropic.models.messages.StopReason.END_TURN)
+                .addContent(TextBlock.builder()
+                        .text("The answer is 4.")
+                        .citations(java.util.Optional.empty())
+                        .build())
+                .usage(minimalUsage(60, 8))
+                .build();
+        stubRawResponse(mockMessages, msg, "req_round_trip_001");
 
         AnthropicResponse resp = AnthropicNativeClient.withClient(mockClient).send(req);
         assertThat(resp.text()).isEqualTo("The answer is 4.");
         assertThat(resp.stopReason()).isEqualTo(StopReason.END_TURN);
     }
 
+    @Test
+    void requestIdFromHeaderTakesPriorityOverMessageId() {
+        // Regression: previously, AnthropicResponse.requestId() returned the
+        // SDK's message id (msg_*) instead of the actual request-id HTTP header
+        // (req_*) — breaking support / audit-trail correlation. With
+        // withRawResponse() we now plumb the header value through.
+        AnthropicRequest req = AnthropicRequest.builder()
+                .model(MODEL)
+                .message(AnthropicMessage.userText("ping"))
+                .build();
+
+        AnthropicClient mockClient = mock(AnthropicClient.class);
+        MessageService mockMessages = mock(MessageService.class);
+        when(mockClient.messages()).thenReturn(mockMessages);
+
+        Message msg = messageBuilder("msg_should_NOT_appear_in_requestId",
+                com.anthropic.models.messages.StopReason.END_TURN)
+                .addContent(TextBlock.builder()
+                        .text("pong")
+                        .citations(java.util.Optional.empty())
+                        .build())
+                .usage(minimalUsage(2, 2))
+                .build();
+        stubRawResponse(mockMessages, msg, "req_actual_header_value");
+
+        AnthropicResponse resp = AnthropicNativeClient.withClient(mockClient).send(req);
+        assertThat(resp.requestId()).isEqualTo("req_actual_header_value");
+        assertThat(resp.requestId()).doesNotStartWith("msg_");
+    }
+
+    @Test
+    void requestIdFallsBackToMessageIdWhenHeaderAbsent() {
+        // When the SDK reports no request-id (Optional.empty()), fall back to
+        // the message id for traceability rather than null.
+        AnthropicRequest req = AnthropicRequest.builder()
+                .model(MODEL)
+                .message(AnthropicMessage.userText("ping"))
+                .build();
+
+        AnthropicClient mockClient = mock(AnthropicClient.class);
+        MessageService mockMessages = mock(MessageService.class);
+        when(mockClient.messages()).thenReturn(mockMessages);
+        Message msg = messageBuilder("msg_fallback_xyz",
+                com.anthropic.models.messages.StopReason.END_TURN)
+                .addContent(TextBlock.builder()
+                        .text("pong")
+                        .citations(java.util.Optional.empty())
+                        .build())
+                .usage(minimalUsage(2, 2))
+                .build();
+        stubRawResponse(mockMessages, msg, null);  // no header
+
+        AnthropicResponse resp = AnthropicNativeClient.withClient(mockClient).send(req);
+        assertThat(resp.requestId()).isEqualTo("msg_fallback_xyz");
+    }
+
     // ---------- Helpers ----------
+
+    /**
+     * Stub the {@code messages().withRawResponse().create(...)} chain so the
+     * production code can read both a parsed {@link Message} and the actual
+     * {@code request-id} HTTP header. Pass {@code requestId == null} to
+     * exercise the Optional.empty fallback path.
+     */
+    @SuppressWarnings("unchecked")
+    private static void stubRawResponse(MessageService mockMessages, Message stubbed, String requestId) {
+        MessageService.WithRawResponse mockRaw = mock(MessageService.WithRawResponse.class);
+        com.anthropic.core.http.HttpResponseFor<Message> mockHttp =
+                mock(com.anthropic.core.http.HttpResponseFor.class);
+        when(mockMessages.withRawResponse()).thenReturn(mockRaw);
+        when(mockRaw.create((MessageCreateParams) org.mockito.ArgumentMatchers.any()))
+                .thenReturn(mockHttp);
+        when(mockHttp.parse()).thenReturn(stubbed);
+        when(mockHttp.requestId()).thenReturn(java.util.Optional.ofNullable(requestId));
+    }
 
     /** SDK's Usage builder validates that every optional slot is explicitly set. */
     private static Usage minimalUsage(long in, long out) {
