@@ -184,8 +184,11 @@ public final class AnthropicNativeClient {
             b.addMessage(mp);
         }
 
-        // Thinking
+        // Thinking — emit thinking.type=enabled with budget_tokens for legacy
+        // models (Sonnet 4.5, Opus 4.1) or thinking.type=adaptive +
+        // output_config.effort for adaptive-only models (Opus 4.7).
         WireMapper.toThinkingConfig(req.thinkingBudget()).ifPresent(b::thinking);
+        WireMapper.toOutputConfig(req.thinkingBudget()).ifPresent(b::outputConfig);
 
         // Beta headers — set via Additional header for now. The SDK exposes beta() but its API
         // shape varies; using additionalHeaders is the most stable opt-in path.
