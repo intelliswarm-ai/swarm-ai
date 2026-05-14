@@ -8,7 +8,7 @@
     <parent>
         <groupId>ai.intelliswarm</groupId>
         <artifactId>swarmai-parent</artifactId>
-        <version>1.0.23-SNAPSHOT</version>
+        <version>1.0.24-SNAPSHOT</version>
     </parent>
 
     <artifactId>swarmai-tools</artifactId>
@@ -59,6 +59,19 @@
             <artifactId>pdfbox</artifactId>
         </dependency>
 
+        <!-- Apache POI for Xlsx/Pptx authoring + audit. Optional because POI pulls
+             ~10 MB; consumers without office-authoring needs shouldn't ship it. -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <optional>true</optional>
+        </dependency>
+
         <!-- CSV processing -->
         <dependency>
             <groupId>org.apache.commons</groupId>
@@ -90,6 +103,27 @@
             <artifactId>spring-data-commons</artifactId>
         </dependency>
 
+        <!-- Explicit compile-scope deps to bypass Maven's nearest-wins rule: the
+             test-scoped spring-boot-starter-data-jpa in this pom would otherwise win
+             over the transitive compile-scope from swarmai-core, downgrading every
+             dep it brings. We re-declare what each tool actually imports. -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-jdbc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-vector-store</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.modelcontextprotocol.sdk</groupId>
+            <artifactId>mcp</artifactId>
+        </dependency>
+
         <!-- Apache Kafka client for KafkaProducerTool -->
         <dependency>
             <groupId>org.apache.kafka</groupId>
@@ -108,6 +142,13 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jpa</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- ChatClient for showcase tests — same transitive-scope issue as the main deps above. -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-client-chat</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
