@@ -310,10 +310,39 @@ final class WireMapper {
         if (!budget.isEnabled()) {
             return Optional.empty();
         }
-        ThinkingConfigEnabled enabled = ThinkingConfigEnabled.builder()
-                .budgetTokens(budget.budgetTokens())
-                .build();
-        return Optional.of(ThinkingConfigParam.ofEnabled(enabled));
+        return switch (budget.mode()) {
+            case DISABLED -> Optional.empty();
+            case ENABLED, INTERLEAVED -> {
+                ThinkingConfigEnabled enabled = ThinkingConfigEnabled.builder()
+                        .budgetTokens(budget.budgetTokens())
+                        .build();
+                yield Optional.of(ThinkingConfigParam.ofEnabled(enabled));
+            }
+            case ADAPTIVE -> Optional.of(ThinkingConfigParam.ofAdaptive(
+                    com.anthropic.models.messages.ThinkingConfigAdaptive.builder().build()));
+        };
+    }
+
+    /**
+     * For ADAPTIVE thinking, the model also wants {@code output_config.effort}
+     * to size its reasoning ceiling. Returns the SDK's {@code OutputConfig}
+     * with the effort enum populated, or {@code Optional.empty()} for other
+     * modes (which use {@code thinking.budget_tokens} instead).
+     */
+    static Optional<com.anthropic.models.messages.OutputConfig> toOutputConfig(ThinkingBudget budget) {
+        if (budget.mode() != ai.intelliswarm.swarmai.agent.llm.ThinkingMode.ADAPTIVE) {
+            return Optional.empty();
+        }
+        com.anthropic.models.messages.OutputConfig.Effort sdkEffort = switch (budget.effort()) {
+            case LOW    -> com.anthropic.models.messages.OutputConfig.Effort.LOW;
+            case MEDIUM -> com.anthropic.models.messages.OutputConfig.Effort.MEDIUM;
+            case HIGH   -> com.anthropic.models.messages.OutputConfig.Effort.HIGH;
+            case XHIGH  -> com.anthropic.models.messages.OutputConfig.Effort.XHIGH;
+            case MAX    -> com.anthropic.models.messages.OutputConfig.Effort.MAX;
+        };
+        return Optional.of(com.anthropic.models.messages.OutputConfig.builder()
+                .effort(sdkEffort)
+                .build());
     }
 
     // ---------- Response parsing ----------
