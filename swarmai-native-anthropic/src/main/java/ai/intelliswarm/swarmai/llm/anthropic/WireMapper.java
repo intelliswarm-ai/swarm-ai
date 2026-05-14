@@ -47,16 +47,22 @@ import java.util.Optional;
  * {@link AnthropicContent}, …) and the Anthropic SDK's wire types
  * ({@link ContentBlockParam}, {@link DocumentBlockParam}, {@link ToolUnion}, …).
  *
- * <p>Package-private. Tests cover this surface directly without booting an
- * HTTP client.
+ * <p><b>Internal API.</b> This class is {@code public} only so the
+ * {@code ai.intelliswarm.swarmai.llm.anthropic.batch} sub-package can reuse
+ * the field-by-field translation that {@link AnthropicNativeClient} performs
+ * on the single-shot path. External callers should not depend on these
+ * helpers — the signatures change in lock-step with the Anthropic SDK and
+ * are not part of the framework's public surface.
+ *
+ * <p>Tests cover this surface directly without booting an HTTP client.
  */
-final class WireMapper {
+public final class WireMapper {
 
     private WireMapper() {}
 
     // ---------- Cache control ----------
 
-    static CacheControlEphemeral toCacheControl(CacheTier tier) {
+    public static CacheControlEphemeral toCacheControl(CacheTier tier) {
         CacheControlEphemeral.Ttl sdkTtl = (tier == CacheTier.ONE_HOUR)
                 ? CacheControlEphemeral.Ttl.TTL_1H
                 : CacheControlEphemeral.Ttl.TTL_5M;
@@ -71,7 +77,7 @@ final class WireMapper {
      * @param messagesCount total messages in the current request
      * @return the resolved index or {@code -1} if the slot doesn't reference messages
      */
-    static int resolveMessageIndex(String slot, int messagesCount) {
+    public static int resolveMessageIndex(String slot, int messagesCount) {
         if (!slot.startsWith("messages:")) {
             return -1;
         }
@@ -93,7 +99,7 @@ final class WireMapper {
 
     // ---------- Documents ----------
 
-    static DocumentBlockParam toDocumentBlockParam(DocumentBlock doc, Optional<CacheControlEphemeral> cache) {
+    public static DocumentBlockParam toDocumentBlockParam(DocumentBlock doc, Optional<CacheControlEphemeral> cache) {
         DocumentBlockParam.Builder b = DocumentBlockParam.builder();
         if (doc.title() != null) {
             b.title(doc.title());
@@ -132,7 +138,7 @@ final class WireMapper {
     // ---------- Tools ----------
 
     /** Translate a server-side tool spec into the SDK's tagged union. */
-    static ToolUnion toServerToolUnion(ServerToolSpec spec) {
+    public static ToolUnion toServerToolUnion(ServerToolSpec spec) {
         return switch (spec) {
             case ServerToolSpec.WebSearch ws -> {
                 com.anthropic.models.messages.WebSearchTool20260209.Builder b =
@@ -157,7 +163,7 @@ final class WireMapper {
         };
     }
 
-    static ToolUnion toToolUnion(AnthropicToolSpec spec, Optional<CacheControlEphemeral> cache) {
+    public static ToolUnion toToolUnion(AnthropicToolSpec spec, Optional<CacheControlEphemeral> cache) {
         Tool.InputSchema schema = buildInputSchema(spec.inputSchema());
         Tool.Builder tb = Tool.builder()
                 .name(spec.name())
@@ -167,7 +173,7 @@ final class WireMapper {
         return ToolUnion.ofTool(tb.build());
     }
 
-    static Tool.InputSchema buildInputSchema(Map<String, Object> schema) {
+    public static Tool.InputSchema buildInputSchema(Map<String, Object> schema) {
         // The SDK's InputSchema has a fixed "type: object" implicit; properties + required are typed.
         // We use putAdditionalProperty to pass through arbitrary JSON schema fields the user supplied
         // (e.g. nested objects, enums, anyOf) without constraining the shape.
@@ -200,7 +206,7 @@ final class WireMapper {
 
     // ---------- Content blocks (request side) ----------
 
-    static ContentBlockParam toContentBlockParam(AnthropicContent content, Optional<CacheControlEphemeral> cache) {
+    public static ContentBlockParam toContentBlockParam(AnthropicContent content, Optional<CacheControlEphemeral> cache) {
         return switch (content) {
             case AnthropicContent.Text t -> {
                 TextBlockParam.Builder b = TextBlockParam.builder().text(t.text());
@@ -273,7 +279,7 @@ final class WireMapper {
 
     // ---------- Messages ----------
 
-    static MessageParam toMessageParam(
+    public static MessageParam toMessageParam(
             AnthropicMessage m,
             List<DocumentBlock> documentsToPrepend,
             Optional<CacheControlEphemeral> lastDocCache,
@@ -306,7 +312,7 @@ final class WireMapper {
 
     // ---------- Thinking ----------
 
-    static Optional<ThinkingConfigParam> toThinkingConfig(ThinkingBudget budget) {
+    public static Optional<ThinkingConfigParam> toThinkingConfig(ThinkingBudget budget) {
         if (!budget.isEnabled()) {
             return Optional.empty();
         }
@@ -329,7 +335,7 @@ final class WireMapper {
      * with the effort enum populated, or {@code Optional.empty()} for other
      * modes (which use {@code thinking.budget_tokens} instead).
      */
-    static Optional<com.anthropic.models.messages.OutputConfig> toOutputConfig(ThinkingBudget budget) {
+    public static Optional<com.anthropic.models.messages.OutputConfig> toOutputConfig(ThinkingBudget budget) {
         if (budget.mode() != ai.intelliswarm.swarmai.agent.llm.ThinkingMode.ADAPTIVE) {
             return Optional.empty();
         }
@@ -347,7 +353,7 @@ final class WireMapper {
 
     // ---------- Response parsing ----------
 
-    static List<AnthropicContent> fromContentBlocks(List<ContentBlock> blocks, List<DocumentBlock> requestDocs) {
+    public static List<AnthropicContent> fromContentBlocks(List<ContentBlock> blocks, List<DocumentBlock> requestDocs) {
         List<AnthropicContent> out = new ArrayList<>(blocks.size());
         for (ContentBlock cb : blocks) {
             if (cb.isText()) {
@@ -377,7 +383,7 @@ final class WireMapper {
         return out;
     }
 
-    static InlineCitation fromTextCitation(TextCitation tc, List<DocumentBlock> requestDocs) {
+    public static InlineCitation fromTextCitation(TextCitation tc, List<DocumentBlock> requestDocs) {
         if (tc.isCharLocation()) {
             CitationCharLocation c = tc.asCharLocation();
             String docId = resolveDocId((int) c.documentIndex(), requestDocs);
@@ -440,7 +446,7 @@ final class WireMapper {
         }
     }
 
-    static TokenUsage fromUsage(Usage usage) {
+    public static TokenUsage fromUsage(Usage usage) {
         long cacheRead = usage.cacheReadInputTokens().orElse(0L);
         long cache5m = 0L;
         long cache1h = 0L;
@@ -469,7 +475,7 @@ final class WireMapper {
                 serverToolOut);
     }
 
-    static StopReason fromStopReason(Optional<com.anthropic.models.messages.StopReason> sdk) {
+    public static StopReason fromStopReason(Optional<com.anthropic.models.messages.StopReason> sdk) {
         if (sdk.isEmpty()) {
             return StopReason.UNKNOWN;
         }
@@ -488,12 +494,12 @@ final class WireMapper {
     // ---------- Slot resolution for cache breakpoints ----------
 
     /** Find the breakpoint whose slot equals {@code slot}, if any. */
-    static Optional<CacheBreakpoint> findBreakpoint(CachePolicy policy, String slot) {
+    public static Optional<CacheBreakpoint> findBreakpoint(CachePolicy policy, String slot) {
         return policy.forSlot(slot);
     }
 
     /** Map a breakpoint to its CacheControlEphemeral, if present. */
-    static Optional<CacheControlEphemeral> cacheFor(CachePolicy policy, String slot) {
+    public static Optional<CacheControlEphemeral> cacheFor(CachePolicy policy, String slot) {
         return findBreakpoint(policy, slot).map(bp -> toCacheControl(bp.tier()));
     }
 }
