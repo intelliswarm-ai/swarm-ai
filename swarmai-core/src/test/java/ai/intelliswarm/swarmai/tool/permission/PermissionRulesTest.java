@@ -130,6 +130,24 @@ class PermissionRulesTest {
                 .isTrue();
     }
 
+    @Test
+    void domainMatchesPathlessUrlsWithQueryOrFragment() {
+        // Regression: extractHost previously stopped only at '/', so a URL like
+        // "https://api.acme.io?x=1" parsed its host as "api.acme.io?x=1" and
+        // domain rules false-negatived. extractHost must also terminate at
+        // '?' and '#'.
+        PermissionRule rule = RuleParser.parse("WebFetch(domain:*.acme.io)");
+        assertThat(rule.matches(
+                PermissionRequest.of("WebFetch", Map.of("url", "https://api.acme.io?x=1"))))
+                .isTrue();
+        assertThat(rule.matches(
+                PermissionRequest.of("WebFetch", Map.of("url", "https://api.acme.io#anchor"))))
+                .isTrue();
+        assertThat(rule.matches(
+                PermissionRequest.of("WebFetch", Map.of("url", "https://api.acme.io"))))
+                .isTrue();
+    }
+
     // ---------- MCP matching ----------
 
     @Test

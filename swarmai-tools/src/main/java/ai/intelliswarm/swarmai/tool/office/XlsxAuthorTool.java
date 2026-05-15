@@ -191,8 +191,12 @@ public class XlsxAuthorTool implements BaseTool {
             result.put("cellsWritten", cellsWritten);
             result.put("formulaCount", formulaCount);
             result.put("hardcodeCount", hardcodeCount);
-            result.put("hardcodeRatio", cellsWritten == 0 ? 0.0
-                    : (double) hardcodeCount / (double) (formulaCount + hardcodeCount));
+            // Guard the divisor explicitly — a sheet of only text/boolean cells
+            // has cellsWritten > 0 but no formulas-or-hardcoded-numerics, which
+            // would otherwise produce NaN and break downstream gating/reporting.
+            int calcCells = formulaCount + hardcodeCount;
+            result.put("hardcodeRatio", calcCells == 0 ? 0.0
+                    : (double) hardcodeCount / (double) calcCells);
             return result;
         } catch (Exception e) {
             log.warn("XlsxAuthor failed", e);

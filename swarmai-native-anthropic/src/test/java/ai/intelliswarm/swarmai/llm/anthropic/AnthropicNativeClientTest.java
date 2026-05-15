@@ -229,6 +229,42 @@ class AnthropicNativeClientTest {
     }
 
     @Test
+    void betaFlagsAreSentAsCommaJoinedAnthropicBetaHeader() {
+        // Regression: AnthropicRequest.Builder#beta(...) used to only log the
+        // requested flags; the SDK never saw them, so server-tool / MCP beta
+        // opt-ins were silently dropped. Verify they're propagated as a single
+        // comma-separated anthropic-beta header (Anthropic's wire format).
+        AnthropicRequest req = AnthropicRequest.builder()
+                .model(MODEL)
+                .message(AnthropicMessage.userText("ping"))
+                .beta("tools-2024-04-04")
+                .beta("computer-use-2025-01-24")
+                .build();
+
+        AnthropicClient mockClient = mock(AnthropicClient.class);
+        MessageService mockMessages = mock(MessageService.class);
+        when(mockClient.messages()).thenReturn(mockMessages);
+        Message msg = messageBuilder("msg_beta_test",
+                com.anthropic.models.messages.StopReason.END_TURN)
+                .addContent(TextBlock.builder()
+                        .text("pong")
+                        .citations(java.util.Optional.empty())
+                        .build())
+                .usage(minimalUsage(2, 2))
+                .build();
+        stubRawResponse(mockMessages, msg, "req_beta_test");
+
+        AnthropicNativeClient.withClient(mockClient).send(req);
+
+        ArgumentCaptor<MessageCreateParams> paramCaptor = ArgumentCaptor.forClass(MessageCreateParams.class);
+        org.mockito.Mockito.verify(mockMessages.withRawResponse()).create(paramCaptor.capture());
+        MessageCreateParams sent = paramCaptor.getValue();
+        List<String> betaHeaderValues = sent._additionalHeaders().values("anthropic-beta");
+        assertThat(betaHeaderValues).hasSize(1);
+        assertThat(betaHeaderValues.get(0)).isEqualTo("tools-2024-04-04,computer-use-2025-01-24");
+    }
+
+    @Test
     void requestIdFallsBackToMessageIdWhenHeaderAbsent() {
         // When the SDK reports no request-id (Optional.empty()), fall back to
         // the message id for traceability rather than null.
