@@ -167,7 +167,14 @@ public final class TurnSnapshotStore implements AutoCloseable {
                         "Cannot restore commit " + commitId
                                 + ": mirror " + mirror.getFileName() + " not present at this commit", null);
             }
-            copyTree(mirror, targetWorkspace.toAbsolutePath().normalize());
+            Path target = targetWorkspace.toAbsolutePath().normalize();
+            // Clear the target before copying so files added after the snapshot
+            // (and absent from the mirror) are removed. Without this step the
+            // restored workspace is a strict superset of the snapshot, leaving
+            // ghost artifacts that downstream turns would mistakenly observe.
+            clearDirectoryContents(target);
+            Files.createDirectories(target);
+            copyTree(mirror, target);
         } catch (GitAPIException | IOException e) {
             throw new SnapshotStoreException("restore failed for commit " + commitId, e);
         }

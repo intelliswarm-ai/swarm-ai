@@ -174,4 +174,32 @@ class TurnSnapshotStoreTest {
             assertThat(restoredB.resolve("only-in-A.txt")).doesNotExist();
         }
     }
+
+    @Test
+    void restoreClearsStaleFilesInNonEmptyTarget(@TempDir Path tempDir) throws Exception {
+        // Regression: restore previously copied the mirror into the target
+        // without first clearing it, so files in the target that were absent
+        // from the snapshot lingered and downstream turns operated on ghost
+        // artifacts. After this fix, restore yields a target that is bit-for-bit
+        // equal to the snapshot.
+        Path workspace = tempDir.resolve("ws");
+        Files.createDirectories(workspace);
+        Files.writeString(workspace.resolve("snapshot-file.txt"), "in snapshot");
+
+        try (TurnSnapshotStore store = new TurnSnapshotStore(tempDir.resolve("store"))) {
+            TurnSnapshot snap = store.snapshot(workspace, "run-1", "captured", 0, Map.of());
+
+            Path target = tempDir.resolve("dirty-target");
+            Files.createDirectories(target);
+            Files.writeString(target.resolve("ghost.txt"), "should be gone after restore");
+            Files.createDirectories(target.resolve("nested"));
+            Files.writeString(target.resolve("nested/also-ghost.txt"), "also gone");
+
+            store.restore(target, snap.commitId());
+
+            assertThat(target.resolve("snapshot-file.txt")).exists();
+            assertThat(target.resolve("ghost.txt")).doesNotExist();
+            assertThat(target.resolve("nested/also-ghost.txt")).doesNotExist();
+        }
+    }
 }

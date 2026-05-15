@@ -81,4 +81,55 @@ class ErrorClassifierTest {
     void nullErrorIsNotRecoverable() {
         assertThat(ErrorClassifier.classify((Throwable) null)).isEqualTo(FailoverReason.NOT_RECOVERABLE);
     }
+
+    /**
+     * Regression for the 1.0.24-SNAPSHOT regression that hard-failed 14/25
+     * judge-all workflows on attempt 1: OpenAI returned an empty response
+     * body, Spring AI surfaced it as RestClientException → HttpMessageNotReadable
+     * → JsonEOFException, the previous classifier missed every keyword and
+     * fell through to NOT_RECOVERABLE → callWithRetry threw without retrying.
+     * Response-side breakage like this is transient: a retry of the same
+     * request typically succeeds, so it must classify as RETRYABLE.
+     */
+    @Test
+    void openAiEmptyResponseBodyChainIsRetryable() {
+        // Build the actual exception chain Spring AI throws on an empty body:
+        //   RestClientException("Error while extracting response …")
+        //     ↳ HttpMessageNotReadableException("JSON parse error: Unexpected end-of-input")
+        //         ↳ JsonEOFException("Unexpected end-of-input: expected close marker for Object")
+        //
+        // We construct concrete instances if the libraries are available; the
+        // classifier matches by class name so this works whether the test
+        // module pulls Spring AI / Jackson on the test classpath or not.
+        Throwable chain;
+        try {
+            Class<?> jsonEof = Class.forName("com.fasterxml.jackson.core.io.JsonEOFException");
+            Throwable eof = (Throwable) jsonEof.getDeclaredConstructor(
+                    com.fasterxml.jackson.core.JsonParser.class,
+                    com.fasterxml.jackson.core.JsonToken.class,
+                    String.class)
+                    .newInstance(null, null,
+                            "Unexpected end-of-input: expected close marker for Object");
+            chain = new RuntimeException("Error while extracting response for type "
+                    + "[org.springframework.ai.openai.api.OpenAiApi$ChatCompletion] "
+                    + "and content type [application/json]", eof);
+        } catch (ReflectiveOperationException e) {
+            // Library not on classpath in this build — simulate the message-
+            // chain shape so the keyword path covers us.
+            chain = new RuntimeException("Error while extracting response for type "
+                    + "[org.springframework.ai.openai.api.OpenAiApi$ChatCompletion] "
+                    + "and content type [application/json]",
+                    new java.io.IOException(
+                            "Unexpected end-of-input: expected close marker for Object"));
+        }
+        assertThat(ErrorClassifier.classify(chain)).isEqualTo(FailoverReason.RETRYABLE);
+    }
+
+    @Test
+    void plainIoExceptionIsRetryable() {
+        // Bare IOException (e.g. broken pipe, connection reset wrapped as IOE)
+        // is response-side and should retry.
+        assertThat(ErrorClassifier.classify(new java.io.IOException("Broken pipe")))
+                .isEqualTo(FailoverReason.RETRYABLE);
+    }
 }

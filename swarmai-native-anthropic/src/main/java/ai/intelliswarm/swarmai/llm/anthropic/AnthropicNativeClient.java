@@ -190,14 +190,14 @@ public final class AnthropicNativeClient {
         WireMapper.toThinkingConfig(req.thinkingBudget()).ifPresent(b::thinking);
         WireMapper.toOutputConfig(req.thinkingBudget()).ifPresent(b::outputConfig);
 
-        // Beta headers — set via Additional header for now. The SDK exposes beta() but its API
-        // shape varies; using additionalHeaders is the most stable opt-in path.
+        // Beta headers — propagate as a single comma-separated `anthropic-beta`
+        // header. The Anthropic API expects one header value with comma-joined
+        // beta flags (e.g. "tools-2024-04-04,computer-use-2025-01-24"); the
+        // SDK's putAdditionalHeader is the stable surface that maps to that
+        // wire format.
         if (!req.betas().isEmpty()) {
-            // The SDK has an `additionalHeaders` builder on MessageCreateParams — but accessing it
-            // is awkward from the public surface. We instead concatenate into anthropic-beta header
-            // via the SDK's _additionalHeaders mechanism in a future iteration; for now log a hint.
-            // (Beta header propagation is finalised in Phase 9 alongside server-tool adapters.)
-            log.debug("Anthropic beta headers requested but not yet propagated: {}", req.betas());
+            String value = String.join(",", req.betas());
+            b.putAdditionalHeader("anthropic-beta", value);
         }
 
         return b.build();

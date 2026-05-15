@@ -1,2 +1,3 @@
 ai.intelliswarm.swarmai.tool.mcp.McpServerAutoConfiguration
 ai.intelliswarm.swarmai.agent.wait.SignalAutoConfiguration
+ai.intelliswarm.swarmai.config.HttpClientCompatConfiguration

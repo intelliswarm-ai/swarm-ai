@@ -159,8 +159,18 @@ public record PermissionRule(String toolName, Specifier specifier) {
                 return null;
             }
             int authStart = schemeEnd + 3;
-            int authEnd = url.indexOf('/', authStart);
-            String authority = (authEnd < 0) ? url.substring(authStart) : url.substring(authStart, authEnd);
+            // Authority ends at the first '/', '?', or '#' — without this,
+            // path-less URLs like "https://api.acme.io?x=1" parse their query
+            // string as part of the host, so domain rules false-negative.
+            int authEnd = url.length();
+            for (int i = authStart; i < url.length(); i++) {
+                char c = url.charAt(i);
+                if (c == '/' || c == '?' || c == '#') {
+                    authEnd = i;
+                    break;
+                }
+            }
+            String authority = url.substring(authStart, authEnd);
             int at = authority.indexOf('@');
             if (at >= 0) {
                 authority = authority.substring(at + 1);

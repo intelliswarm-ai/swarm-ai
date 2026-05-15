@@ -3,6 +3,7 @@ package ai.intelliswarm.swarmai.tool.common;
 import ai.intelliswarm.swarmai.tool.base.BaseTool;
 import ai.intelliswarm.swarmai.tool.base.ToolRequirements;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.client.RestClientException;
@@ -63,7 +64,15 @@ public class WebSearchTool implements BaseTool {
     private static final String SEC_RSS_FEED = "https://www.sec.gov/news/pressreleases.rss";
 
     public WebSearchTool() {
-        this.restTemplate = new RestTemplate();
+        // Bound the HTTP wait — the default RestTemplate has no timeouts and
+        // will block forever if a search backend stops responding (observed
+        // 2026-05-15: an unresponsive search endpoint hung a regression run
+        // for the full 2 h wall clock). 10 s connect + 30 s read is generous
+        // enough for legitimate searches while letting hung calls fail fast.
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(10_000);
+        factory.setReadTimeout(30_000);
+        this.restTemplate = new RestTemplate(factory);
         this.objectMapper = new ObjectMapper();
         this.executorService = Executors.newFixedThreadPool(4);
     }
