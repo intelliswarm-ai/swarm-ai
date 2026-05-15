@@ -149,46 +149,38 @@ public final class AnthropicBatchClient {
     }
 
     /**
-     * Stream the per-item outcomes of an ended batch. The SDK exposes this
-     * as a streaming response (one JSON object per line). We materialise it
-     * into a {@link List} for ergonomics; for very large batches, see
-     * {@link #resultsStreaming(String)}.
+     * Download the per-item outcomes of an ended batch. The SDK exposes this
+     * as a JSON-lines stream backed by a {@link com.anthropic.core.http.StreamResponse}
+     * (AutoCloseable) — we consume the entire stream inside try-with-resources
+     * to guarantee the underlying HTTP body is fully drained before close,
+     * then return a materialised list for ergonomic access.
+     *
+     * <p>For batches with tens of thousands of responses where materialising
+     * the full list would burn memory, see {@link #resultsForEach(String, java.util.function.Consumer)}.
      */
     public List<BatchResult> results(String batchId) {
         List<BatchResult> out = new ArrayList<>();
-        for (BatchResult r : resultsStreaming(batchId)) {
-            out.add(r);
-        }
+        resultsForEach(batchId, out::add);
         return out;
     }
 
     /**
-     * Streaming variant — caller pulls one {@link BatchResult} at a time
-     * without buffering. Use this for batches with tens of thousands of
-     * responses where materialising the full list would burn memory.
+     * Streaming variant — invokes {@code consumer} once per result without
+     * buffering. The underlying {@link com.anthropic.core.http.StreamResponse}
+     * is opened, drained, and closed within this call, so callers don't need
+     * to manage lifecycle.
      */
-    public Iterable<BatchResult> resultsStreaming(String batchId) {
-        return () -> {
-            com.anthropic.core.http.StreamResponse<MessageBatchIndividualResponse> stream;
-            try {
-                stream = client.messages().batches().resultsStreaming(batchId);
-            } catch (RuntimeException e) {
-                throw new AnthropicClientException(
-                        "Anthropic batch results failed: " + e.getMessage(), e, null, null);
+    public void resultsForEach(String batchId, java.util.function.Consumer<BatchResult> consumer) {
+        try (com.anthropic.core.http.StreamResponse<MessageBatchIndividualResponse> stream =
+                     client.messages().batches().resultsStreaming(batchId)) {
+            Iterator<MessageBatchIndividualResponse> it = stream.stream().iterator();
+            while (it.hasNext()) {
+                consumer.accept(toBatchResult(it.next()));
             }
-            Iterator<MessageBatchIndividualResponse> sdkIter = stream.stream().iterator();
-            return new Iterator<>() {
-                @Override
-                public boolean hasNext() {
-                    return sdkIter.hasNext();
-                }
-
-                @Override
-                public BatchResult next() {
-                    return toBatchResult(sdkIter.next());
-                }
-            };
-        };
+        } catch (RuntimeException e) {
+            throw new AnthropicClientException(
+                    "Anthropic batch results failed: " + e.getMessage(), e, null, null);
+        }
     }
 
     /** Permanently delete a finished batch's records server-side. */

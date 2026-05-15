@@ -89,6 +89,28 @@ public class Agent {
     @JsonIgnore
     private ChatClient chatClient;
 
+    /**
+     * Optional provider-neutral LLM SPI. When set, {@link #callLlm} routes
+     * through this client instead of {@link #chatClient}, unlocking native
+     * Anthropic features (prompt caching, extended thinking, adaptive
+     * thinking, citations) that Spring AI's ChatClient doesn't expose.
+     * Tool-bearing calls still fall back to the Spring AI path because the
+     * LlmClient SPI itself doesn't orchestrate the agentic tool loop.
+     */
+    @JsonIgnore
+    private ai.intelliswarm.swarmai.agent.llm.LlmClient llmClient;
+
+    /**
+     * Optional lifecycle-hook registry. When set, {@link Agent} dispatches
+     * {@link ai.intelliswarm.swarmai.agent.hook.LifecycleEvent}s at the
+     * relevant points in the agent loop (UserPromptSubmit before each LLM
+     * call, Stop at the end of executeTask). Hooks can BLOCK to abort or
+     * MODIFY to rewrite event payloads. Default {@code null} = no
+     * lifecycle dispatch (existing behaviour, zero overhead).
+     */
+    @JsonIgnore
+    private ai.intelliswarm.swarmai.agent.hook.LifecycleHookRegistry lifecycleHooks;
+
     @JsonIgnore
     private Memory memory;
 
@@ -124,6 +146,8 @@ public class Agent {
         this.systemTemplate = builder.systemTemplate;
         this.stepCallback = builder.stepCallback;
         this.chatClient = builder.chatClient;
+        this.llmClient = builder.llmClient;
+        this.lifecycleHooks = builder.lifecycleHooks;
         this.memory = builder.memory;
         this.knowledge = builder.knowledge;
         this.modelName = builder.modelName;
@@ -508,6 +532,38 @@ public class Agent {
      * permission level) and wraps dynamic tool execution with registered hooks.
      */
     private ChatResponse callLlm(String systemPrompt, String userPrompt) {
+        // Lifecycle hook dispatch — UserPromptSubmit. Hooks may BLOCK to
+        // veto the call entirely (returning a typed exception) or MODIFY the
+        // prompt (typically for redaction, prompt-injection sanitisation, or
+        // PII scrubbing). When unset, this is a no-op with zero overhead.
+        if (lifecycleHooks != null && lifecycleHooks.size() > 0) {
+            ai.intelliswarm.swarmai.agent.hook.LifecycleEvent.UserPromptSubmit evt =
+                    new ai.intelliswarm.swarmai.agent.hook.LifecycleEvent.UserPromptSubmit(
+                            id, id, java.time.Instant.now(), userPrompt, java.util.Map.of());
+            ai.intelliswarm.swarmai.agent.hook.HookResult hr = lifecycleHooks.dispatch(evt);
+            switch (hr.action()) {
+                case BLOCK -> throw new AgentExecutionException(
+                        "LLM call blocked by lifecycle hook: " + hr.message(), null, id, null);
+                case MODIFY -> {
+                    Object modified = hr.modifiedPayload();
+                    if (modified instanceof String s) {
+                        userPrompt = s;
+                    }
+                }
+                case PROCEED -> { /* no change */ }
+                case ASK -> { /* TODO: surface to AskUserQuestion when wired */ }
+            }
+        }
+
+        // Provider-neutral SPI path: when the caller plugged in an LlmClient
+        // AND this call doesn't need tool-calling (the SPI doesn't orchestrate
+        // tool loops — that's the caller's job), bypass Spring AI entirely.
+        // Returns a synthesised ChatResponse so the rest of Agent (token
+        // extraction, observability, retry logic) keeps working unchanged.
+        if (llmClient != null && getPermittedTools().isEmpty()) {
+            return callLlmViaSpi(systemPrompt, userPrompt);
+        }
+
         var requestBuilder = chatClient.prompt()
                 .system(systemPrompt)
                 .user(userPrompt);
@@ -609,6 +665,63 @@ public class Agent {
         // Failures are not recorded — keeps the window biased toward realistic healthy latencies.
         LATENCY_TRACKER.recordSuccess(latencyKey, System.currentTimeMillis() - callStart);
         return result;
+    }
+
+    /**
+     * LlmClient SPI branch of {@link #callLlm}. Translates Agent's
+     * (systemPrompt, userPrompt) pair into an {@link ai.intelliswarm.swarmai.agent.llm.LlmRequest},
+     * dispatches via the SPI, then synthesises a minimal Spring AI
+     * {@link ChatResponse} so downstream code (token extraction, observability,
+     * the retry/timeout wrapper) sees the same shape it would from the
+     * Spring AI path.
+     */
+    private ChatResponse callLlmViaSpi(String systemPrompt, String userPrompt) {
+        ai.intelliswarm.swarmai.agent.llm.LlmRequest.Builder b =
+                ai.intelliswarm.swarmai.agent.llm.LlmRequest.builder()
+                        .model(modelName != null ? modelName : "default")
+                        .system(systemPrompt)
+                        .message(ai.intelliswarm.swarmai.agent.llm.LlmMessage.user(userPrompt));
+        if (temperature != null) {
+            b.temperature(temperature);
+        }
+        ai.intelliswarm.swarmai.agent.llm.LlmRequest req = b.build();
+
+        String latencyKey = modelName != null ? modelName : "default";
+        int timeoutMs = maxExecutionTime != null
+                ? maxExecutionTime
+                : (int) LATENCY_TRACKER.suggestedTimeoutMs(latencyKey);
+
+        long callStart = System.currentTimeMillis();
+        ai.intelliswarm.swarmai.agent.llm.LlmResponse spiResp =
+                callWithRetry(() -> llmClient.send(req), DEFAULT_MAX_RETRIES, timeoutMs);
+        LATENCY_TRACKER.recordSuccess(latencyKey, System.currentTimeMillis() - callStart);
+
+        return toSpringChatResponse(spiResp);
+    }
+
+    /**
+     * Wrap a substrate {@link ai.intelliswarm.swarmai.agent.llm.LlmResponse}
+     * in a minimal Spring AI {@link ChatResponse} so the rest of {@link Agent}
+     * keeps reading {@code response.getResult().getOutput().getText()} +
+     * {@code response.getMetadata().getUsage()} without branching.
+     */
+    private static ChatResponse toSpringChatResponse(
+            ai.intelliswarm.swarmai.agent.llm.LlmResponse spi) {
+        org.springframework.ai.chat.messages.AssistantMessage msg =
+                new org.springframework.ai.chat.messages.AssistantMessage(spi.text());
+        org.springframework.ai.chat.model.Generation gen =
+                new org.springframework.ai.chat.model.Generation(msg);
+        org.springframework.ai.chat.metadata.ChatResponseMetadata md =
+                org.springframework.ai.chat.metadata.ChatResponseMetadata.builder()
+                        .id(spi.requestId() != null ? spi.requestId() : "")
+                        .model(spi.modelId() != null ? spi.modelId() : "")
+                        .usage(new org.springframework.ai.chat.metadata.DefaultUsage(
+                                Math.toIntExact(spi.tokenUsage().inputTokens()),
+                                Math.toIntExact(spi.tokenUsage().outputTokens()),
+                                Math.toIntExact(spi.tokenUsage().inputTokens()
+                                        + spi.tokenUsage().outputTokens())))
+                        .build();
+        return new ChatResponse(java.util.List.of(gen), md);
     }
 
     /**
@@ -848,7 +961,7 @@ public class Agent {
                 lastException = new AgentExecutionException("LLM call timed out after " + timeoutMs + "ms", e, id, null);
                 if (attempt < maxRetries) {
                     long backoffMs = (long) Math.pow(2, attempt) * 1000;
-                    logger.warn("Agent [{}] LLM call timed out (attempt {}/{}). Retrying in {} ms...",
+                    logger.warn("Agent [{}] LLM call timed out (attempt {}/{}, classifier=RETRYABLE). Retrying in {} ms...",
                             role, attempt, maxRetries, backoffMs);
                     try {
                         Thread.sleep(backoffMs);
@@ -861,19 +974,39 @@ public class Agent {
                 lastException = e;
                 Throwable cause = e.getCause() != null ? e.getCause() : e;
                 String msg = cause.getMessage() != null ? cause.getMessage() : "";
-                if (msg.contains("400") || msg.contains("401") || msg.contains("403")
-                        || msg.contains("context_length_exceeded") || msg.contains("NonTransient")) {
-                    throw new AgentExecutionException("LLM call failed (non-retryable): " + msg, e, id, null);
-                }
-                if (attempt < maxRetries) {
-                    long backoffMs = (long) Math.pow(2, attempt) * 1000;
-                    logger.warn("Agent [{}] LLM call attempt {}/{} failed: {}. Retrying in {} ms...",
-                            role, attempt, maxRetries, cause.getMessage(), backoffMs);
-                    try {
-                        Thread.sleep(backoffMs);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        throw new AgentExecutionException("Interrupted during retry backoff", ie, id, null);
+                // Route classification through the substrate ErrorClassifier so
+                // every retry decision is grounded in the FailoverReason
+                // taxonomy, not ad-hoc string matches.
+                ai.intelliswarm.swarmai.agent.resilience.FailoverReason reason =
+                        ai.intelliswarm.swarmai.agent.resilience.ErrorClassifier.classify(cause);
+                switch (reason) {
+                    case NOT_RECOVERABLE -> throw new AgentExecutionException(
+                            "LLM call failed (classifier=NOT_RECOVERABLE): " + msg, e, id, null);
+                    case SHOULD_COMPRESS -> throw new AgentExecutionException(
+                            "LLM call failed (classifier=SHOULD_COMPRESS — context window exceeded; "
+                                    + "auto-compaction is enabled per-turn but this single call's prompt "
+                                    + "is too long to retry as-is): " + msg, e, id, null);
+                    case SHOULD_ROTATE_CREDENTIAL -> throw new AgentExecutionException(
+                            "LLM call failed (classifier=SHOULD_ROTATE_CREDENTIAL — credential is invalid "
+                                    + "or revoked; retrying won't help until the API key is rotated): "
+                                    + msg, e, id, null);
+                    case RETRYABLE, SHOULD_FALLBACK -> {
+                        // Both fall through to the retry path. SHOULD_FALLBACK in
+                        // a single-provider setup behaves like RETRYABLE; once the
+                        // multi-provider fallback chain lands, this branch will
+                        // route to the next provider instead.
+                        if (attempt < maxRetries) {
+                            long backoffMs = (long) Math.pow(2, attempt) * 1000;
+                            logger.warn("Agent [{}] LLM call attempt {}/{} failed (classifier={}): {}. "
+                                            + "Retrying in {} ms...",
+                                    role, attempt, maxRetries, reason, cause.getMessage(), backoffMs);
+                            try {
+                                Thread.sleep(backoffMs);
+                            } catch (InterruptedException ie) {
+                                Thread.currentThread().interrupt();
+                                throw new AgentExecutionException("Interrupted during retry backoff", ie, id, null);
+                            }
+                        }
                     }
                 }
             }
@@ -1154,6 +1287,8 @@ public class Agent {
         private boolean systemTemplate = false;
         private boolean stepCallback = false;
         private ChatClient chatClient;
+        private ai.intelliswarm.swarmai.agent.llm.LlmClient llmClient;
+        private ai.intelliswarm.swarmai.agent.hook.LifecycleHookRegistry lifecycleHooks;
         private Memory memory;
         private Knowledge knowledge;
         private String modelName;
@@ -1235,6 +1370,32 @@ public class Agent {
 
         public Builder chatClient(ChatClient chatClient) {
             this.chatClient = chatClient;
+            return this;
+        }
+
+        /**
+         * Plug an opt-in {@link ai.intelliswarm.swarmai.agent.llm.LlmClient}
+         * SPI implementation so {@link Agent#callLlm} bypasses Spring AI for
+         * single-shot text-only calls. Use this to unlock native Anthropic
+         * features (prompt caching, extended/adaptive thinking, inline
+         * citations) on agents that don't need Spring AI's tool-call
+         * orchestration. The Spring AI path remains the fallback for
+         * tool-bearing calls and for streaming.
+         */
+        public Builder llmClient(ai.intelliswarm.swarmai.agent.llm.LlmClient llmClient) {
+            this.llmClient = llmClient;
+            return this;
+        }
+
+        /**
+         * Plug a {@link ai.intelliswarm.swarmai.agent.hook.LifecycleHookRegistry}
+         * so the agent dispatches lifecycle events (UserPromptSubmit, Stop, …)
+         * during {@link Agent#executeTask}. Hooks can BLOCK to abort or
+         * MODIFY to rewrite event payloads. Default: no dispatch.
+         */
+        public Builder lifecycleHookRegistry(
+                ai.intelliswarm.swarmai.agent.hook.LifecycleHookRegistry registry) {
+            this.lifecycleHooks = registry;
             return this;
         }
 
@@ -1394,6 +1555,7 @@ public class Agent {
             .goal(this.goal)
             .backstory(this.backstory)
             .chatClient(this.chatClient)
+            .llmClient(this.llmClient)
             .tools(allTools)
             .verbose(this.verbose)
             .allowDelegation(this.allowDelegation)
