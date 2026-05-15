@@ -51,6 +51,20 @@
             <artifactId>spring-boot-starter-aop</artifactId>
         </dependency>
 
+        <!-- Apache HttpClient 5 — present on classpath makes Spring's RestClient
+             auto-pick HttpComponentsClientHttpRequestFactory (HTTP/1.1 + Content-Length)
+             instead of the JDK's java.net.http.HttpClient (HTTP/2 + chunked framing).
+             OpenAI's edge cuts the response stream short on some HTTP/2 + chunked
+             tool-call requests (observed reproducibly under WSL + JDK 21.0.10 since
+             May 14 2026), which surfaced to Agent as repeated JsonEOFException across
+             every retry. With Apache HttpClient on classpath the request uses HTTP/1.1
+             with an explicit Content-Length header and OpenAI returns the body cleanly.
+             Backward compatible: no API change, just an additional transitive jar. -->
+        <dependency>
+            <groupId>org.apache.httpcomponents.client5</groupId>
+            <artifactId>httpclient5</artifactId>
+        </dependency>
+
         <!-- Spring AI -->
         <dependency>
             <groupId>org.springframework.ai</groupId>

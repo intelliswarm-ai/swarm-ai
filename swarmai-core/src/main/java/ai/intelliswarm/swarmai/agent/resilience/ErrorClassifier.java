@@ -64,6 +64,24 @@ public final class ErrorClassifier {
                     || t instanceof SSLException) {
                 return FailoverReason.RETRYABLE;
             }
+            // Response-side breakage — request reached the server but the
+            // response body was malformed, truncated, or couldn't be deserialised.
+            // Classic OpenAI empty-body / streaming-cut situations surface here
+            // as Spring AI's RestClientException → HttpMessageNotReadableException
+            // → Jackson's JsonProcessingException. These are transient: a retry
+            // of the same request often succeeds. Treating them as
+            // NOT_RECOVERABLE was the source of the 1.0.24-SNAPSHOT regression
+            // where 14/25 judge-all workflows hard-failed on attempt 1.
+            if (t instanceof java.io.IOException) {
+                return FailoverReason.RETRYABLE;
+            }
+            if (isInstanceOfByName(t,
+                    "org.springframework.web.client.RestClientException",
+                    "org.springframework.http.converter.HttpMessageNotReadableException",
+                    "com.fasterxml.jackson.core.JsonProcessingException",
+                    "com.fasterxml.jackson.core.io.JsonEOFException")) {
+                return FailoverReason.RETRYABLE;
+            }
             String msg = t.getMessage();
             if (msg != null) {
                 String lower = msg.toLowerCase(Locale.ROOT);
@@ -76,6 +94,20 @@ public final class ErrorClassifier {
             if (t == t.getCause()) break;
         }
         return FailoverReason.NOT_RECOVERABLE;
+    }
+
+    /**
+     * String-based instanceof check so swarmai-core doesn't need a compile-time
+     * dependency on Spring AI / Jackson just to classify their exceptions.
+     */
+    private static boolean isInstanceOfByName(Throwable t, String... fullyQualifiedNames) {
+        for (Class<?> c = t.getClass(); c != null && c != Object.class; c = c.getSuperclass()) {
+            String name = c.getName();
+            for (String fqn : fullyQualifiedNames) {
+                if (name.equals(fqn)) return true;
+            }
+        }
+        return false;
     }
 
     private static boolean mentionsContextWindow(String msg) {

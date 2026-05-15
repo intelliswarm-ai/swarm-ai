@@ -41,7 +41,17 @@ import java.util.function.Supplier;
 public class Agent {
 
     private static final Logger logger = LoggerFactory.getLogger(Agent.class);
-    private static final int DEFAULT_MAX_RETRIES = 3;
+    /**
+     * Maximum LLM-call attempts before {@link #callWithRetry} gives up.
+     * Bumped from 3 → 5 in 1.0.24-SNAPSHOT after observing that some
+     * upstream providers (notably OpenAI) intermittently return HTTP 200
+     * with empty response bodies in bursts longer than 3 attempts × 6 s
+     * exponential backoff. 5 attempts gives the framework enough room to
+     * ride out the worst sustained flake we've observed without forcing
+     * users to set a per-agent override. Backoff sequence is now
+     * 2 s / 4 s / 8 s / 16 s = 30 s wall ceiling per call.
+     */
+    private static final int DEFAULT_MAX_RETRIES = 5;
     private static final int DEFAULT_TIMEOUT_MS = 300_000; // 5 minutes — used as cold-start fallback
 
     /**
@@ -974,39 +984,40 @@ public class Agent {
                 lastException = e;
                 Throwable cause = e.getCause() != null ? e.getCause() : e;
                 String msg = cause.getMessage() != null ? cause.getMessage() : "";
-                // Route classification through the substrate ErrorClassifier so
-                // every retry decision is grounded in the FailoverReason
-                // taxonomy, not ad-hoc string matches.
+
+                // Backward-compatible retry rule (matches pre-1.0.24 1.0.16 baseline):
+                // fail-fast ONLY on confirmed-non-retryable client errors that have
+                // proven impossible to recover from via retry. Everything else
+                // retries up to maxRetries with exponential backoff. This wide-net
+                // retry is what the May-2026 regression baseline showed succeeding
+                // on 24/24 workflows; replacing it with classifier-driven throws
+                // (the brief 1.0.24-SNAPSHOT-pre-fix shape) made transient OpenAI
+                // empty-body responses hard-fail on attempt 1.
+                //
+                // The ErrorClassifier output is computed here for observability
+                // and for downstream lifecycle hooks (compression-on-context-overflow,
+                // credential rotation, multi-provider fallback) but is NOT used
+                // to suppress retries. Hooks that want to act on the reason can
+                // observe it via logs / a future ErrorClassifiedEvent.
                 ai.intelliswarm.swarmai.agent.resilience.FailoverReason reason =
                         ai.intelliswarm.swarmai.agent.resilience.ErrorClassifier.classify(cause);
-                switch (reason) {
-                    case NOT_RECOVERABLE -> throw new AgentExecutionException(
-                            "LLM call failed (classifier=NOT_RECOVERABLE): " + msg, e, id, null);
-                    case SHOULD_COMPRESS -> throw new AgentExecutionException(
-                            "LLM call failed (classifier=SHOULD_COMPRESS — context window exceeded; "
-                                    + "auto-compaction is enabled per-turn but this single call's prompt "
-                                    + "is too long to retry as-is): " + msg, e, id, null);
-                    case SHOULD_ROTATE_CREDENTIAL -> throw new AgentExecutionException(
-                            "LLM call failed (classifier=SHOULD_ROTATE_CREDENTIAL — credential is invalid "
-                                    + "or revoked; retrying won't help until the API key is rotated): "
-                                    + msg, e, id, null);
-                    case RETRYABLE, SHOULD_FALLBACK -> {
-                        // Both fall through to the retry path. SHOULD_FALLBACK in
-                        // a single-provider setup behaves like RETRYABLE; once the
-                        // multi-provider fallback chain lands, this branch will
-                        // route to the next provider instead.
-                        if (attempt < maxRetries) {
-                            long backoffMs = (long) Math.pow(2, attempt) * 1000;
-                            logger.warn("Agent [{}] LLM call attempt {}/{} failed (classifier={}): {}. "
-                                            + "Retrying in {} ms...",
-                                    role, attempt, maxRetries, reason, cause.getMessage(), backoffMs);
-                            try {
-                                Thread.sleep(backoffMs);
-                            } catch (InterruptedException ie) {
-                                Thread.currentThread().interrupt();
-                                throw new AgentExecutionException("Interrupted during retry backoff", ie, id, null);
-                            }
-                        }
+
+                if (msg.contains("400") || msg.contains("401") || msg.contains("403")
+                        || msg.contains("context_length_exceeded") || msg.contains("NonTransient")) {
+                    throw new AgentExecutionException(
+                            "LLM call failed (non-retryable, classifier=" + reason + "): " + msg,
+                            e, id, null);
+                }
+                if (attempt < maxRetries) {
+                    long backoffMs = (long) Math.pow(2, attempt) * 1000;
+                    logger.warn("Agent [{}] LLM call attempt {}/{} failed (classifier={}): {}. "
+                                    + "Retrying in {} ms...",
+                            role, attempt, maxRetries, reason, cause.getMessage(), backoffMs);
+                    try {
+                        Thread.sleep(backoffMs);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new AgentExecutionException("Interrupted during retry backoff", ie, id, null);
                     }
                 }
             }
