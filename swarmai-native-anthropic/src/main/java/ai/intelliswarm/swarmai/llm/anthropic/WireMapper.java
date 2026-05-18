@@ -426,23 +426,73 @@ public final class WireMapper {
     }
 
     private static Map<String, Object> toolUseInputToMap(JsonField<?> input) {
-        Object raw = input.toString();
-        // The SDK exposes the parsed input via Message.content() → ToolUseBlock — the
-        // value is a JsonValue (untyped). For Phase 1 we serialize via the SDK's
-        // JsonValue mapping, which the agent runtime can re-deserialize into typed args.
-        if (input.isMissing()) {
+        // The SDK exposes the parsed tool_use input as JsonField on the
+        // ToolUseBlock. The right extraction depends on whether the value
+        // arrived through the typed deserialiser or the generic JSON path:
+        //
+        //   1. asObject() — when the input is a JSON object (the common case for
+        //      tool calls). Returns a Map<String, JsonValue>; convert each
+        //      JsonValue to a real Java object via JsonValue#convert.
+        //   2. asKnown() — when the SDK's typed mapping resolved to a Java Map.
+        //   3. asUnknown() — last-resort JsonValue we convert via Jackson.
+        //
+        // Returning {"raw", input.toString()} (the previous fallback) is harmful:
+        // it hands the agent loop a single-key map of Java Map.toString() form
+        // like {"raw": "{pattern=class X}"}, which then fails every tool call
+        // because the real argument names are lost.
+        if (input == null || input.isMissing() || input.isNull()) {
             return Map.of();
         }
+
+        // Preferred path: input is a JSON object.
+        java.util.Optional<java.util.Map<String, JsonValue>> obj = input.asObject();
+        if (obj.isPresent()) {
+            java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+            for (java.util.Map.Entry<String, JsonValue> e : obj.get().entrySet()) {
+                out.put(e.getKey(), convertJsonValue(e.getValue()));
+            }
+            return java.util.Collections.unmodifiableMap(out);
+        }
+
+        // Typed-known path: the SDK has already mapped to a Java type.
         try {
-            Object jsonObj = input.asKnown().get();
-            if (jsonObj instanceof Map<?, ?> mapVal) {
+            if (input.asKnown().isPresent()) {
+                Object known = input.asKnown().get();
+                if (known instanceof Map<?, ?> mapVal) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> typed = (Map<String, Object>) mapVal;
+                    return Map.copyOf(typed);
+                }
+                return Map.of("value", known);
+            }
+        } catch (RuntimeException ignore) {
+            // fall through to the unknown path
+        }
+
+        // Unknown-value path: convert the generic JsonValue via Jackson.
+        java.util.Optional<JsonValue> unknown = input.asUnknown();
+        if (unknown.isPresent()) {
+            Object converted = convertJsonValue(unknown.get());
+            if (converted instanceof Map<?, ?> mapVal) {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> typed = (Map<String, Object>) mapVal;
                 return Map.copyOf(typed);
             }
-            return Map.of("value", jsonObj);
-        } catch (Exception ignore) {
-            return Map.of("raw", raw);
+            return Map.of("value", converted);
+        }
+
+        return Map.of();
+    }
+
+    /** Convert an SDK {@link JsonValue} to a plain Java Object via Jackson. */
+    private static Object convertJsonValue(JsonValue value) {
+        if (value == null) return null;
+        try {
+            return value.convert(Object.class);
+        } catch (RuntimeException e) {
+            // Fall back to a string representation — preserves audit trail
+            // without breaking the caller. Should never happen with valid JSON.
+            return value.toString();
         }
     }
 
