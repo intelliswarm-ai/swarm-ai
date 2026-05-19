@@ -140,6 +140,16 @@ public final class LlmPricingModel {
     }
 
     /**
+     * Total billable input as if nothing were cached — useful for fair
+     * model-to-model comparisons that should ignore the caching advantage.
+     *
+     * @since 1.0.25
+     */
+    public static long effectiveInputTokens(long promptTokens, long cacheWriteTokens, long cacheReadTokens) {
+        return promptTokens + cacheWriteTokens + cacheReadTokens;
+    }
+
+    /**
      * Cache hit rate: fraction of total input tokens served from the prompt cache.
      * Returns 0.0 when no input tokens were spent.
      *
