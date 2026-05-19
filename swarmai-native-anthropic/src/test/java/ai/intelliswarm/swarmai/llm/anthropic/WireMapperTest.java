@@ -5,11 +5,14 @@ import ai.intelliswarm.swarmai.agent.llm.CachePolicy;
 import ai.intelliswarm.swarmai.agent.llm.CacheTier;
 import ai.intelliswarm.swarmai.agent.llm.DocumentBlock;
 import ai.intelliswarm.swarmai.agent.llm.ThinkingBudget;
+import com.anthropic.core.JsonField;
 import com.anthropic.models.messages.CacheControlEphemeral;
 import com.anthropic.models.messages.DocumentBlockParam;
 import com.anthropic.models.messages.ToolUnion;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -160,5 +163,51 @@ class WireMapperTest {
         assertThat(cfg).isPresent();
         assertThat(cfg.get().enabled()).isPresent();
         assertThat(cfg.get().enabled().get().budgetTokens()).isEqualTo(4096L);
+    }
+
+    // ---------- toolUseInputToMap null-value resilience (codex P2) ----------
+
+    @Test
+    void toolUseInputToMap_asKnown_mapWithNullValue_doesNotThrow() {
+        // Regression: Map.copyOf rejects null values, but tool args may include
+        // JSON nulls. The asKnown branch must round-trip cleanly.
+        Map<String, Object> args = new HashMap<>();
+        args.put("path", "foo.py");
+        args.put("optional_flag", null);
+        JsonField<Map<String, Object>> field = JsonField.of(args);
+
+        Map<String, Object> out = WireMapper.toolUseInputToMap(field);
+
+        assertThat(out).containsEntry("path", "foo.py");
+        assertThat(out).containsKey("optional_flag");
+        assertThat(out.get("optional_flag")).isNull();
+    }
+
+    @Test
+    void toolUseInputToMap_asKnown_singletonMapWithNullValue_doesNotThrow() {
+        // The narrowest form: one-entry map whose only value is null.
+        JsonField<Map<String, Object>> field = JsonField.of(
+                Collections.singletonMap("flag", null));
+
+        Map<String, Object> out = WireMapper.toolUseInputToMap(field);
+
+        assertThat(out).hasSize(1).containsKey("flag");
+        assertThat(out.get("flag")).isNull();
+    }
+
+    @Test
+    void toolUseInputToMap_missingOrNullInput_returnsEmptyMap() {
+        assertThat(WireMapper.toolUseInputToMap(JsonField.ofNullable(null))).isEmpty();
+    }
+
+    @Test
+    void toolUseInputToMap_asKnown_normalArgsStillWork() {
+        // Sanity: the regular happy path is unaffected by the null-safety fix.
+        JsonField<Map<String, Object>> field = JsonField.of(
+                Map.of("pattern", "class .*", "limit", 10));
+
+        Map<String, Object> out = WireMapper.toolUseInputToMap(field);
+
+        assertThat(out).containsEntry("pattern", "class .*").containsEntry("limit", 10);
     }
 }

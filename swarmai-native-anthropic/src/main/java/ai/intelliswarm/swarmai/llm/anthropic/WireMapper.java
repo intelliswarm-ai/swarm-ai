@@ -425,7 +425,9 @@ public final class WireMapper {
         return "doc:" + sdkIndex;
     }
 
-    private static Map<String, Object> toolUseInputToMap(JsonField<?> input) {
+    // package-private so WireMapperTest can drive the null-safety regressions
+    // without a full Anthropic Message round-trip.
+    static Map<String, Object> toolUseInputToMap(JsonField<?> input) {
         // The SDK exposes the parsed tool_use input as JsonField on the
         // ToolUseBlock. The right extraction depends on whether the value
         // arrived through the typed deserialiser or the generic JSON path:
@@ -455,15 +457,17 @@ public final class WireMapper {
         }
 
         // Typed-known path: the SDK has already mapped to a Java type.
+        // NOTE: do NOT use Map.copyOf — it rejects null keys/values, but a tool
+        // call may legitimately include {"x": null} (JSON null is valid args).
         try {
             if (input.asKnown().isPresent()) {
                 Object known = input.asKnown().get();
                 if (known instanceof Map<?, ?> mapVal) {
                     @SuppressWarnings("unchecked")
                     Map<String, Object> typed = (Map<String, Object>) mapVal;
-                    return Map.copyOf(typed);
+                    return java.util.Collections.unmodifiableMap(new java.util.LinkedHashMap<>(typed));
                 }
-                return Map.of("value", known);
+                return java.util.Collections.singletonMap("value", known);
             }
         } catch (RuntimeException ignore) {
             // fall through to the unknown path
@@ -476,9 +480,9 @@ public final class WireMapper {
             if (converted instanceof Map<?, ?> mapVal) {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> typed = (Map<String, Object>) mapVal;
-                return Map.copyOf(typed);
+                return java.util.Collections.unmodifiableMap(new java.util.LinkedHashMap<>(typed));
             }
-            return Map.of("value", converted);
+            return java.util.Collections.singletonMap("value", converted);
         }
 
         return Map.of();

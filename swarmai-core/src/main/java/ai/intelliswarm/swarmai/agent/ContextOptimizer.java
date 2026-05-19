@@ -54,6 +54,13 @@ public final class ContextOptimizer {
      * collapsed to short stubs. Preserves message count + ids — only content
      * of the duplicate TOOL messages is shortened. Returns the original list
      * unchanged when no duplicates are found.
+     *
+     * <p>Safety: even when (tool, args) match across two calls, the older
+     * result is only stubbed when its <em>content</em> is byte-identical to the
+     * newest one. That guards against the case where state changed between
+     * calls — a {@code file_read} repeated after a {@code file_edit} produces
+     * the same fingerprint but different content, and we must keep both
+     * snapshots so subsequent turns can reason about the change.
      */
     public static List<LlmMessage> deduplicateToolResults(List<LlmMessage> messages) {
         if (messages == null || messages.size() < 4) return messages;
@@ -70,20 +77,25 @@ public final class ContextOptimizer {
         }
         if (idToFingerprint.isEmpty()) return messages;
 
-        // Pass 2: walk in reverse, keep the LATEST occurrence of each
-        // fingerprint, mark earlier ones as duplicates.
-        Set<String> seenFingerprints = new HashSet<>();
+        // Pass 2: walk in reverse. For each fingerprint, remember the NEWEST
+        // result's content. Older results with the same fingerprint are only
+        // marked as duplicates when their content is byte-identical — different
+        // content means state changed between calls and both snapshots matter.
+        Map<String, String> newestContentByFingerprint = new HashMap<>();
         Set<String> duplicateIds = new HashSet<>();
         for (int i = messages.size() - 1; i >= 0; i--) {
             LlmMessage m = messages.get(i);
             if (m.role() != LlmRole.TOOL) continue;
             String fp = idToFingerprint.get(m.toolUseId());
             if (fp == null) continue;
-            if (seenFingerprints.contains(fp)) {
+            String content = m.content() == null ? "" : m.content();
+            String newest = newestContentByFingerprint.get(fp);
+            if (newest == null) {
+                newestContentByFingerprint.put(fp, content);
+            } else if (newest.equals(content)) {
                 duplicateIds.add(m.toolUseId());
-            } else {
-                seenFingerprints.add(fp);
             }
+            // else: same call, different output → state changed; keep both.
         }
         if (duplicateIds.isEmpty()) return messages;
 

@@ -27,28 +27,32 @@ class ContextOptimizerTest {
 
     @Test
     void replacesOlderDuplicateReadOnlyResultWithStub() {
+        // Same call → same content → safe to dedupe the older snapshot.
+        // (If content differed, the keepBothWhenStateChangedBetweenReads test
+        // covers the opposite branch.)
+        String body = "<big contents 500 chars>";
         var history = List.of(
                 LlmMessage.user("read foo.py"),
                 LlmMessage.assistantWithToolCalls("ok", List.of(
                         new LlmToolCall("t1", "file_read", Map.of("path", "foo.py")))),
-                LlmMessage.toolResult("t1", "<big contents 500 chars>"),
-                LlmMessage.user("edit then re-read"),
+                LlmMessage.toolResult("t1", body),
+                LlmMessage.user("re-read to confirm"),
                 LlmMessage.assistantWithToolCalls("ok", List.of(
                         new LlmToolCall("t2", "file_read", Map.of("path", "foo.py")))),
-                LlmMessage.toolResult("t2", "<big contents 500 chars again>"));
+                LlmMessage.toolResult("t2", body));
 
         var out = ContextOptimizer.deduplicateToolResults(history);
         assertNotSame(history, out);
         assertEquals(history.size(), out.size(), "message count preserved");
 
-        // t1 (the older one) becomes a stub
+        // t1 (older) becomes a stub
         assertEquals(LlmRole.TOOL, out.get(2).role());
         assertEquals("t1", out.get(2).toolUseId());
         assertTrue(out.get(2).content().contains("de-duplicated"),
                 "older identical read becomes a stub, got: " + out.get(2).content());
 
-        // t2 (the newer one) is preserved verbatim
-        assertEquals("<big contents 500 chars again>", out.get(5).content());
+        // t2 (newer) is preserved verbatim
+        assertEquals(body, out.get(5).content());
     }
 
     @Test
@@ -96,6 +100,62 @@ class ContextOptimizerTest {
     void estimateBytesSavedZeroWhenSameList() {
         var h = List.of(LlmMessage.user("hello"));
         assertEquals(0, ContextOptimizer.estimateBytesSaved(h, h));
+    }
+
+    @Test
+    @DisplayName("regression: same args but DIFFERENT result → both kept (state changed)")
+    void keepBothWhenStateChangedBetweenReads() {
+        // file_read X → file_edit X → file_read X again. The two reads have the
+        // same fingerprint, but their content differs because the file was
+        // edited between calls. The optimizer must preserve both snapshots.
+        var history = List.of(
+                LlmMessage.user("read foo.py"),
+                LlmMessage.assistantWithToolCalls("ok", List.of(
+                        new LlmToolCall("t1", "file_read", Map.of("path", "foo.py")))),
+                LlmMessage.toolResult("t1", "ORIGINAL contents of foo.py"),
+                LlmMessage.user("edit then re-read"),
+                LlmMessage.assistantWithToolCalls("ok", List.of(
+                        new LlmToolCall("t2", "file_read", Map.of("path", "foo.py")))),
+                LlmMessage.toolResult("t2", "EDITED contents of foo.py"));
+
+        var out = ContextOptimizer.deduplicateToolResults(history);
+        assertSame(history, out, "different content with same fingerprint must NOT be deduped");
+    }
+
+    @Test
+    @DisplayName("regression: bg_output growing over time → older snapshot preserved")
+    void keepBothWhenBgOutputGrows() {
+        var history = List.of(
+                LlmMessage.user("poll"),
+                LlmMessage.assistantWithToolCalls("", List.of(
+                        new LlmToolCall("t1", "bg_output", Map.of("job_id", "j1")))),
+                LlmMessage.toolResult("t1", "[stdout]\nstarting...\n"),
+                LlmMessage.user("poll again"),
+                LlmMessage.assistantWithToolCalls("", List.of(
+                        new LlmToolCall("t2", "bg_output", Map.of("job_id", "j1")))),
+                LlmMessage.toolResult("t2", "[stdout]\nstarting...\nworking...\ndone\n"));
+
+        var out = ContextOptimizer.deduplicateToolResults(history);
+        assertSame(history, out, "bg_output growth must not be stubbed away");
+    }
+
+    @Test
+    @DisplayName("identical reads of an unchanged file ARE still deduped (the happy path)")
+    void stillDedupesWhenContentIdentical() {
+        var history = List.of(
+                LlmMessage.user("read"),
+                LlmMessage.assistantWithToolCalls("ok", List.of(
+                        new LlmToolCall("t1", "file_read", Map.of("path", "foo.py")))),
+                LlmMessage.toolResult("t1", "same bytes"),
+                LlmMessage.user("read again to confirm"),
+                LlmMessage.assistantWithToolCalls("ok", List.of(
+                        new LlmToolCall("t2", "file_read", Map.of("path", "foo.py")))),
+                LlmMessage.toolResult("t2", "same bytes"));
+
+        var out = ContextOptimizer.deduplicateToolResults(history);
+        assertNotSame(history, out);
+        assertTrue(out.get(2).content().contains("de-duplicated"));
+        assertEquals("same bytes", out.get(5).content());
     }
 
     @Test
