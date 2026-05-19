@@ -33,12 +33,22 @@ public class InMemoryBudgetTracker implements BudgetTracker {
 
     @Override
     public void recordUsage(String workflowId, long promptTokens, long completionTokens, String modelName) {
+        recordUsage(workflowId, promptTokens, 0L, 0L, completionTokens, modelName);
+    }
+
+    @Override
+    public void recordUsage(String workflowId, long promptTokens, long cacheWriteTokens,
+                            long cacheReadTokens, long completionTokens, String modelName) {
         WorkflowBudgetState state = getOrCreateState(workflowId);
 
-        state.promptTokensUsed.addAndGet(promptTokens);
+        // All input-side tokens count against the token budget — caching saves $$,
+        // not tokens. promptTokens here is the SUM so existing maxTotalTokens semantics
+        // still match what providers report on the wire.
+        state.promptTokensUsed.addAndGet(promptTokens + cacheWriteTokens + cacheReadTokens);
         state.completionTokensUsed.addAndGet(completionTokens);
 
-        double callCost = LlmPricingModel.calculateCost(promptTokens, completionTokens, modelName);
+        double callCost = LlmPricingModel.calculateCost(
+                promptTokens, cacheWriteTokens, cacheReadTokens, completionTokens, modelName);
         synchronized (state.costLock) {
             state.estimatedCostUsd += callCost;
         }
