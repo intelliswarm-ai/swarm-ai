@@ -25,6 +25,24 @@ public interface BudgetTracker {
     void recordUsage(String workflowId, long promptTokens, long completionTokens, String modelName);
 
     /**
+     * Records a single LLM call's token usage including prompt-cache breakdown
+     * (cache-write + cache-read). Cost is calculated via the 4-tier overload of
+     * {@link LlmPricingModel#calculateCost(long, long, long, long, String)} so that
+     * Anthropic prompt-caching savings show up correctly on the snapshot.
+     *
+     * <p>The default implementation forwards to the legacy 2-tier method by summing
+     * all input-side tokens — implementations that want accurate cache-aware
+     * accounting should override this method.
+     *
+     * @since 1.0.25
+     */
+    default void recordUsage(String workflowId, long promptTokens, long cacheWriteTokens,
+                             long cacheReadTokens, long completionTokens, String modelName) {
+        recordUsage(workflowId, promptTokens + cacheWriteTokens + cacheReadTokens,
+                completionTokens, modelName);
+    }
+
+    /**
      * Returns a point-in-time snapshot of budget usage for the given workflow.
      *
      * @param workflowId identifier of the workflow
