@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * We don't actually invoke real test runners here — that would require mvn,
  * gradle, npm, pytest, cargo and go all installed on the box.
  */
-@DisplayName("TestRunnerTool — auto-detect + argv (1.0.25)")
+@DisplayName("TestRunnerTool — auto-detect + argv (1.0.26)")
 class TestRunnerToolTest {
 
     @TempDir Path tmp;

@@ -31,9 +31,9 @@ import java.util.concurrent.TimeUnit;
  * passed via {@link ProcessBuilder}, so there is no string interpolation into
  * a shell.
  *
- * @since 1.0.25
+ * @since 1.0.26
  */
-@PublicApi(since = "1.0.25")
+@PublicApi(since = "1.0.26")
 @Component
 public class GitTool implements BaseTool {
 

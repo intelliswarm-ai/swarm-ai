@@ -29,9 +29,9 @@ import java.util.regex.Pattern;
  *       (requires {@code target})</li>
  * </ul>
  *
- * @since 1.0.25
+ * @since 1.0.26
  */
-@PublicApi(since = "1.0.25")
+@PublicApi(since = "1.0.26")
 @Component
 public class DependencyTool implements BaseTool {
 

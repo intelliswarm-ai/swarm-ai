@@ -12,7 +12,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@DisplayName("DependencyTool — auto-detect + argv (1.0.25)")
+@DisplayName("DependencyTool — auto-detect + argv (1.0.26)")
 class DependencyToolTest {
 
     @TempDir Path tmp;

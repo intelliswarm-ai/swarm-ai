@@ -34,9 +34,9 @@ import java.util.concurrent.TimeUnit;
  *   <li>{@code pom.xml} → {@code mvn spotless:apply} (or spotless:check)</li>
  * </ul>
  *
- * @since 1.0.25
+ * @since 1.0.26
  */
-@PublicApi(since = "1.0.25")
+@PublicApi(since = "1.0.26")
 @Component
 public class FormatterTool implements BaseTool {
 

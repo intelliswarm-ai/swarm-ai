@@ -35,9 +35,9 @@ import java.util.Set;
  * and just collapses the obvious duplicates. Use the optimizer per-turn (fast,
  * no LLM call); use the compactor periodically (slow, costs an LLM call).
  *
- * @since 1.0.25
+ * @since 1.0.26
  */
-@PublicApi(since = "1.0.25")
+@PublicApi(since = "1.0.26")
 public final class ContextOptimizer {
 
     private static final Set<String> READ_ONLY_TOOLS = Set.of(

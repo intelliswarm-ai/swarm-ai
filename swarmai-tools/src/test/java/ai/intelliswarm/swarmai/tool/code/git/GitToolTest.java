@@ -16,7 +16,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
-@DisplayName("GitTool — read-only git operations (1.0.25)")
+@DisplayName("GitTool — read-only git operations (1.0.26)")
 @EnabledOnOs({OS.LINUX, OS.MAC, OS.WINDOWS})
 class GitToolTest {
 

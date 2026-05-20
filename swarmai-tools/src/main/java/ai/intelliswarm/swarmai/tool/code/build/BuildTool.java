@@ -36,9 +36,9 @@ import java.util.concurrent.TimeUnit;
  *   <li>{@code tsconfig.json} → {@code tsc --noEmit}</li>
  * </ul>
  *
- * @since 1.0.25
+ * @since 1.0.26
  */
-@PublicApi(since = "1.0.25")
+@PublicApi(since = "1.0.26")
 @Component
 public class BuildTool implements BaseTool {
 

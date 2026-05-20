@@ -94,5 +94,9 @@ models/
 # Test artifacts (scraped HTML from WebScrapeTool tests)
 index.html*
 
+# flatten-maven-plugin output (regenerated each build; cleaned on `mvn clean`)
+.flattened-pom.xml
+**/.flattened-pom.xml
+
 #Claude
 /.claude/

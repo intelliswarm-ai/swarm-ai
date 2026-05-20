@@ -36,9 +36,9 @@ import java.util.concurrent.TimeUnit;
  * <p>Use {@code fix=true} to apply auto-fixes when the underlying linter
  * supports them (eslint --fix, ruff --fix, rubocop --autocorrect, ...).
  *
- * @since 1.0.25
+ * @since 1.0.26
  */
-@PublicApi(since = "1.0.25")
+@PublicApi(since = "1.0.26")
 @Component
 public class LintTool implements BaseTool {
 

@@ -28,7 +28,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * real provider. The goal is to verify request/response translation, not
  * any specific provider's behaviour.
  */
-@DisplayName("SpringAiLlmClient — Spring AI ChatModel bridge (1.0.25)")
+@DisplayName("SpringAiLlmClient — Spring AI ChatModel bridge (1.0.26)")
 class SpringAiLlmClientTest {
 
     @Test
@@ -149,6 +149,88 @@ class SpringAiLlmClientTest {
     }
 
     @Test
+    @DisplayName("regression: parses tool calls when Spring AI returns them in results[1] (Anthropic multi-block)")
+    void parsesToolCallsAcrossMultipleGenerations() {
+        // Anthropic returns one Generation per content block. With a text block
+        // followed by a tool_use block, results=[textGen, toolGen]. The old
+        // code only inspected resp.getResult() (== results[0]) and silently
+        // dropped the tool_use. Verify we now stitch all generations together.
+        Generation textGen = new Generation(new AssistantMessage("Let me read SPEC.md."),
+                ChatGenerationMetadata.builder().build());
+        AssistantMessage toolMsg = new AssistantMessage("", Map.of(),
+                List.of(new AssistantMessage.ToolCall("call-99", "function", "file_read",
+                        "{\"path\":\"SPEC.md\"}")));
+        Generation toolGen = new Generation(toolMsg,
+                ChatGenerationMetadata.builder().finishReason("tool_use").build());
+
+        ChatResponse stub = new ChatResponse(
+                List.of(textGen, toolGen),
+                ChatResponseMetadata.builder().model("claude-haiku-4-5").build());
+
+        SpringAiLlmClient client = new SpringAiLlmClient(stubChatModel(stub));
+        LlmResponse out = client.send(LlmRequest.builder()
+                .model("claude-haiku-4-5")
+                .messages(List.of(LlmMessage.user("Read SPEC.md"))).build());
+
+        assertEquals(LlmStopReason.TOOL_USE, out.stopReason());
+        assertEquals(1, out.toolCalls().size(), "tool_use in results[1] must be captured");
+        assertEquals("file_read", out.toolCalls().get(0).toolName());
+        assertEquals(Map.of("path", "SPEC.md"), out.toolCalls().get(0).arguments());
+        assertEquals("Let me read SPEC.md.", out.text(), "text from results[0] preserved");
+    }
+
+    @Test
+    @DisplayName("regression: sendStreaming keeps tool calls from earlier chunks when the last chunk also has one")
+    void streamingMergesToolCallsAcrossChunks() {
+        // Three streamed chunks, each carrying one distinct tool_use. The OLD
+        // fallback only spliced accumulated calls when the LAST chunk had none
+        // — so calls from chunks 1 and 2 were dropped whenever chunk 3 had one.
+        ChatResponse c1 = toolChunk("call-1", "file_read", "{\"path\":\"a.txt\"}");
+        ChatResponse c2 = toolChunk("call-2", "file_read", "{\"path\":\"b.txt\"}");
+        ChatResponse c3 = toolChunk("call-3", "grep_search", "{\"pattern\":\"TODO\"}");
+
+        ChatModel stub = new ChatModel() {
+            @Override public ChatResponse call(Prompt prompt) { return c3; }
+            @Override public Flux<ChatResponse> stream(Prompt prompt) { return Flux.just(c1, c2, c3); }
+        };
+
+        LlmResponse out = new SpringAiLlmClient(stub).sendStreaming(
+                LlmRequest.builder().model("m").messages(List.of(LlmMessage.user("go"))).build(),
+                s -> {});
+
+        assertEquals(LlmStopReason.TOOL_USE, out.stopReason());
+        assertEquals(3, out.toolCalls().size(),
+                "all three tool calls across chunks must survive, got: " + out.toolCalls());
+        assertEquals(List.of("call-1", "call-2", "call-3"),
+                out.toolCalls().stream().map(LlmToolCall::id).toList());
+        assertEquals(Map.of("pattern", "TODO"), out.toolCalls().get(2).arguments());
+    }
+
+    @Test
+    @DisplayName("sendStreaming dedupes a tool_use surfaced across multiple chunks by id")
+    void streamingDedupesRepeatedToolCallId() {
+        // Same call id in two chunks: first with empty args, then with parsed
+        // args. The richer (non-empty-args) version must win, recorded once.
+        ChatResponse partial = toolChunk("call-x", "file_read", "{}");
+        ChatResponse complete = toolChunk("call-x", "file_read", "{\"path\":\"x.txt\"}");
+
+        ChatModel stub = new ChatModel() {
+            @Override public ChatResponse call(Prompt prompt) { return complete; }
+            @Override public Flux<ChatResponse> stream(Prompt prompt) {
+                return Flux.just(partial, complete);
+            }
+        };
+
+        LlmResponse out = new SpringAiLlmClient(stub).sendStreaming(
+                LlmRequest.builder().model("m").messages(List.of(LlmMessage.user("go"))).build(),
+                s -> {});
+
+        assertEquals(1, out.toolCalls().size(), "same id must collapse to one call");
+        assertEquals(Map.of("path", "x.txt"), out.toolCalls().get(0).arguments(),
+                "the version carrying parsed args must win");
+    }
+
+    @Test
     @DisplayName("sendStreaming() returns a sentinel empty response when the stream is empty")
     void streamingHandlesEmptyStream() {
         ChatModel stub = new ChatModel() {
@@ -171,6 +253,16 @@ class SpringAiLlmClientTest {
     private static ChatResponse text(String s) {
         return new ChatResponse(
                 List.of(new Generation(new AssistantMessage(s))),
+                ChatResponseMetadata.builder().model("m").build());
+    }
+
+    /** A single streamed chunk carrying exactly one tool_use block. */
+    private static ChatResponse toolChunk(String id, String name, String argsJson) {
+        AssistantMessage msg = new AssistantMessage("", Map.of(),
+                List.of(new AssistantMessage.ToolCall(id, "function", name, argsJson)));
+        return new ChatResponse(
+                List.of(new Generation(msg,
+                        ChatGenerationMetadata.builder().finishReason("tool_use").build())),
                 ChatResponseMetadata.builder().model("m").build());
     }
 

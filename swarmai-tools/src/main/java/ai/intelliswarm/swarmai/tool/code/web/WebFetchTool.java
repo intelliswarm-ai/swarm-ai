@@ -25,7 +25,7 @@ import java.util.regex.Pattern;
  * documentation, GitHub READMEs, blog posts referenced in code comments,
  * or release-notes pages.
  */
-@PublicApi(since = "1.0.25")
+@PublicApi(since = "1.0.26")
 @Component
 public class WebFetchTool implements BaseTool {
 

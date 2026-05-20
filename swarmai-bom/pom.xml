@@ -8,7 +8,7 @@
     <parent>
         <groupId>ai.intelliswarm</groupId>
         <artifactId>swarmai-parent</artifactId>
-        <version>1.0.25-SNAPSHOT</version>
+        <version>1.0.26-SNAPSHOT</version>
     </parent>
 
     <artifactId>swarmai-bom</artifactId>
@@ -23,6 +23,45 @@
         <connection>scm:git:git://github.com/intelliswarm-ai/swarm-ai.git</connection>
         <developerConnection>scm:git:ssh://git@github.com/intelliswarm-ai/swarm-ai.git</developerConnection>
     </scm>
+
+    <!--
+      flatten-maven-plugin resolves ${project.version} (and the parent
+      reference) into a static .flattened-pom.xml at the process-resources
+      phase — BEFORE maven-gpg-plugin signs at the verify phase. Without this
+      the deployed pom differs from the signed pom (the property is resolved
+      on deploy), which Maven Central rejects as "Invalid signature for
+      swarmai-bom-*.pom.asc". flattenMode=bom keeps <dependencyManagement>
+      intact while stripping build/profiles/etc.
+    -->
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>flatten-maven-plugin</artifactId>
+                <version>1.6.0</version>
+                <configuration>
+                    <flattenMode>bom</flattenMode>
+                    <updatePomFile>true</updatePomFile>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>flatten</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>flatten</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>flatten-clean</id>
+                        <phase>clean</phase>
+                        <goals>
+                            <goal>clean</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 
     <dependencyManagement>
         <dependencies>

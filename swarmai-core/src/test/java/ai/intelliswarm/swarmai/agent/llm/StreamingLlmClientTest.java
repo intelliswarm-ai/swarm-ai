@@ -10,7 +10,7 @@ import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@DisplayName("StreamingLlmClient SPI (1.0.25)")
+@DisplayName("StreamingLlmClient SPI (1.0.26)")
 class StreamingLlmClientTest {
 
     @Test

@@ -7,7 +7,7 @@ package ai.intelliswarm.swarmai.budget;
  *
  * <p>Pricing is per 1M tokens. Local/Ollama models are free by default.
  *
- * <p>From <b>1.0.25</b>, pricing tracks four tiers per model (input, cache-write,
+ * <p>From <b>1.0.26</b>, pricing tracks four tiers per model (input, cache-write,
  * cache-read, output) so that Anthropic prompt-caching savings show up correctly.
  * Older two-arg {@link #calculateCost(long, long, String)} continues to work and
  * ignores the cache tiers (treats them as zero).
@@ -127,7 +127,7 @@ public final class LlmPricingModel {
      * Calculates the estimated cost in USD with four-tier billing
      * (uncached-input / cache-write / cache-read / output).
      *
-     * @since 1.0.25
+     * @since 1.0.26
      */
     public static double calculateCost(long promptTokens, long cacheWriteTokens,
                                        long cacheReadTokens, long completionTokens,
@@ -143,7 +143,7 @@ public final class LlmPricingModel {
      * Total billable input as if nothing were cached — useful for fair
      * model-to-model comparisons that should ignore the caching advantage.
      *
-     * @since 1.0.25
+     * @since 1.0.26
      */
     public static long effectiveInputTokens(long promptTokens, long cacheWriteTokens, long cacheReadTokens) {
         return promptTokens + cacheWriteTokens + cacheReadTokens;
@@ -153,7 +153,7 @@ public final class LlmPricingModel {
      * Cache hit rate: fraction of total input tokens served from the prompt cache.
      * Returns 0.0 when no input tokens were spent.
      *
-     * @since 1.0.25
+     * @since 1.0.26
      */
     public static double cacheHitRate(long promptTokens, long cacheWriteTokens, long cacheReadTokens) {
         long total = promptTokens + cacheWriteTokens + cacheReadTokens;
@@ -164,7 +164,7 @@ public final class LlmPricingModel {
      * Estimated USD saved by prompt caching, vs the all-uncached counterfactual.
      * Returns 0.0 when the model has no cache tier configured.
      *
-     * @since 1.0.25
+     * @since 1.0.26
      */
     public static double savedByCaching(long cacheWriteTokens, long cacheReadTokens, String modelName) {
         LlmPricing p = getPricing(modelName);
