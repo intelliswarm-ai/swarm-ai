@@ -149,6 +149,37 @@ class SpringAiLlmClientTest {
     }
 
     @Test
+    @DisplayName("regression: parses tool calls when Spring AI returns them in results[1] (Anthropic multi-block)")
+    void parsesToolCallsAcrossMultipleGenerations() {
+        // Anthropic returns one Generation per content block. With a text block
+        // followed by a tool_use block, results=[textGen, toolGen]. The old
+        // code only inspected resp.getResult() (== results[0]) and silently
+        // dropped the tool_use. Verify we now stitch all generations together.
+        Generation textGen = new Generation(new AssistantMessage("Let me read SPEC.md."),
+                ChatGenerationMetadata.builder().build());
+        AssistantMessage toolMsg = new AssistantMessage("", Map.of(),
+                List.of(new AssistantMessage.ToolCall("call-99", "function", "file_read",
+                        "{\"path\":\"SPEC.md\"}")));
+        Generation toolGen = new Generation(toolMsg,
+                ChatGenerationMetadata.builder().finishReason("tool_use").build());
+
+        ChatResponse stub = new ChatResponse(
+                List.of(textGen, toolGen),
+                ChatResponseMetadata.builder().model("claude-haiku-4-5").build());
+
+        SpringAiLlmClient client = new SpringAiLlmClient(stubChatModel(stub));
+        LlmResponse out = client.send(LlmRequest.builder()
+                .model("claude-haiku-4-5")
+                .messages(List.of(LlmMessage.user("Read SPEC.md"))).build());
+
+        assertEquals(LlmStopReason.TOOL_USE, out.stopReason());
+        assertEquals(1, out.toolCalls().size(), "tool_use in results[1] must be captured");
+        assertEquals("file_read", out.toolCalls().get(0).toolName());
+        assertEquals(Map.of("path", "SPEC.md"), out.toolCalls().get(0).arguments());
+        assertEquals("Let me read SPEC.md.", out.text(), "text from results[0] preserved");
+    }
+
+    @Test
     @DisplayName("sendStreaming() returns a sentinel empty response when the stream is empty")
     void streamingHandlesEmptyStream() {
         ChatModel stub = new ChatModel() {

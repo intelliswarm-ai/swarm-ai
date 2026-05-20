@@ -58,18 +58,43 @@ public class SpringAiLlmClient implements StreamingLlmClient {
     @Override
     public LlmResponse sendStreaming(LlmRequest req, Consumer<String> textDelta) {
         Prompt prompt = buildPrompt(req);
-        // Spring AI's ChatModel.stream returns one ChatResponse per chunk.
-        // We accumulate text deltas (emit each to the callback) and capture
-        // the final assistant message (with tool calls + usage) from the last chunk.
+        // Spring AI's ChatModel.stream returns one ChatResponse per chunk. We
+        // emit text deltas live AND accumulate any tool_use calls that arrive
+        // across chunks — they may appear before the final chunk and would be
+        // lost if we only inspected the last one (see toLlmResponse for the
+        // matching multi-Generation handling on the non-streaming path).
         StringBuilder text = new StringBuilder();
+        List<LlmToolCall> accumulatedCalls = new ArrayList<>();
         ChatResponse[] last = new ChatResponse[1];
         Flux<ChatResponse> stream = chatModel.stream(prompt);
         stream.toIterable().forEach(chunk -> {
             last[0] = chunk;
-            AssistantMessage am = chunk.getResult() != null ? chunk.getResult().getOutput() : null;
-            if (am != null && am.getText() != null && !am.getText().isEmpty()) {
-                textDelta.accept(am.getText());
-                text.append(am.getText());
+            List<Generation> gens = chunk.getResults() != null && !chunk.getResults().isEmpty()
+                    ? chunk.getResults()
+                    : (chunk.getResult() != null ? List.of(chunk.getResult()) : List.of());
+            for (Generation g : gens) {
+                AssistantMessage am = g.getOutput();
+                if (am == null) continue;
+                String tx = am.getText();
+                if (tx != null && !tx.isEmpty()) {
+                    textDelta.accept(tx);
+                    text.append(tx);
+                }
+                if (am.hasToolCalls()) {
+                    for (AssistantMessage.ToolCall c : am.getToolCalls()) {
+                        Map<String, Object> args;
+                        try {
+                            @SuppressWarnings("unchecked")
+                            Map<String, Object> parsed = json.readValue(c.arguments(), Map.class);
+                            args = parsed;
+                        } catch (Exception e) {
+                            args = Map.of();
+                        }
+                        accumulatedCalls.add(new LlmToolCall(
+                                c.id() != null ? c.id() : UUID.randomUUID().toString(),
+                                c.name(), args));
+                    }
+                }
             }
         });
         if (last[0] == null) {
@@ -78,7 +103,15 @@ public class SpringAiLlmClient implements StreamingLlmClient {
                     "", List.of(), List.of(),
                     new TokenUsage(0, 0, CacheUsage.NONE, 0, 0));
         }
-        return toLlmResponse(last[0], text.toString());
+        LlmResponse base = toLlmResponse(last[0], text.toString());
+        // If our per-chunk pass found tool calls that the last chunk's
+        // Generation no longer has (some providers clear it), splice them in.
+        if (base.toolCalls().isEmpty() && !accumulatedCalls.isEmpty()) {
+            return new LlmResponse(base.requestId(), base.modelId(),
+                    LlmStopReason.TOOL_USE, base.text(), accumulatedCalls,
+                    base.citations(), base.tokenUsage());
+        }
+        return base;
     }
 
     @Override
@@ -142,32 +175,49 @@ public class SpringAiLlmClient implements StreamingLlmClient {
     }
 
     private LlmResponse toLlmResponse(ChatResponse resp, String streamedText) {
-        Generation gen = resp.getResult();
-        AssistantMessage msg = gen.getOutput();
-        // When streaming, the FINAL chunk's message may be empty (text already emitted)
-        // — prefer the accumulated streamedText if we have it.
+        // Spring AI's AnthropicChatModel returns ONE Generation per content block
+        // in the Anthropic response. When the model produces both a text block AND
+        // a tool_use block (the common case for a thinking tool-call), there are
+        // two Generations — only iterating resp.getResult() drops the tool_use.
+        // Iterate all generations and accumulate text + tool calls from each.
+        List<Generation> generations = resp.getResults() != null && !resp.getResults().isEmpty()
+                ? resp.getResults()
+                : (resp.getResult() != null ? List.of(resp.getResult()) : List.of());
+
+        StringBuilder textAccum = new StringBuilder();
+        List<LlmToolCall> calls = new ArrayList<>();
+        for (Generation g : generations) {
+            AssistantMessage gm = g.getOutput();
+            if (gm == null) continue;
+            String gText = gm.getText();
+            if (gText != null && !gText.isEmpty()) {
+                if (textAccum.length() > 0) textAccum.append('\n');
+                textAccum.append(gText);
+            }
+            if (gm.hasToolCalls()) {
+                for (AssistantMessage.ToolCall c : gm.getToolCalls()) {
+                    Map<String, Object> args;
+                    try {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> parsed = json.readValue(c.arguments(), Map.class);
+                        args = parsed;
+                    } catch (Exception e) {
+                        args = Map.of();
+                    }
+                    calls.add(new LlmToolCall(
+                            c.id() != null ? c.id() : UUID.randomUUID().toString(),
+                            c.name(), args));
+                }
+            }
+        }
+
+        // When streaming, the per-chunk message text may be empty (deltas already
+        // emitted) — prefer the accumulated streamedText if we have it.
         String text;
         if (streamedText != null && !streamedText.isEmpty()) {
             text = streamedText;
         } else {
-            text = msg.getText() == null ? "" : msg.getText();
-        }
-
-        List<LlmToolCall> calls = new ArrayList<>();
-        if (msg.hasToolCalls()) {
-            for (AssistantMessage.ToolCall c : msg.getToolCalls()) {
-                Map<String, Object> args;
-                try {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> parsed = json.readValue(c.arguments(), Map.class);
-                    args = parsed;
-                } catch (Exception e) {
-                    args = Map.of();
-                }
-                calls.add(new LlmToolCall(
-                        c.id() != null ? c.id() : UUID.randomUUID().toString(),
-                        c.name(), args));
-            }
+            text = textAccum.toString();
         }
 
         LlmStopReason stop = calls.isEmpty()
