@@ -32,7 +32,7 @@ import java.util.Map;
  * use {@code FileEditTool} for small, targeted modifications; use
  * {@code FileWriteTool} for new files or full rewrites.
  */
-@PublicApi(since = "1.0.25")
+@PublicApi(since = "1.0.26")
 @Component
 public class FileEditTool implements BaseTool {
 

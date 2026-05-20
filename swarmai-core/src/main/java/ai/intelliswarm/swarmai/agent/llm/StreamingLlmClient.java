@@ -13,9 +13,9 @@ import java.util.function.Consumer;
  * {@link #fallback(LlmClient, LlmRequest, Consumer)} which emits the full
  * text once via the callback after a regular {@code send()}.
  *
- * @since 1.0.25
+ * @since 1.0.26
  */
-@PublicApi(since = "1.0.25")
+@PublicApi(since = "1.0.26")
 public interface StreamingLlmClient extends LlmClient {
 
     /**

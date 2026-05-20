@@ -38,7 +38,7 @@ import java.util.regex.PatternSyntaxException;
  *   <li>Per-file size cap ({@code 5 MB}) and overall match cap.</li>
  * </ul>
  */
-@PublicApi(since = "1.0.25")
+@PublicApi(since = "1.0.26")
 @Component
 public class GrepSearchTool implements BaseTool {
 

@@ -37,9 +37,9 @@ import java.util.function.Consumer;
  * silently dropped. For full feature parity on Anthropic specifically, use
  * the native {@code AnthropicLlmClient} from {@code swarmai-native-anthropic}.
  *
- * @since 1.0.25
+ * @since 1.0.26
  */
-@PublicApi(since = "1.0.25")
+@PublicApi(since = "1.0.26")
 public class SpringAiLlmClient implements StreamingLlmClient {
 
     private static final Set<Feature> SUPPORTED = EnumSet.of(
@@ -64,7 +64,10 @@ public class SpringAiLlmClient implements StreamingLlmClient {
         // lost if we only inspected the last one (see toLlmResponse for the
         // matching multi-Generation handling on the non-streaming path).
         StringBuilder text = new StringBuilder();
-        List<LlmToolCall> accumulatedCalls = new ArrayList<>();
+        // Keyed by tool-call id so a tool_use surfaced across several chunks is
+        // recorded once. Insertion order is preserved (LinkedHashMap) so the
+        // agent sees calls in the order the model emitted them.
+        java.util.LinkedHashMap<String, LlmToolCall> callsById = new java.util.LinkedHashMap<>();
         ChatResponse[] last = new ChatResponse[1];
         Flux<ChatResponse> stream = chatModel.stream(prompt);
         stream.toIterable().forEach(chunk -> {
@@ -90,9 +93,15 @@ public class SpringAiLlmClient implements StreamingLlmClient {
                         } catch (Exception e) {
                             args = Map.of();
                         }
-                        accumulatedCalls.add(new LlmToolCall(
-                                c.id() != null ? c.id() : UUID.randomUUID().toString(),
-                                c.name(), args));
+                        String id = c.id() != null ? c.id() : UUID.randomUUID().toString();
+                        LlmToolCall existing = callsById.get(id);
+                        // First time → record. Recurring id → keep the richer
+                        // version: streaming may surface the same tool_use with
+                        // empty args first and the parsed args in a later chunk.
+                        if (existing == null
+                                || (existing.arguments().isEmpty() && !args.isEmpty())) {
+                            callsById.put(id, new LlmToolCall(id, c.name(), args));
+                        }
                     }
                 }
             }
@@ -104,11 +113,14 @@ public class SpringAiLlmClient implements StreamingLlmClient {
                     new TokenUsage(0, 0, CacheUsage.NONE, 0, 0));
         }
         LlmResponse base = toLlmResponse(last[0], text.toString());
-        // If our per-chunk pass found tool calls that the last chunk's
-        // Generation no longer has (some providers clear it), splice them in.
-        if (base.toolCalls().isEmpty() && !accumulatedCalls.isEmpty()) {
+        // callsById holds every tool_use from every chunk; base only carries
+        // the LAST chunk's. Whenever we accumulated anything, that superset is
+        // the authoritative list — using base.toolCalls() alone would drop
+        // calls emitted in earlier chunks.
+        if (!callsById.isEmpty()) {
             return new LlmResponse(base.requestId(), base.modelId(),
-                    LlmStopReason.TOOL_USE, base.text(), accumulatedCalls,
+                    LlmStopReason.TOOL_USE, base.text(),
+                    new ArrayList<>(callsById.values()),
                     base.citations(), base.tokenUsage());
         }
         return base;

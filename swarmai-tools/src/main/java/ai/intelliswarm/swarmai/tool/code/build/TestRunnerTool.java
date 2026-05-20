@@ -36,9 +36,9 @@ import java.util.concurrent.TimeUnit;
  * For tightly-scoped runs, pass {@code target=path/to/test_file} — the tool
  * forwards it as an extra arg so e.g. {@code pytest tests/test_x.py} works.
  *
- * @since 1.0.25
+ * @since 1.0.26
  */
-@PublicApi(since = "1.0.25")
+@PublicApi(since = "1.0.26")
 @Component
 public class TestRunnerTool implements BaseTool {
 

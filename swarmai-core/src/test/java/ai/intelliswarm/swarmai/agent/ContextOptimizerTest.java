@@ -11,7 +11,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@DisplayName("ContextOptimizer — read-only tool-result deduplication (1.0.25)")
+@DisplayName("ContextOptimizer — read-only tool-result deduplication (1.0.26)")
 class ContextOptimizerTest {
 
     @Test

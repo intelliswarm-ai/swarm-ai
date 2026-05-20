@@ -34,7 +34,7 @@ public interface BudgetTracker {
      * all input-side tokens — implementations that want accurate cache-aware
      * accounting should override this method.
      *
-     * @since 1.0.25
+     * @since 1.0.26
      */
     default void recordUsage(String workflowId, long promptTokens, long cacheWriteTokens,
                              long cacheReadTokens, long completionTokens, String modelName) {

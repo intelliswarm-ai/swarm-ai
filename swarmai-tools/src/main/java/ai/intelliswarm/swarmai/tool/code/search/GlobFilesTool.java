@@ -26,7 +26,7 @@ import java.util.Set;
  * <p>Same {@code **&#47;X} → {@code X} fallback matcher quirk-fix as
  * {@link GrepSearchTool} so the agent's intuition matches the result.
  */
-@PublicApi(since = "1.0.25")
+@PublicApi(since = "1.0.26")
 @Component
 public class GlobFilesTool implements BaseTool {
 

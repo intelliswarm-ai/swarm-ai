@@ -30,9 +30,9 @@ import java.util.regex.Pattern;
  * to one language. Pass {@code include_definitions=true} to also include
  * declaration sites (useful for refactor planning).
  *
- * @since 1.0.25
+ * @since 1.0.26
  */
-@PublicApi(since = "1.0.25")
+@PublicApi(since = "1.0.26")
 @Component
 public class SymbolReferencesTool implements BaseTool {
 

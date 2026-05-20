@@ -33,9 +33,9 @@ import java.util.regex.Pattern;
  * <p>Pair with {@link SymbolReferencesTool} to find where the symbol is
  * <em>used</em>; this one only finds where it is <em>declared</em>.
  *
- * @since 1.0.25
+ * @since 1.0.26
  */
-@PublicApi(since = "1.0.25")
+@PublicApi(since = "1.0.26")
 @Component
 public class SymbolSearchTool implements BaseTool {
 

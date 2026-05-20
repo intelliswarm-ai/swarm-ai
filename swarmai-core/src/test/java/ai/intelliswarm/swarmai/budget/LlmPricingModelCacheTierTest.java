@@ -6,11 +6,11 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests for the 1.0.25 four-tier pricing additions to {@link LlmPricingModel}:
+ * Tests for the 1.0.26 four-tier pricing additions to {@link LlmPricingModel}:
  * cache-write + cache-read tiers, new {@code calculateCost(5-arg)} overload,
  * and the {@code cacheHitRate} / {@code savedByCaching} helpers.
  */
-@DisplayName("LlmPricingModel — four-tier cache pricing (1.0.25)")
+@DisplayName("LlmPricingModel — four-tier cache pricing (1.0.26)")
 class LlmPricingModelCacheTierTest {
 
     @Test

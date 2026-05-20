@@ -6,11 +6,11 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests for the 1.0.25 cache-aware recordUsage path in {@link InMemoryBudgetTracker}.
+ * Tests for the 1.0.26 cache-aware recordUsage path in {@link InMemoryBudgetTracker}.
  * Verifies that prompt-caching savings are reflected in the estimated cost and that
  * token counters still match what providers report on the wire.
  */
-@DisplayName("InMemoryBudgetTracker — cache-aware recordUsage (1.0.25)")
+@DisplayName("InMemoryBudgetTracker — cache-aware recordUsage (1.0.26)")
 class InMemoryBudgetTrackerCacheTierTest {
 
     private static final BudgetPolicy LOOSE = new BudgetPolicy(

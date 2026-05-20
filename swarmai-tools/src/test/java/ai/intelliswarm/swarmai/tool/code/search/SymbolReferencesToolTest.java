@@ -12,7 +12,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@DisplayName("SymbolReferencesTool — usage finder (1.0.25)")
+@DisplayName("SymbolReferencesTool — usage finder (1.0.26)")
 class SymbolReferencesToolTest {
 
     @TempDir Path tmp;

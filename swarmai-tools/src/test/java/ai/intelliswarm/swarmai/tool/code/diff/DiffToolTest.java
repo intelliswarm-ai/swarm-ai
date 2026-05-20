@@ -11,7 +11,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@DisplayName("DiffTool — pure-Java unified diff (1.0.25)")
+@DisplayName("DiffTool — pure-Java unified diff (1.0.26)")
 class DiffToolTest {
 
     @TempDir Path tmp;

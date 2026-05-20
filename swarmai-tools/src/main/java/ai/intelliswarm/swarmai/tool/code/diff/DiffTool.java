@@ -23,9 +23,9 @@ import java.util.Map;
  * between {@code A} and {@code B} without running {@code git diff} (e.g. to
  * compare a fresh draft vs the existing file, or two versions in memory).
  *
- * @since 1.0.25
+ * @since 1.0.26
  */
-@PublicApi(since = "1.0.25")
+@PublicApi(since = "1.0.26")
 @Component
 public class DiffTool implements BaseTool {
 

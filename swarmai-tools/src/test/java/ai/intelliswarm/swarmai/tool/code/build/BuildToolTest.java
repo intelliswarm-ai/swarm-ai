@@ -12,7 +12,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@DisplayName("BuildTool — auto-detect + argv (1.0.25)")
+@DisplayName("BuildTool — auto-detect + argv (1.0.26)")
 class BuildToolTest {
 
     @TempDir Path tmp;

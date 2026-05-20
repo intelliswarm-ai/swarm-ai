@@ -12,7 +12,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@DisplayName("SymbolSearchTool — definition finder (1.0.25)")
+@DisplayName("SymbolSearchTool — definition finder (1.0.26)")
 class SymbolSearchToolTest {
 
     @TempDir Path tmp;
