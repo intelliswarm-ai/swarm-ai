@@ -7,7 +7,7 @@
 
     <groupId>ai.intelliswarm</groupId>
     <artifactId>swarmai-parent</artifactId>
-    <version>1.0.26-SNAPSHOT</version>
+    <version>1.0.27-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>SwarmAI Parent</name>
@@ -67,6 +67,7 @@
         <module>swarmai-self-improving</module>
         <module>swarmai-distributed</module>
         <module>swarmai-native-anthropic</module>
+        <module>swarmai-native-ollama</module>
     </modules>
 
     <properties>
