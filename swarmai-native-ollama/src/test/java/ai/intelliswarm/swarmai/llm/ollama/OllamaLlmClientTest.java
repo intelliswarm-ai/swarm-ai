@@ -10,8 +10,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -74,6 +76,29 @@ class OllamaLlmClientTest {
         assertThat(out.get("role")).isEqualTo("tool");
         assertThat(out.get("content")).isEqualTo("content of README");
         assertThat(out.get("tool_call_id")).isEqualTo("tool-7");
+        // No prior assistant tool_call known — tool_name is omitted.
+        assertThat(out).doesNotContainKey("tool_name");
+    }
+
+    @Test
+    void toolResultMessageCarriesToolNameFromPriorAssistantCall() {
+        var call = new ai.intelliswarm.swarmai.agent.llm.LlmToolCall(
+                "tool-0", "file_read", Map.of("path", "README.md"));
+        var assistantMsg = LlmMessage.assistantWithToolCalls("", List.of(call));
+        var toolMsg = LlmMessage.toolResult("tool-0", "content of README");
+        LlmRequest req = LlmRequest.builder()
+                .model("qwen2.5-coder:7b")
+                .message(LlmMessage.user("read it"))
+                .message(assistantMsg)
+                .message(toolMsg)
+                .build();
+
+        Map<String, Object> body = client.toOllamaBody(req);
+        JsonNode tree = JSON.valueToTree(body);
+        JsonNode toolNode = tree.get("messages").get(2);
+        assertThat(toolNode.get("role").asText()).isEqualTo("tool");
+        assertThat(toolNode.get("tool_name").asText()).isEqualTo("file_read");
+        assertThat(toolNode.get("tool_call_id").asText()).isEqualTo("tool-0");
     }
 
     // ---------- response mapping ----------
@@ -139,6 +164,90 @@ class OllamaLlmClientTest {
         LlmResponse resp = client.parseResponse(body, "qwen2.5-coder:7b");
         assertThat(resp.toolCalls()).hasSize(1);
         assertThat(resp.toolCalls().get(0).arguments()).isEqualTo(Map.of("pattern", "TODO"));
+    }
+
+    // ---------- streaming ----------
+
+    @Test
+    void streamingEmitsDeltasInOrderAndAssemblesFinalResponse() {
+        // Canned Ollama NDJSON: three text deltas then a done frame with stats.
+        Stream<String> stream = Stream.of(
+                "{\"model\":\"qwen2.5-coder:7b\",\"message\":{\"role\":\"assistant\",\"content\":\"Hello\"},\"done\":false}",
+                "{\"model\":\"qwen2.5-coder:7b\",\"message\":{\"role\":\"assistant\",\"content\":\", \"},\"done\":false}",
+                "{\"model\":\"qwen2.5-coder:7b\",\"message\":{\"role\":\"assistant\",\"content\":\"world!\"},\"done\":false}",
+                "{\"model\":\"qwen2.5-coder:7b\",\"message\":{\"role\":\"assistant\",\"content\":\"\"},\"done\":true,\"done_reason\":\"stop\",\"prompt_eval_count\":12,\"eval_count\":5}"
+        );
+
+        List<String> seen = new ArrayList<>();
+        var resp = client.assembleStreamingResponse(stream, "qwen2.5-coder:7b", seen::add);
+
+        assertThat(seen).containsExactly("Hello", ", ", "world!");
+        assertThat(resp.text()).isEqualTo("Hello, world!");
+        assertThat(resp.stopReason()).isEqualTo(ai.intelliswarm.swarmai.agent.llm.LlmStopReason.END_TURN);
+        assertThat(resp.tokenUsage().inputTokens()).isEqualTo(12L);
+        assertThat(resp.tokenUsage().outputTokens()).isEqualTo(5L);
+        assertThat(resp.toolCalls()).isEmpty();
+    }
+
+    @Test
+    void streamingCapturesToolCallsFromFinalFrame() {
+        Stream<String> stream = Stream.of(
+                "{\"message\":{\"role\":\"assistant\",\"content\":\"\"},\"done\":false}",
+                "{\"message\":{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"function\":{\"name\":\"file_read\",\"arguments\":{\"path\":\"x.py\"}}}]},\"done\":true,\"done_reason\":\"stop\",\"prompt_eval_count\":80,\"eval_count\":7}"
+        );
+
+        List<String> seen = new ArrayList<>();
+        var resp = client.assembleStreamingResponse(stream, "qwen2.5-coder:7b", seen::add);
+
+        assertThat(seen).isEmpty();
+        assertThat(resp.toolCalls()).hasSize(1);
+        assertThat(resp.toolCalls().get(0).toolName()).isEqualTo("file_read");
+        assertThat(resp.stopReason()).isEqualTo(ai.intelliswarm.swarmai.agent.llm.LlmStopReason.TOOL_USE);
+        assertThat(resp.needsToolExecution()).isTrue();
+    }
+
+    @Test
+    void streamingThrowsWhenStreamEndsWithoutDoneFrame() {
+        Stream<String> stream = Stream.of(
+                "{\"message\":{\"role\":\"assistant\",\"content\":\"partial\"},\"done\":false}"
+        );
+
+        org.junit.jupiter.api.Assertions.assertThrows(
+                OllamaClientException.class,
+                () -> client.assembleStreamingResponse(stream, "m", s -> {}),
+                "stream missing done=true must surface as an error, not silent success");
+    }
+
+    @Test
+    void streamingPropagatesEmbeddedError() {
+        Stream<String> stream = Stream.of(
+                "{\"error\":\"model 'nope' not found\"}"
+        );
+
+        var ex = org.junit.jupiter.api.Assertions.assertThrows(
+                OllamaClientException.class,
+                () -> client.assembleStreamingResponse(stream, "nope", s -> {}));
+        assertThat(ex.getMessage()).contains("not found");
+    }
+
+    @Test
+    void streamingBodyHasStreamTrueAndStaysSchemaCompatible() throws Exception {
+        LlmRequest req = LlmRequest.builder()
+                .model("qwen2.5-coder:7b")
+                .system("be brief")
+                .message(LlmMessage.user("hi"))
+                .build();
+
+        com.fasterxml.jackson.databind.JsonNode streamingTree =
+                JSON.valueToTree(client.toOllamaBody(req, true));
+        com.fasterxml.jackson.databind.JsonNode blockingTree =
+                JSON.valueToTree(client.toOllamaBody(req, false));
+
+        assertThat(streamingTree.get("stream").asBoolean()).isTrue();
+        assertThat(blockingTree.get("stream").asBoolean()).isFalse();
+        // Apart from `stream`, the two bodies must be structurally identical.
+        assertThat(streamingTree.get("model")).isEqualTo(blockingTree.get("model"));
+        assertThat(streamingTree.get("messages")).isEqualTo(blockingTree.get("messages"));
     }
 
     @Test
