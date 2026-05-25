@@ -238,11 +238,13 @@ public class SpringAiLlmClient implements StreamingLlmClient {
 
         long input = 0, output = 0;
         var usage = resp.getMetadata() != null ? resp.getMetadata().getUsage() : null;
+        CacheUsage cacheUsage = CacheUsage.NONE;
         if (usage != null) {
             Integer pt = usage.getPromptTokens();
             Integer ct = usage.getCompletionTokens();
             if (pt != null) input = pt;
             if (ct != null) output = ct;
+            cacheUsage = extractCacheUsage(usage.getNativeUsage());
         }
 
         return new LlmResponse(
@@ -252,7 +254,36 @@ public class SpringAiLlmClient implements StreamingLlmClient {
                 text,
                 calls,
                 List.of(),
-                new TokenUsage(input, output, CacheUsage.NONE, 0, 0));
+                new TokenUsage(input, output, cacheUsage, 0, 0));
+    }
+
+    /**
+     * Surface provider-side cache telemetry that {@link org.springframework.ai.chat.metadata.Usage}'s
+     * generic interface hides — OpenAI's {@code promptTokensDetails.cachedTokens}
+     * is the headline case. Reflective so swarmai-core doesn't need a
+     * compile-time dep on spring-ai-openai (the only consumer that has the
+     * shaped record today).
+     */
+    private static CacheUsage extractCacheUsage(Object nativeUsage) {
+        if (nativeUsage == null) return CacheUsage.NONE;
+        try {
+            var method = nativeUsage.getClass().getMethod("promptTokensDetails");
+            Object details = method.invoke(nativeUsage);
+            if (details == null) return CacheUsage.NONE;
+            var cachedMethod = details.getClass().getMethod("cachedTokens");
+            Object cached = cachedMethod.invoke(details);
+            if (cached instanceof Integer c && c > 0) {
+                // OpenAI auto-cache: surface as cacheReadInputTokens. We
+                // don't know whether it was a 5-min or 1-hour cache because
+                // OpenAI's API doesn't distinguish, so leave creation slots at 0.
+                return new CacheUsage(c.longValue(), 0L, 0L);
+            }
+        } catch (NoSuchMethodException ignored) {
+            // Provider doesn't expose this shape — fine, return NONE.
+        } catch (Exception e) {
+            // Reflection went sideways; don't blow up the response over telemetry.
+        }
+        return CacheUsage.NONE;
     }
 
     /** Bridge a SwarmAI {@link BaseTool} to Spring AI's {@link ToolCallback}. */
