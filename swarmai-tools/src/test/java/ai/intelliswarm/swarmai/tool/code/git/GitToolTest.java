@@ -101,8 +101,14 @@ class GitToolTest {
         try {
             GitTool offRepo = new GitTool(notARepo);
             Object out = offRepo.execute(Map.of("subcommand", "status"));
-            assertTrue(out.toString().contains("not inside a git repository"),
-                    "expected 'not inside a git repository', got: " + out);
+            String s = out.toString();
+            // Accept either git's own "fatal: not a git repository" or the
+            // tool's pre-flight check phrasing — version + locale matter.
+            boolean reportsAbsenceOfRepo =
+                    s.contains("not inside a git repository")
+                            || s.contains("not a git repository");
+            assertTrue(reportsAbsenceOfRepo,
+                    "expected a 'not (inside) a git repository' message, got: " + s);
         } finally {
             Files.deleteIfExists(notARepo);
         }

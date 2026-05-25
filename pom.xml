@@ -7,7 +7,7 @@
 
     <groupId>ai.intelliswarm</groupId>
     <artifactId>swarmai-parent</artifactId>
-    <version>1.0.27-SNAPSHOT</version>
+    <version>1.0.28-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>SwarmAI Parent</name>
@@ -60,6 +60,7 @@
         <module>swarmai-bom</module>
         <module>swarmai-core</module>
         <module>swarmai-tools</module>
+        <module>swarmai-rag</module>
         <module>swarmai-dsl</module>
         <module>swarmai-enterprise</module>
         <module>swarmai-studio</module>
