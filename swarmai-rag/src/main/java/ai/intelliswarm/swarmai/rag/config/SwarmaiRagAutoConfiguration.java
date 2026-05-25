@@ -10,11 +10,12 @@ import ai.intelliswarm.swarmai.rag.tool.SemanticScholarTool;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -34,7 +35,13 @@ import java.nio.file.Paths;
  * PGVector, Pinecone), just define that bean in your application — the
  * {@code @ConditionalOnMissingBean} guard will step aside.
  */
-@Configuration
+@AutoConfiguration
+@AutoConfigureAfter(name = {
+    // Run after the provider-specific embedding autoconfigs so @ConditionalOnBean(EmbeddingModel.class)
+    // reliably sees the EmbeddingModel bean when one is present.
+    "org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration",
+    "org.springframework.ai.model.ollama.autoconfigure.OllamaEmbeddingAutoConfiguration"
+})
 @ConditionalOnClass(VectorStore.class)
 public class SwarmaiRagAutoConfiguration {
 
