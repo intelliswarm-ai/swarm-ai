@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>ai.intelliswarm</groupId>
+        <artifactId>swarmai-parent</artifactId>
+        <version>1.0.28-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>swarmai-rag</artifactId>
+    <packaging>jar</packaging>
+
+    <name>SwarmAI RAG</name>
+    <description>
+        Retrieval-Augmented Generation primitives exposed as SwarmAI tools:
+        Lucene-backed vector store, document ingestion (chunk + embed + write),
+        paper download from HTTP, and academic search adapters
+        (Semantic Scholar, OpenAlex, PubMed).
+    </description>
+    <url>https://github.com/intelliswarm-ai/swarm-ai</url>
+
+    <properties>
+        <lucene.version>9.11.1</lucene.version>
+        <jackson.version>2.17.2</jackson.version>
+    </properties>
+
+    <dependencies>
+        <!-- SwarmAI core: BaseTool, PermissionLevel, Agent runtime -->
+        <dependency>
+            <groupId>ai.intelliswarm</groupId>
+            <artifactId>swarmai-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- SwarmAI tools: re-use ArxivTool / WebSearchTool / WebFetchTool / PDFReadTool / CSVAnalysisTool -->
+        <dependency>
+            <groupId>ai.intelliswarm</groupId>
+            <artifactId>swarmai-tools</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- Spring AI: VectorStore SPI, EmbeddingModel, Document model -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-vector-store</artifactId>
+        </dependency>
+        <!-- Spring AI: ChatClient + TokenTextSplitter live in spring-ai-client-chat -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-client-chat</artifactId>
+        </dependency>
+
+        <!-- Apache Lucene: backing store for vector + keyword search -->
+        <dependency>
+            <groupId>org.apache.lucene</groupId>
+            <artifactId>lucene-core</artifactId>
+            <version>${lucene.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.lucene</groupId>
+            <artifactId>lucene-analysis-common</artifactId>
+            <version>${lucene.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.lucene</groupId>
+            <artifactId>lucene-queryparser</artifactId>
+            <version>${lucene.version}</version>
+        </dependency>
+
+        <!-- PDFBox: re-used for text extraction in ingestion. swarmai-tools already pulls it
+             transitively via PDFReadTool, but declaring explicitly keeps this module self-contained. -->
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+        </dependency>
+
+        <!-- Jackson: parse JSON responses from Semantic Scholar / OpenAlex / PubMed -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+
+        <!-- Spring Boot autoconfigure: register beans conditionally -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-autoconfigure</artifactId>
+        </dependency>
+
+        <!-- Test scope -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <release>${java.version}</release>
+                    <parameters>true</parameters>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

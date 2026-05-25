@@ -21,6 +21,11 @@ import ai.intelliswarm.swarmai.api.PublicApi;
  * <p>Both append a single-line marker noting how much was dropped so the
  * LLM can decide to re-fetch with a tighter query.
  *
+ * <p>Line accounting: a line is content terminated by a {@code \n}; a final
+ * trailing {@code \n} is treated as the end of the last line, not as its
+ * own empty line. So {@code "a\nb\n"} is 2 lines, {@code "a\nb"} is also
+ * 2 lines, {@code ""} is 0 lines.
+ *
  * @since 1.0.28
  */
 @PublicApi(since = "1.0.28")
@@ -40,8 +45,9 @@ public final class OutputTruncator {
 
     /**
      * Truncate keeping the head. Returns the original when both budgets are
-     * satisfied; otherwise truncates at the tighter of the two limits and
-     * appends a single-line marker noting how much was dropped.
+     * satisfied. Otherwise truncates so that exactly {@code maxLines} lines
+     * are kept (when line-cap binds) AND at most {@code maxBytes} bytes
+     * remain (when byte-cap binds), appending a single-line marker.
      */
     public static String truncateTail(String s, int maxBytes, int maxLines) {
         if (s == null || s.isEmpty()) return s == null ? "" : s;
@@ -54,18 +60,34 @@ public final class OutputTruncator {
         boolean overLines = totalLines > lineCap;
         if (!overBytes && !overLines) return s;
 
-        // Find the cut point: min of the byte cap and the start of line (lineCap + 1).
+        // End-exclusive cut position. The contract is "keep at most lineCap
+        // lines" so the cut goes to the START of line `lineCap + 1` — that
+        // preserves all of lines 1..lineCap including their trailing \n.
         int byteCut = overBytes ? byteCap : s.length();
-        int lineCut = overLines ? indexOfNthLineStart(s, lineCap) : s.length();
+        int lineCut = overLines ? startOfLine(s, lineCap + 1) : s.length();
         int cut = Math.min(byteCut, lineCut);
-        // Snap back to the previous newline so we don't slice mid-line.
-        int snap = s.lastIndexOf('\n', cut - 1);
-        if (snap > 0) cut = snap + 1;
+
+        // If the binding cut came from the byte cap it may slice mid-line —
+        // snap BACK to the previous newline so we never emit a partial line.
+        // When the cut came from lineCut it's already aligned (right after
+        // a newline) so the snap is a no-op.
+        if (cut > 0 && cut < s.length() && s.charAt(cut - 1) != '\n') {
+            int prevNl = s.lastIndexOf('\n', cut - 1);
+            cut = prevNl >= 0 ? prevNl + 1 : 0;
+        }
+
+        if (cut <= 0) {
+            // Pathological: byte cap is below the first line. Drop everything.
+            return "[truncated: " + s.length() + " bytes / "
+                    + totalLines + " lines dropped]\n";
+        }
 
         int droppedBytes = s.length() - cut;
         int droppedLines = totalLines - countLines(s.substring(0, cut));
-        return s.substring(0, cut)
-                + "\n... [truncated: " + droppedBytes + " bytes / "
+        String head = s.substring(0, cut);
+        // head ends with \n (cut sits right after a newline by construction),
+        // so the marker starts on its own line.
+        return head + "... [truncated: " + droppedBytes + " bytes / "
                 + droppedLines + " lines dropped]\n";
     }
 
@@ -76,7 +98,8 @@ public final class OutputTruncator {
 
     /**
      * Truncate keeping the tail. Useful for log output where the final
-     * lines (errors, summaries) carry the signal.
+     * lines (errors, summaries) carry the signal. Keeps exactly the last
+     * {@code maxLines} lines when the line cap binds.
      */
     public static String truncateHead(String s, int maxBytes, int maxLines) {
         if (s == null || s.isEmpty()) return s == null ? "" : s;
@@ -89,33 +112,51 @@ public final class OutputTruncator {
         boolean overLines = totalLines > lineCap;
         if (!overBytes && !overLines) return s;
 
+        // Start-inclusive position where the kept (last) region begins.
         int byteCut = overBytes ? s.length() - byteCap : 0;
-        int lineCut = overLines ? indexOfNthLineStartFromEnd(s, lineCap) : 0;
+        int lineCut = overLines ? startOfLastLines(s, lineCap, totalLines) : 0;
         int cut = Math.max(byteCut, lineCut);
-        int snap = s.indexOf('\n', cut);
-        if (snap >= 0 && snap < s.length() - 1) cut = snap + 1;
+
+        // If byteCut won and put us mid-line, snap FORWARD to the next \n
+        // so we don't emit a partial leading line. When lineCut won it's
+        // already aligned so this is a no-op.
+        if (cut > 0 && cut < s.length() && s.charAt(cut - 1) != '\n') {
+            int nextNl = s.indexOf('\n', cut);
+            if (nextNl >= 0 && nextNl < s.length() - 1) cut = nextNl + 1;
+        }
 
         int droppedBytes = cut;
         int droppedLines = countLines(s.substring(0, cut));
+        // Marker on its own line, then ellipsis on its own line, then the
+        // kept content — keeps each piece line-addressable for the consumer.
         return "[truncated: " + droppedBytes + " bytes / " + droppedLines
-                + " lines dropped from start]\n..." + s.substring(cut);
+                + " lines dropped from start]\n...\n" + s.substring(cut);
     }
 
     private static int budget(int requested, int dflt) {
         return requested <= 0 ? dflt : requested;
     }
 
-    private static int countLines(String s) {
+    /**
+     * Number of lines in {@code s}. A trailing {@code \n} is treated as the
+     * end of the last line, not as its own empty line. Empty string → 0.
+     */
+    static int countLines(String s) {
+        if (s == null || s.isEmpty()) return 0;
         int n = 1;
         for (int i = 0; i < s.length(); i++) {
             if (s.charAt(i) == '\n') n++;
         }
-        // Don't count trailing newline as an extra empty line.
         return s.charAt(s.length() - 1) == '\n' ? n - 1 : n;
     }
 
-    /** Byte offset of the start of line number {@code n} (1-indexed). */
-    private static int indexOfNthLineStart(String s, int n) {
+    /**
+     * Byte offset where line {@code n} (1-indexed) begins. {@code n == 1}
+     * returns 0; {@code n == 2} returns the position right after the first
+     * {@code \n}; and so on. If {@code n} exceeds the line count, returns
+     * {@code s.length()}.
+     */
+    static int startOfLine(String s, int n) {
         if (n <= 1) return 0;
         int seen = 0;
         for (int i = 0; i < s.length(); i++) {
@@ -127,16 +168,14 @@ public final class OutputTruncator {
         return s.length();
     }
 
-    /** Byte offset where the LAST {@code n} lines begin. */
-    private static int indexOfNthLineStartFromEnd(String s, int n) {
+    /**
+     * Byte offset where the last {@code n} lines begin. If {@code n} is at
+     * least the total line count, returns 0 (keep everything). If
+     * {@code n <= 0}, returns {@code s.length()} (keep nothing).
+     */
+    static int startOfLastLines(String s, int n, int totalLines) {
         if (n <= 0) return s.length();
-        int seen = 0;
-        for (int i = s.length() - 1; i >= 0; i--) {
-            if (s.charAt(i) == '\n') {
-                seen++;
-                if (seen == n) return i + 1;
-            }
-        }
-        return 0;
+        if (n >= totalLines) return 0;
+        return startOfLine(s, totalLines - n + 1);
     }
 }
