@@ -134,6 +134,7 @@ public class RagSearchTool implements BaseTool {
     }
 
     @Override public boolean isAsync() { return false; }
+    @Override public boolean isDynamic() { return true; }
     @Override public int getMaxResponseLength() { return 15_000; }
     @Override public String getTriggerWhen() { return "User wants evidence from previously-ingested papers to support or refute a claim."; }
     @Override public String getAvoidWhen() { return "User is asking for keyword/grep-style matching (use grep_search) or for the raw web (use web_search)."; }

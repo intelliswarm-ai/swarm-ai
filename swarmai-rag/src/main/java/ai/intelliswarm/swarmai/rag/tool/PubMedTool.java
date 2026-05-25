@@ -170,6 +170,7 @@ public class PubMedTool implements BaseTool {
 
     @Override public boolean isAsync() { return false; }
     @Override public boolean isCacheable() { return true; }
+    @Override public boolean isDynamic() { return true; }
     @Override public String getTriggerWhen() { return "Hypothesis is biomedical, clinical, pharmacological, or epidemiological."; }
     @Override public String getAvoidWhen() { return "Hypothesis is in CS/ML/engineering (use arxiv_search instead)."; }
 

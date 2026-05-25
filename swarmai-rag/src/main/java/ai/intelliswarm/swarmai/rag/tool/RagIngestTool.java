@@ -129,14 +129,57 @@ public class RagIngestTool implements BaseTool {
     }
 
     private String extractText(Path path) throws IOException {
-        String name = path.getFileName().toString().toLowerCase();
-        if (name.endsWith(".pdf")) {
+        // Sniff the first 5 bytes — real PDFs start with "%PDF-". This handles the common
+        // case where a URL ending in `.pdf` actually returns an HTML landing page (PubMed,
+        // some publisher portals); the agent saves it with a .pdf extension but PDFBox would
+        // explode if we trusted the name.
+        byte[] head = readHeader(path, 5);
+        boolean isPdf = head.length == 5
+                && head[0] == '%' && head[1] == 'P' && head[2] == 'D' && head[3] == 'F' && head[4] == '-';
+        if (isPdf) {
             try (PDDocument doc = Loader.loadPDF(path.toFile())) {
                 return new PDFTextStripper().getText(doc);
             }
         }
-        // Fallback: treat as plain text. HTML stripping is left to the caller — keeping this tool small.
-        return Files.readString(path, StandardCharsets.UTF_8);
+        String raw = Files.readString(path, StandardCharsets.UTF_8);
+        // If it smells like HTML, strip tags + script/style blocks so the embedding signal
+        // isn't dominated by markup.
+        if (looksLikeHtml(raw)) return stripHtml(raw);
+        return raw;
+    }
+
+    private static byte[] readHeader(Path path, int n) throws IOException {
+        try (java.io.InputStream in = Files.newInputStream(path)) {
+            byte[] buf = new byte[n];
+            int read = in.read(buf);
+            if (read <= 0) return new byte[0];
+            if (read == n) return buf;
+            byte[] out = new byte[read];
+            System.arraycopy(buf, 0, out, 0, read);
+            return out;
+        }
+    }
+
+    private static boolean looksLikeHtml(String s) {
+        if (s == null) return false;
+        String head = s.length() > 1024 ? s.substring(0, 1024) : s;
+        String lower = head.toLowerCase();
+        return lower.contains("<html") || lower.contains("<!doctype html") || lower.contains("<head>") || lower.contains("<body");
+    }
+
+    private static String stripHtml(String html) {
+        // Remove <script>/<style> blocks (and their contents), then all remaining tags.
+        String noScripts = html.replaceAll("(?is)<(script|style)\\b[^>]*>.*?</\\1>", " ");
+        String noTags = noScripts.replaceAll("(?s)<[^>]+>", " ");
+        // Decode the handful of entities that show up most.
+        String decoded = noTags
+                .replace("&nbsp;", " ")
+                .replace("&amp;", "&")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&quot;", "\"")
+                .replace("&#39;", "'");
+        return decoded.replaceAll("\\s+", " ").trim();
     }
 
     private String buildResponse(String source, Path path, int chunks, int chunkSize, int chunkOverlap) {
@@ -165,6 +208,7 @@ public class RagIngestTool implements BaseTool {
     }
 
     @Override public boolean isAsync() { return false; }
+    @Override public boolean isDynamic() { return true; }
     @Override public String getTriggerWhen() { return "User wants to add a paper/document to the RAG store so it can be searched semantically."; }
     @Override public String getAvoidWhen() { return "User just wants to read a file without indexing it — use file_read or pdf_read."; }
 

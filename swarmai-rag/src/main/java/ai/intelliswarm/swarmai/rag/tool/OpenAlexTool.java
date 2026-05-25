@@ -169,6 +169,7 @@ public class OpenAlexTool implements BaseTool {
 
     @Override public boolean isAsync() { return false; }
     @Override public boolean isCacheable() { return true; }
+    @Override public boolean isDynamic() { return true; }
     @Override public String getTriggerWhen() { return "User wants broad cross-discipline academic coverage with DOIs and open-access PDFs."; }
     @Override public String getAvoidWhen() { return "User specifically wants arXiv preprints (use arxiv_search) or biomedical-only (use pubmed_search)."; }
 

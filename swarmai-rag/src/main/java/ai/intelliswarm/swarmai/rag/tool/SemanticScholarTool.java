@@ -134,6 +134,9 @@ public class SemanticScholarTool implements BaseTool {
 
     @Override public boolean isAsync() { return false; }
     @Override public boolean isCacheable() { return true; }
+    /** Registered as a Spring @Bean but with a different bean name than function name —
+     *  Spring AI needs us to register as FunctionToolCallback at agent build time. */
+    @Override public boolean isDynamic() { return true; }
     @Override public String getTriggerWhen() { return "User wants academic papers across fields broader than arXiv (e.g., social science, biology, medicine)."; }
     @Override public String getAvoidWhen() { return "User wants only CS/ML preprints (arxiv is faster) or generic web (use web_search)."; }
 

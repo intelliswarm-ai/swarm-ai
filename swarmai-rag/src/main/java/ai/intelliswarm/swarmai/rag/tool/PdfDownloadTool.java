@@ -58,8 +58,9 @@ public class PdfDownloadTool implements BaseTool {
 
     @Override
     public String getDescription() {
-        return "Download a PDF (or other binary) from an HTTP(S) URL to a local directory. "
-             + "Returns the saved file's absolute path so it can be passed to rag_ingest.";
+        return "Download a PDF (or other binary) from an HTTP(S) URL. Saves under the "
+             + "application's papers directory and returns the absolute path so it can be "
+             + "passed directly to rag_ingest. Pass ONLY the `url` parameter.";
     }
 
     @Override public PermissionLevel getPermissionLevel() { return PermissionLevel.WORKSPACE_WRITE; }
@@ -74,11 +75,13 @@ public class PdfDownloadTool implements BaseTool {
             return "Error: url must start with http:// or https://";
         }
 
-        String dirStr = asString(parameters.getOrDefault("dir", defaultDir.toString()));
+        // Ignore the dir parameter — LLM agents tend to hallucinate paths like /app, /tmp,
+        // /workspace etc. that aren't writable in the host environment. Always use the
+        // application-configured papers directory (defaults to ./papers).
         String filenameOverride = asString(parameters.get("filename"));
 
         try {
-            Path dir = Paths.get(dirStr).toAbsolutePath().normalize();
+            Path dir = defaultDir.toAbsolutePath().normalize();
             Files.createDirectories(dir);
 
             String filename = filenameOverride != null && !filenameOverride.isBlank()
@@ -152,14 +155,14 @@ public class PdfDownloadTool implements BaseTool {
         schema.put("type", "object");
         Map<String, Object> props = new HashMap<>();
         props.put("url", Map.of("type", "string", "description", "http(s) URL of the PDF or binary"));
-        props.put("dir", Map.of("type", "string", "description", "Destination directory; created if missing"));
-        props.put("filename", Map.of("type", "string", "description", "Override filename (defaults to URL tail)"));
+        props.put("filename", Map.of("type", "string", "description", "Optional override filename (defaults to URL tail)"));
         schema.put("properties", props);
         schema.put("required", new String[]{"url"});
         return schema;
     }
 
     @Override public boolean isAsync() { return false; }
+    @Override public boolean isDynamic() { return true; }
     @Override public String getTriggerWhen() { return "User has a URL to a PDF (e.g. an arXiv PDF link) and needs the file saved locally before indexing."; }
     @Override public String getAvoidWhen() { return "User wants the *text* of a web page (use web_fetch) or a search engine query (use web_search)."; }
 
