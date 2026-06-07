@@ -1,0 +1,14 @@
+{
+  "sessionId" : "4d69c10f-2d8d-4cc6-9ae5-58a609f33a6e",
+  "savedAt" : "2026-05-24T07:28:14.117943619Z",
+  "tokens" : {
+    "cacheRead" : 0,
+    "output" : 0,
+    "input" : 0,
+    "cacheCreation" : 0
+  },
+  "messages" : [ {
+    "role" : "USER",
+    "content" : "say hi"
+  } ]
+}

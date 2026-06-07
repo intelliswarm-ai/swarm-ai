@@ -7,7 +7,7 @@
 
     <groupId>ai.intelliswarm</groupId>
     <artifactId>swarmai-parent</artifactId>
-    <version>1.0.28-SNAPSHOT</version>
+    <version>1.0.29-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>SwarmAI Parent</name>
@@ -79,7 +79,7 @@
 
         <!-- Spring Framework versions -->
         <spring-boot.version>3.4.4</spring-boot.version>
-        <spring-ai.version>1.0.4</spring-ai.version>
+        <spring-ai.version>1.0.8</spring-ai.version>
 
         <!-- Other dependencies -->
         <jackson.version>2.17.2</jackson.version>
