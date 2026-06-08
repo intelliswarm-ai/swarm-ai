@@ -71,6 +71,13 @@ public interface LlmClient {
         /** Streaming via {@code createStreaming}. */
         STREAMING,
         /** Cache hit/miss telemetry surfaced on {@link TokenUsage}. */
-        CACHE_TELEMETRY
+        CACHE_TELEMETRY,
+        /**
+         * Model prefers one-shot mode: receives full context as a single input string,
+         * returns a complete diff/solution. Incompatible with iterative tool-call loops.
+         * Clients like {@code OpenAiResponsesClient} declare this to trigger
+         * {@code OneShotEngine} instead of {@code ConversationEngine}.
+         */
+        ONE_SHOT
     }
 }
