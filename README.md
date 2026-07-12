@@ -357,7 +357,6 @@ SwarmException (base, carries swarmId + correlationId)
 - **[Getting Started Guide](GETTING_STARTED.md)** -- Comprehensive tutorial with full code examples
 - **[API Keys Setup](docs/API_KEYS_SETUP_GUIDE.md)** -- Configure LLM provider API keys
 - **[Docker Guide](docs/DOCKER_EXAMPLE_GUIDE.md)** -- Run SwarmAI in Docker
-- **[RL Benchmarking](docs/benchmarks/BENCHMARKING_METHODOLOGY.md)** -- Algorithm comparison methodology and results
 - **[YAML DSL Guide](GETTING_STARTED.md#yaml-dsl)** -- Define workflows in YAML
 
 ## License

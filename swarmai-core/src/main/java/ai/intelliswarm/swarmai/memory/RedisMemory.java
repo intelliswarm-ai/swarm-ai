@@ -104,9 +104,21 @@ public class RedisMemory implements Memory {
         }
         // Collect the scoped agents' entries newest-first, then score like search().
         // Agent keys are discovered with SCAN (non-blocking), never KEYS.
+        //
+        // SECURITY: agentPrefix is tenant-derived and TenantContext accepts arbitrary tenant IDs,
+        // so it must not reach Redis as a raw glob. A tenant id of `tenant-*` would otherwise
+        // match every other tenant's keys and return their memories. We escape the glob
+        // metacharacters, AND re-check the literal prefix on each returned key below — tenant
+        // isolation should not hinge on getting Redis's glob semantics exactly right.
         List<Match> matches = new ArrayList<>();
         List<String> keywords = MemoryKeywords.tokenize(query);
-        for (String key : scanKeys(AGENT_KEY_PREFIX + agentPrefix + "*")) {
+        String literalKeyPrefix = AGENT_KEY_PREFIX + agentPrefix;
+        for (String key : scanKeys(AGENT_KEY_PREFIX + escapeGlob(agentPrefix) + "*")) {
+            if (!key.startsWith(literalKeyPrefix)) {
+                logger.warn("Discarding key '{}' that matched the scan pattern but not the literal "
+                        + "tenant prefix '{}' — possible glob-injection attempt", key, literalKeyPrefix);
+                continue;
+            }
             collectMatches(key, query, keywords, limit, matches);
         }
         return topContents(matches, limit);
@@ -225,6 +237,23 @@ public class RedisMemory implements Memory {
     }
 
     /**
+     * Escapes Redis glob metacharacters so a caller-supplied string matches literally.
+     * Redis patterns treat {@code * ? [ ] \} specially; a tenant id containing any of them would
+     * otherwise widen the match beyond that tenant.
+     */
+    static String escapeGlob(String literal) {
+        StringBuilder escaped = new StringBuilder(literal.length() + 8);
+        for (int i = 0; i < literal.length(); i++) {
+            char c = literal.charAt(i);
+            if (c == '*' || c == '?' || c == '[' || c == ']' || c == '\\') {
+                escaped.append('\\');
+            }
+            escaped.append(c);
+        }
+        return escaped.toString();
+    }
+
+    /**
      * Discovers keys matching a pattern with SCAN, which iterates incrementally
      * and does not block Redis the way KEYS does on large keyspaces.
      */
@@ -239,40 +268,56 @@ public class RedisMemory implements Memory {
         return keys;
     }
 
+    // One-character type tags that prefix every stored member. They make decode() depend on a
+    // byte WE control rather than on the shape of the content — otherwise a caller who saves the
+    // literal string {"c":"spoofed"} (with no metadata, so it would be stored verbatim) would have
+    // it decode back to "spoofed" instead of round-tripping. Both are C0 control characters that
+    // never appear in legacy entries (which stored content or content + " [metadata:...]").
+    private static final char RAW_TAG = '\u0000';
+    private static final char ENVELOPE_TAG = '\u0001';
+
     /**
-     * Encodes content + metadata as a JSON envelope so metadata is lossless and
-     * two identical contents with different metadata remain distinct ZSet members.
-     * Content without metadata is stored raw to stay readable in redis-cli.
+     * Encodes content + metadata for storage. A type tag prefixes the member so decoding is
+     * unambiguous: raw content is stored verbatim after {@link #RAW_TAG} (never guessed from its
+     * shape), and content with metadata is a JSON envelope after {@link #ENVELOPE_TAG} — which also
+     * keeps two identical contents with different metadata as distinct ZSet members.
      */
-    private String encode(String content, Map<String, Object> metadata) {
+    String encode(String content, Map<String, Object> metadata) {
         if (metadata == null || metadata.isEmpty()) {
-            return content;
+            return RAW_TAG + content;
         }
         try {
             ObjectNode node = objectMapper.createObjectNode();
             node.put("c", content);
             node.set("m", objectMapper.valueToTree(metadata));
-            return objectMapper.writeValueAsString(node);
+            return ENVELOPE_TAG + objectMapper.writeValueAsString(node);
         } catch (Exception e) {
             logger.warn("Failed to encode memory metadata, storing content only: {}", e.getMessage());
-            return content;
+            return RAW_TAG + content;
         }
     }
 
-    /** Decodes a stored entry back to its content, handling all historical formats. */
-    private String decode(String entry) {
-        if (entry.startsWith("{")) {
+    /** Decodes a stored entry back to its content. Unambiguous via the leading type tag. */
+    String decode(String entry) {
+        if (entry.isEmpty()) {
+            return entry;
+        }
+        char tag = entry.charAt(0);
+        if (tag == RAW_TAG) {
+            return entry.substring(1);
+        }
+        if (tag == ENVELOPE_TAG) {
             try {
-                JsonNode node = objectMapper.readTree(entry);
-                JsonNode content = node.get("c");
+                JsonNode content = objectMapper.readTree(entry.substring(1)).get("c");
                 if (content != null && content.isTextual()) {
                     return content.asText();
                 }
             } catch (JsonProcessingException e) {
-                // not an envelope — fall through to legacy handling
+                // corrupt envelope — fall through and return the payload as-is
             }
+            return entry.substring(1);
         }
-        // Legacy format: content + " [metadata:...]"
+        // Legacy (pre-tag) format: content, or content + " [metadata:...]"
         int metaIdx = entry.lastIndexOf(" [metadata:");
         return metaIdx > 0 ? entry.substring(0, metaIdx) : entry;
     }

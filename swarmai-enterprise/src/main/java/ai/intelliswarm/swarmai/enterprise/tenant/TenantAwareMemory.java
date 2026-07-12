@@ -16,7 +16,9 @@ import java.util.Map;
 public class TenantAwareMemory implements Memory {
 
     private static final Logger logger = LoggerFactory.getLogger(TenantAwareMemory.class);
-    private static final String TENANT_PREFIX_SEPARATOR = "::";
+    // Single source of truth: TenantContext rejects tenant ids containing this separator, which is
+    // what keeps prefix scoping injective (no cross-tenant collision).
+    private static final String TENANT_PREFIX_SEPARATOR = TenantContext.RESERVED_SEPARATOR;
 
     private final Memory delegate;
 

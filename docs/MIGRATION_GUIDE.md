@@ -1,6 +1,6 @@
 # Migration Guide: Adopting SwarmAI
 
-Migrate your existing AI agent application to the SwarmAI self-improving framework. This guide covers migrations from Quarkus/LangChain4j, Spring AI standalone, LangGraph4J, and custom agent implementations.
+Migrate your existing AI agent application to the SwarmAI multi-agent framework. This guide covers migrations from Quarkus/LangChain4j, Spring AI standalone, LangGraph4J, and custom agent implementations.
 
 ---
 

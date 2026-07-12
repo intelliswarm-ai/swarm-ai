@@ -603,6 +603,90 @@ class SkillValidatorTest {
         }
 
         @Test
+        @DisplayName("blocks @ASTTest compile-time RCE — and blocks it during VALIDATION, before parse")
+        void blocksAstTestCompileTimeExecution() throws Exception {
+            // CRITICAL: @groovy.transform.ASTTest runs its closure at the SEMANTIC_ANALYSIS compile
+            // phase, BEFORE SecureASTCustomizer runs at CANONICALIZATION. So the payload executes
+            // during parse() itself — meaning merely VALIDATING the skill runs the attacker's code.
+            // The defence is a textual gate that rejects annotations before parse() is ever called.
+            java.io.File marker = new java.io.File(System.getProperty("java.io.tmpdir"),
+                    "swarmai-asttest-probe-" + System.nanoTime());
+            marker.delete();
+            String payload = "@groovy.transform.ASTTest(value={ "
+                    + "new File('" + marker.getAbsolutePath().replace("\\", "\\\\") + "').text = 'pwned' })\n"
+                    + "def result = 'ok'\nresult";
+
+            GeneratedSkill skill = createCodeSkill("asttest_rce", "Compile-time RCE via @ASTTest", payload);
+
+            SkillValidator.ValidationResult result = validator.validate(skill);
+
+            assertFalse(result.passed(),
+                "SECURITY VULNERABILITY: @ASTTest must be rejected — it executes at compile time.");
+            assertFalse(marker.exists(),
+                "CRITICAL RCE: the @ASTTest closure executed during validation and wrote to disk at "
+                    + marker + ". The annotation gate must run BEFORE parse().");
+        }
+
+        @Test
+        @DisplayName("blocks @Grab (compile-time dependency fetch / classpath escape)")
+        void blocksGrab() {
+            GeneratedSkill skill = createCodeSkill("grab_escape",
+                "Pull an arbitrary dependency at compile time",
+                "@Grab('org.attacker:evil:1.0')\ndef result = 'ok'\nresult");
+
+            SkillValidator.ValidationResult result = validator.validate(skill);
+
+            assertFalse(result.passed(),
+                "SECURITY VULNERABILITY: @Grab runs at the CONVERSION compile phase and must be blocked");
+        }
+
+        @Test
+        @DisplayName("annotation inside a string literal is NOT a false positive")
+        void annotationInsideStringIsAllowed() {
+            GeneratedSkill skill = createCodeSkill("string_with_at",
+                "Legitimately mention an annotation in text",
+                "def note = 'usage: @Grab is a Groovy feature'\ndef result = note.size()\nresult");
+            skill.getTestCases().add("assert true");
+            skill.getTestCases().add("assert 1 == 1");
+
+            SkillValidator.ValidationResult result = validator.validate(skill);
+
+            assertTrue(result.passed(),
+                "an @ inside a string must not be mistaken for an annotation. Errors: " + result.errors());
+        }
+
+        @Test
+        @DisplayName("blocks execute() chained onto a TOOL RESULT (the receiver-walk escape)")
+        void blocksExecuteChainedOnToolResult() {
+            // The first sandbox allowed execute() on any receiver "rooted at tools", which walked
+            // through method calls — so the OUTER execute() here was accepted as a tool call. It is
+            // actually String.execute() on the tool's return value: arbitrary process execution
+            // driven by whatever text a tool returned (a scraped page, an API response).
+            GeneratedSkill skill = createCodeSkill("chained_execute",
+                "Chain execute() onto a tool's return value",
+                "def out = tools.echo.execute(Map.of('text', 'id')).execute().text\ndef result = out\nresult");
+
+            SkillValidator.ValidationResult result = validator.validate(skill);
+
+            assertFalse(result.passed(),
+                "SECURITY VULNERABILITY: execute() on a tool RESULT is String.execute() — "
+                    + "a shell escape. Only a direct tool object may be execute()d.");
+        }
+
+        @Test
+        @DisplayName("blocks execute() on a variable holding a tool result")
+        void blocksExecuteOnStoredToolResult() {
+            GeneratedSkill skill = createCodeSkill("stored_result_execute",
+                "Store a tool result, then execute() it",
+                "def out = tools.echo.execute(Map.of('text', 'id'))\ndef pwned = out.execute().text\npwned");
+
+            SkillValidator.ValidationResult result = validator.validate(skill);
+
+            assertFalse(result.passed(),
+                "SECURITY VULNERABILITY: execute() on a local holding a tool result must be blocked");
+        }
+
+        @Test
         @DisplayName("blocks Runtime access through Groovy metaprogramming")
         void blocksMetaprogrammingExploit() {
             GeneratedSkill skill = createCodeSkill("meta_exploit",

@@ -10,7 +10,6 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -50,8 +49,6 @@ public class JdbcMemory implements Memory {
     public static final int DEFAULT_MAX_ENTRIES = 100_000;
     /** Trim cost is amortized: retention runs once per this many saves. */
     private static final int TRIM_EVERY_N_SAVES = 200;
-    /** Fetch this many times the requested limit as ranking candidates. */
-    private static final int CANDIDATE_MULTIPLIER = 5;
 
     private final JdbcTemplate jdbcTemplate;
     private final boolean autoCreateTable;
@@ -173,9 +170,18 @@ public class JdbcMemory implements Memory {
     }
 
     /**
-     * Fetches newest-first candidates matching ANY query keyword (OR of LIKE clauses,
-     * so a partial keyword hit is enough to qualify), then ranks client-side by
-     * number of distinct keywords matched, then recency, and returns the top results.
+     * Matches rows containing ANY query keyword and ranks them by how many DISTINCT keywords each
+     * row contains, then by recency.
+     *
+     * <p>The ranking is done in SQL, not client-side. An earlier version fetched the newest N
+     * candidates and scored them in Java — but that truncates by recency BEFORE scoring, so a
+     * strongly-matching older row can never be seen. With {@code limit=1}, five recent rows
+     * containing only "database" would crowd out an older row containing
+     * "database migration rollback", and the search would return the weaker match. Scoring in the
+     * database means the ranking sees every matching row.
+     *
+     * <p>The score is a portable {@code SUM(CASE WHEN ... THEN 1 ELSE 0 END)} — no dialect-specific
+     * full-text syntax — so it works on PostgreSQL, MySQL and H2 alike.
      */
     private List<String> searchScoped(String query, String agentPrefix, int limit) {
         if (query == null || query.isBlank() || limit <= 0) {
@@ -183,50 +189,61 @@ public class JdbcMemory implements Memory {
         }
 
         List<String> keywords = MemoryKeywords.tokenize(query);
-        List<Object> params = new ArrayList<>();
-        StringBuilder sql = new StringBuilder("SELECT content FROM " + TABLE_NAME + " WHERE ");
 
+        // Fall back to raw substring matching when the query yields no usable keywords.
+        if (keywords.isEmpty()) {
+            List<Object> params = new ArrayList<>();
+            StringBuilder sql = new StringBuilder("SELECT content FROM " + TABLE_NAME + " WHERE ");
+            if (agentPrefix != null) {
+                sql.append("agent_id LIKE ?").append(LIKE_ESCAPE).append(" AND ");
+                params.add(escapeLike(agentPrefix) + "%");
+            }
+            sql.append("LOWER(content) LIKE ?").append(LIKE_ESCAPE)
+                    .append(" ORDER BY created_at DESC LIMIT ?");
+            params.add("%" + escapeLike(query.toLowerCase(Locale.ROOT)) + "%");
+            params.add(limit);
+            return jdbcTemplate.queryForList(sql.toString(), String.class, params.toArray());
+        }
+
+        // score = how many distinct keywords the row contains
+        StringBuilder score = new StringBuilder();
+        List<Object> scoreParams = new ArrayList<>(keywords.size());
+        for (int i = 0; i < keywords.size(); i++) {
+            if (i > 0) {
+                score.append(" + ");
+            }
+            score.append("(CASE WHEN LOWER(content) LIKE ?").append(LIKE_ESCAPE)
+                    .append(" THEN 1 ELSE 0 END)");
+            scoreParams.add("%" + escapeLike(keywords.get(i)) + "%");
+        }
+
+        String sql = "SELECT content FROM " + TABLE_NAME
+                + " WHERE " + (agentPrefix != null ? "agent_id LIKE ?" + LIKE_ESCAPE + " AND " : "")
+                + "(" + score + ") > 0"
+                + " ORDER BY (" + score + ") DESC, created_at DESC LIMIT ?";
+
+        // Placeholders bind in source order: [agent_id?] [WHERE score] [ORDER BY score] [limit].
+        List<Object> params = new ArrayList<>();
         if (agentPrefix != null) {
-            sql.append("agent_id LIKE ? AND ");
             params.add(escapeLike(agentPrefix) + "%");
         }
+        params.addAll(scoreParams);
+        params.addAll(scoreParams);
+        params.add(limit);
 
-        if (keywords.isEmpty()) {
-            sql.append("LOWER(content) LIKE ?");
-            params.add("%" + escapeLike(query.toLowerCase(Locale.ROOT)) + "%");
-        } else {
-            sql.append("(");
-            for (int i = 0; i < keywords.size(); i++) {
-                if (i > 0) sql.append(" OR ");
-                sql.append("LOWER(content) LIKE ?");
-                params.add("%" + escapeLike(keywords.get(i)) + "%");
-            }
-            sql.append(")");
-        }
-
-        sql.append(" ORDER BY created_at DESC LIMIT ?");
-        params.add(limit * CANDIDATE_MULTIPLIER);
-
-        List<String> candidates = jdbcTemplate.queryForList(sql.toString(), String.class, params.toArray());
-        if (keywords.isEmpty() || candidates.size() <= limit) {
-            return candidates.size() > limit ? candidates.subList(0, limit) : candidates;
-        }
-
-        record Match(String content, int score, int recency) {
-        }
-        List<Match> matches = new ArrayList<>(candidates.size());
-        for (int i = 0; i < candidates.size(); i++) {
-            matches.add(new Match(candidates.get(i), MemoryKeywords.score(candidates.get(i), keywords), i));
-        }
-        return matches.stream()
-                .sorted(Comparator.comparingInt(Match::score).reversed()
-                        .thenComparingInt(Match::recency))
-                .limit(limit)
-                .map(Match::content)
-                .toList();
+        return jdbcTemplate.queryForList(sql, String.class, params.toArray());
     }
 
-    /** Escapes LIKE wildcards in user-derived text so they match literally. */
+    /**
+     * The explicit {@code ESCAPE} clause for every LIKE built from {@link #escapeLike}. PostgreSQL
+     * and MySQL default the LIKE escape to backslash, but H2 and SQLite have NO default escape
+     * character — so without this clause the backslashes {@code escapeLike} adds are treated as
+     * literal characters and the wildcard escaping silently does nothing. Declaring it makes the
+     * escaping work identically on every supported database.
+     */
+    private static final String LIKE_ESCAPE = " ESCAPE '\\'";
+
+    /** Escapes LIKE wildcards in user-derived text so they match literally. Pair with {@link #LIKE_ESCAPE}. */
     private static String escapeLike(String text) {
         return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }

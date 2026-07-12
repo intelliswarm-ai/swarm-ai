@@ -7,12 +7,12 @@
 ### Key Architectural Concepts:
 - **Multi-Agent Orchestration**: Coordinating multiple AI agents for complex tasks
 - **Task Management System**: Task definition, dependencies, and execution patterns
-- **Process Types**: Sequential, hierarchical, parallel, iterative, and self-improving execution strategies
+- **Process Types**: Sequential, hierarchical, parallel, iterative, and composite execution strategies
 - **Agent Roles & Goals**: Agent configuration with roles, goals, and backstories
 - **Memory Systems**: Agent memory and knowledge management
 - **Tool Integration**: Extensible tool framework for agent capabilities
 - **Event System**: Comprehensive monitoring and telemetry patterns
-- **Self-Improving Skills**: Quality-gated runtime skill generation
+- **Governance Primitives**: Budget enforcement, approval gates, RBAC on tool execution, tenant isolation
 
 ## Acknowledgments
 

@@ -59,5 +59,25 @@ class TenantContextTest {
             assertNull(TenantContext.currentTenantId());
             assertFalse(TenantContext.isSet());
         }
+
+        @Test
+        @DisplayName("rejects a tenant id containing the reserved '::' separator")
+        void setTenantId_rejectsReservedSeparator() {
+            // A tenant id with '::' breaks prefix-scoping injectivity: "acme::sub::agent1"
+            // startsWith "acme::", so tenant "acme" could read tenant "acme::sub"'s memories.
+            assertThrows(IllegalArgumentException.class,
+                    () -> TenantContext.setTenantId("acme::sub"));
+            assertThrows(IllegalArgumentException.class,
+                    () -> TenantContext.setTenantId("::"));
+        }
+
+        @Test
+        @DisplayName("still accepts ordinary tenant ids")
+        void setTenantId_acceptsOrdinaryIds() {
+            TenantContext.setTenantId("acme-corp");
+            assertEquals("acme-corp", TenantContext.currentTenantId());
+            TenantContext.setTenantId("tenant_42.eu");
+            assertEquals("tenant_42.eu", TenantContext.currentTenantId());
+        }
     }
 }

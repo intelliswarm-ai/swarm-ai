@@ -5,6 +5,7 @@ import ai.intelliswarm.swarmai.api.PublicApi;
 import ai.intelliswarm.swarmai.config.ModelContextConfig;
 import ai.intelliswarm.swarmai.event.SwarmEvent;
 import ai.intelliswarm.swarmai.event.SwarmEventBus;
+import ai.intelliswarm.swarmai.agent.prompt.UntrustedContent;
 import ai.intelliswarm.swarmai.memory.Memory;
 import ai.intelliswarm.swarmai.knowledge.Knowledge;
 import ai.intelliswarm.swarmai.tool.base.BaseTool;
@@ -50,6 +51,9 @@ public class Agent {
      */
     private static final com.fasterxml.jackson.databind.ObjectMapper SCHEMA_MAPPER =
             new com.fasterxml.jackson.databind.ObjectMapper();
+
+    /** Where agents write output when nothing else is configured. Relative to the working dir. */
+    static final String DEFAULT_OUTPUT_DIRECTORY = "./output";
     /**
      * Maximum LLM-call attempts before {@link #callWithRetry} gives up.
      * Bumped from 3 → 5 in 1.0.24-SNAPSHOT after observing that some
@@ -136,6 +140,9 @@ public class Agent {
     @JsonIgnore
     private Knowledge knowledge;
 
+    /** Optional override for the directory this agent is told to write output files to. */
+    private String outputDirectory;
+
     private final String modelName;
 
     @JsonIgnore
@@ -169,6 +176,7 @@ public class Agent {
         this.lifecycleHooks = builder.lifecycleHooks;
         this.memory = builder.memory;
         this.knowledge = builder.knowledge;
+        this.outputDirectory = builder.outputDirectory;
         this.modelName = builder.modelName;
         this.contextConfig = ModelContextConfig.forModel(builder.modelName);
         this.maxTurns = builder.maxTurns;
@@ -1083,11 +1091,67 @@ public class Agent {
                 "you MUST adapt your approach immediately. Try a narrower scope, different parameters, " +
                 "or an alternative tool. For example: if scanning an entire subnet times out, scan " +
                 "individual hosts; if a full port scan times out, use --top-ports 100.\n");
-        system.append("7. OUTPUT FILES: When saving scan results or output files, ALWAYS write them to " +
-                "/app/output/ directory (e.g., /app/output/nmap_results.txt). This directory persists " +
-                "outside the container. Never write to the current directory or /tmp.\n");
+        system.append("7. OUTPUT FILES: When saving reports or other output files, write them to the " +
+                resolveOutputDirectory() + " directory (e.g. " + resolveOutputDirectory() +
+                "/report.md). Never write to /tmp.\n");
+
+        // Gives the fences in buildUserPrompt their meaning: without this rule the
+        // markers are decoration, and injected instructions in retrieved content read
+        // with the same authority as the operator's.
+        system.append("\n").append(UntrustedContent.systemDirective());
 
         return system.toString();
+    }
+
+    /**
+     * The directory agents are told to write output files to.
+     *
+     * <p>This used to be the hardcoded string {@code /app/output/} — correct inside the project's
+     * Docker images (which create it, and where compose mounts {@code ./output:/app/output}), and
+     * wrong everywhere else. On a host run the directory does not exist and is not creatable, so
+     * every file-writing agent burned its retry budget on
+     * {@code AccessDeniedException: /app} before adapting. It made at least one workflow in the
+     * regression suite non-deterministically time out.
+     *
+     * <p>Resolution order, first match wins:
+     * <ol>
+     *   <li>an explicit {@code outputDirectory} on the builder,</li>
+     *   <li>the {@code swarmai.output.dir} system property or {@code SWARMAI_OUTPUT_DIR} env var,</li>
+     *   <li>{@code /app/output} — but only when it actually exists and is writable, which keeps the
+     *       containerised behaviour identical without asserting it on hosts,</li>
+     *   <li>{@code ./output} relative to the working directory.</li>
+     * </ol>
+     *
+     * <p>Note this only decides what the model is *told*. {@code FileWriteTool} still enforces its
+     * own {@code baseDirectory} sandbox — the prompt is guidance, not a permission grant.
+     */
+    String resolveOutputDirectory() {
+        if (StringUtils.hasText(outputDirectory)) {
+            return outputDirectory;
+        }
+
+        String configured = System.getProperty("swarmai.output.dir");
+        if (!StringUtils.hasText(configured)) {
+            configured = System.getenv("SWARMAI_OUTPUT_DIR");
+        }
+        if (StringUtils.hasText(configured)) {
+            return configured;
+        }
+
+        // Preserve the container convention where it genuinely applies — but verify it rather
+        // than assuming it, which is exactly the bug this replaces.
+        try {
+            java.nio.file.Path containerOutput = java.nio.file.Path.of("/app/output");
+            if (java.nio.file.Files.isDirectory(containerOutput)
+                    && java.nio.file.Files.isWritable(containerOutput)) {
+                return "/app/output";
+            }
+        } catch (Exception e) {
+            // An unusable path is simply not the answer; fall through to the host default.
+            logger.debug("Could not probe /app/output, using host default: {}", e.getMessage());
+        }
+
+        return DEFAULT_OUTPUT_DIRECTORY;
     }
 
     private String buildUserPrompt(Task task, List<TaskOutput> context) {
@@ -1096,15 +1160,21 @@ public class Agent {
         // Dynamic context budget based on model's context window
         int contextBudget = contextConfig.getMaxPriorContextChars();
 
+        // Prior task output, memories and knowledge are all attacker-influenceable
+        // (they derive from tool output, shared stores, and third-party documents), so
+        // each is fenced as untrusted data rather than concatenated into the prompt as
+        // if the operator had written it. See UntrustedContent — the matching rule that
+        // tells the model fenced text is data, not instructions, is in buildSystemPrompt.
+
         // Add context from previous tasks — budget shared across all prior outputs
         if (context != null && !context.isEmpty()) {
             int perTaskBudget = Math.max(500, contextBudget / context.size());
             prompt.append("Context from previous tasks:\n");
             for (TaskOutput ctx : context) {
-                prompt.append("--- ").append(ctx.getDescription() != null ? ctx.getDescription() : "Previous task").append(" ---\n");
                 String output = ctx.getRawOutput();
                 if (output != null) {
-                    prompt.append(truncate(output, perTaskBudget)).append("\n");
+                    String label = ctx.getDescription() != null ? ctx.getDescription() : "previous task";
+                    prompt.append(UntrustedContent.fence(label, truncate(output, perTaskBudget)));
                 }
                 prompt.append("\n");
             }
@@ -1118,11 +1188,14 @@ public class Agent {
             if (relevantMemories != null && !relevantMemories.isEmpty()) {
                 int memoryBudget = contextConfig.getMaxMemoryChars();
                 int perMemoryBudget = Math.max(200, memoryBudget / relevantMemories.size());
-                StringBuilder memoryBlock = new StringBuilder("Relevant memories from previous executions:\n");
+                StringBuilder memoryBlock = new StringBuilder();
                 for (String mem : relevantMemories) {
-                    memoryBlock.append("- ").append(truncate(mem, perMemoryBudget)).append("\n");
+                    memoryBlock.append(truncate(mem, perMemoryBudget)).append("\n");
                 }
-                prompt.append(truncate(memoryBlock.toString(), memoryBudget)).append("\n");
+                prompt.append("Relevant memories from previous executions:\n")
+                        .append(UntrustedContent.fence("memory",
+                                truncate(memoryBlock.toString(), memoryBudget)))
+                        .append("\n");
             }
         }
 
@@ -1131,8 +1204,9 @@ public class Agent {
             String knowledgeContext = knowledge.query(task.getDescription());
             if (StringUtils.hasText(knowledgeContext)) {
                 prompt.append("Relevant knowledge:\n")
-                        .append(truncate(knowledgeContext, contextConfig.getMaxKnowledgeChars()))
-                        .append("\n\n");
+                        .append(UntrustedContent.fence("knowledge",
+                                truncate(knowledgeContext, contextConfig.getMaxKnowledgeChars())))
+                        .append("\n");
             }
         }
 
@@ -1316,6 +1390,7 @@ public class Agent {
         private ai.intelliswarm.swarmai.agent.hook.LifecycleHookRegistry lifecycleHooks;
         private Memory memory;
         private Knowledge knowledge;
+        private String outputDirectory;
         private String modelName;
         private Map<String, Object> metadata = new HashMap<>();
         private Integer maxTurns;
@@ -1429,6 +1504,15 @@ public class Agent {
             return this;
         }
 
+        /**
+         * Directory this agent is told to write output files to. Overrides the
+         * {@code swarmai.output.dir} property and the container/host defaults.
+         */
+        public Builder outputDirectory(String outputDirectory) {
+            this.outputDirectory = outputDirectory;
+            return this;
+        }
+
         public Builder knowledge(Knowledge knowledge) {
             this.knowledge = knowledge;
             return this;
@@ -1522,6 +1606,7 @@ public class Agent {
     public ChatClient getChatClient() { return chatClient; }
     public Memory getMemory() { return memory; }
     public Knowledge getKnowledge() { return knowledge; }
+    public String getOutputDirectory() { return outputDirectory; }
     public Integer getMaxTurns() { return maxTurns; }
     public PermissionLevel getPermissionMode() { return permissionMode; }
     public List<ToolHook> getToolHooks() { return new ArrayList<>(toolHooks); }
@@ -1594,6 +1679,7 @@ public class Agent {
             .build();
         copy.memory = this.memory;
         copy.knowledge = this.knowledge;
+        copy.outputDirectory = this.outputDirectory;
         return copy;
     }
 

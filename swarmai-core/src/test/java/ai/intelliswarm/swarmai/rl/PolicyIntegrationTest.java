@@ -76,8 +76,8 @@ class PolicyIntegrationTest {
         }
 
         @Test
-        @DisplayName("exits cold-start after N+1 decisions")
-        void exitsColdStartAfterN() {
+        @DisplayName("exits cold-start only after N+1 decisions AND real rewards")
+        void exitsColdStartAfterDecisionsAndRewards() {
             int coldStartN = 3;
             LearningPolicy policy = new LearningPolicy(coldStartN, 1.0, 1000);
 
@@ -87,8 +87,21 @@ class PolicyIntegrationTest {
                 policy.shouldGenerateSkill(ctx);
             }
 
+            // Decisions alone are not enough: a bandit that has never been fed a reward has
+            // learned nothing and must keep deferring to the heuristic, rather than graduating
+            // into an untrained model whose UCB scores all tie (which collapses to always-GENERATE).
+            assertTrue(policy.isColdStart(),
+                "Must NOT exit cold-start on decision count alone — no rewards have been recorded");
+
+            for (int i = 0; i < 10; i++) {
+                policy.recordOutcome(
+                    ai.intelliswarm.swarmai.rl.Decision.create(
+                        "skill_generation", ctx.toFeatureVector(), 0),
+                    ai.intelliswarm.swarmai.rl.Outcome.of("d" + i, 1.0));
+            }
+
             assertFalse(policy.isColdStart(),
-                "Should exit cold-start after " + (coldStartN + 1) + " decisions");
+                "Should exit cold-start once it has both enough decisions and real feedback");
         }
     }
 

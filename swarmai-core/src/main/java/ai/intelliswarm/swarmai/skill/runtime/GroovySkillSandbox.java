@@ -147,7 +147,7 @@ public final class GroovySkillSandbox {
             }
             String name = String.valueOf(constant.getValue());
             if (EXECUTE.equals(name)) {
-                return isRootedAtToolsBinding(call.getObjectExpression());
+                return isDirectToolAccess(call.getObjectExpression());
             }
             return !BLOCKED_METHODS.contains(name);
         }
@@ -165,28 +165,156 @@ public final class GroovySkillSandbox {
     }
 
     /**
-     * Walks a receiver expression down to its root variable and reports whether that
-     * root is the {@code tools} binding. Covers {@code tools.name.execute(...)},
-     * {@code tools['name'].execute(...)} and {@code tools.get('name').execute(...)};
-     * anything else — a string literal, a local variable, a method result — is not
-     * a tool and may not be {@code execute()}d.
+     * Reports whether a receiver is a DIRECT tool access — that is, a tool object obtained in one
+     * hop from the {@code tools} binding. Exactly three shapes qualify:
+     *
+     * <pre>
+     *   tools.name          (PropertyExpression on the tools variable)
+     *   tools['name']       (subscript on the tools variable)
+     *   tools.get('name')   (get() on the tools variable)
+     * </pre>
+     *
+     * <p><b>Why this is not a recursive walk.</b> An earlier version walked the receiver chain down
+     * to its root variable and accepted anything rooted at {@code tools}. That was a sandbox escape:
+     * the receiver of the OUTER call in
+     *
+     * <pre>tools.echo.execute(Map.of('text', 'id')).execute().text</pre>
+     *
+     * is itself a method call rooted at {@code tools}, so it was accepted — and the outer
+     * {@code execute()} is {@code String.execute()} on the tool's return value, i.e. arbitrary
+     * process execution driven by whatever text a tool happened to return. Tool results are
+     * attacker-influenceable (a scraped page, an API response), which made it directly exploitable.
+     *
+     * <p>A real tool is always one hop from the binding, so we match that shape and nothing else.
+     * The return value of {@code execute()} is a {@code String}, never a tool, and can never be
+     * {@code execute()}d again.
      */
-    private static boolean isRootedAtToolsBinding(Expression receiver) {
-        Expression current = receiver;
-        while (true) {
-            if (current instanceof VariableExpression variable) {
-                return TOOLS_BINDING.equals(variable.getName());
-            }
-            if (current instanceof PropertyExpression property) {
-                current = property.getObjectExpression();
-            } else if (current instanceof MethodCallExpression call) {
-                current = call.getObjectExpression();
-            } else if (current instanceof BinaryExpression binary) {
-                current = binary.getLeftExpression(); // subscript: tools['name']
+    private static boolean isDirectToolAccess(Expression receiver) {
+        if (receiver instanceof PropertyExpression property) {
+            // tools.name — the property name may be dynamic; the receiver check still holds,
+            // because whatever it resolves to came out of the tools map.
+            return isToolsVariable(property.getObjectExpression());
+        }
+        if (receiver instanceof BinaryExpression binary) {
+            // tools['name'] — subscript access
+            return binary.getOperation() != null
+                    && "[".equals(binary.getOperation().getText())
+                    && isToolsVariable(binary.getLeftExpression());
+        }
+        if (receiver instanceof MethodCallExpression call) {
+            // tools.get('name') — and ONLY get(); notably not tools.foo.execute(...).execute()
+            return call.getMethod() instanceof ConstantExpression method
+                    && "get".equals(String.valueOf(method.getValue()))
+                    && isToolsVariable(call.getObjectExpression());
+        }
+        return false;
+    }
+
+    private static boolean isToolsVariable(Expression expression) {
+        return expression instanceof VariableExpression variable
+                && TOOLS_BINDING.equals(variable.getName());
+    }
+
+    /**
+     * Rejects source that carries a compile-time AST transformation annotation.
+     *
+     * <p>This is the single most important check in the sandbox, and it must run BEFORE the code is
+     * ever handed to {@code parse()}/{@code evaluate()}. {@link SecureASTCustomizer} runs at the
+     * {@code CANONICALIZATION} compile phase, but annotation-triggered AST transforms run EARLIER —
+     * {@code @Grab} at {@code CONVERSION}, {@code @groovy.transform.ASTTest} at
+     * {@code SEMANTIC_ANALYSIS} — so their code executes during {@code parse()} itself, before any
+     * customizer sees the AST. That means a hostile skill runs its payload merely by being
+     * VALIDATED (securityScan/syntaxCheck both parse). {@code @ASTTest(value={ ... })} is a
+     * confirmed arbitrary-code-execution escape this way; no {@code SecureASTCustomizer} setting can
+     * stop it.
+     *
+     * <p>Every compile-time transform is annotation-triggered, and legitimate skill code (scripts of
+     * expressions and tool calls) never needs annotations — so the safe, allowlist-shaped rule is:
+     * untrusted skill code may contain NO annotations at all. We detect them textually, before the
+     * compiler runs, after stripping comments and string/GString literals so an {@code @Grab} inside
+     * a string is not a false positive.
+     *
+     * @throws SecurityException if the source contains an annotation
+     */
+    public static void rejectCompileTimeTransforms(String code) {
+        String stripped = stripCommentsAndStrings(code);
+        // An annotation is '@' + identifier, not preceded by '.' (which would be obj.@field
+        // attribute access — handled separately by the AST checker, and harmless at parse time).
+        java.util.regex.Matcher m = ANNOTATION.matcher(stripped);
+        if (m.find()) {
+            throw new SecurityException(
+                    "annotations are not permitted in skill code (found '@" + m.group(1) + "'). "
+                    + "Compile-time AST transforms such as @Grab and @ASTTest execute during "
+                    + "compilation, before the sandbox can inspect the code.");
+        }
+    }
+
+    private static final java.util.regex.Pattern ANNOTATION =
+            java.util.regex.Pattern.compile("(?<![.\\w$])@([A-Za-z_$][\\w$.]*)");
+
+    /**
+     * Removes line comments, block comments, and single/double/triple-quoted string literals,
+     * replacing each with a space so positions of remaining tokens are preserved well enough for the
+     * annotation scan. Conservative by design: if anything is ambiguous it leaves content in place,
+     * which can only cause a FALSE POSITIVE (a rejected-but-safe skill), never a false negative.
+     */
+    private static String stripCommentsAndStrings(String code) {
+        StringBuilder out = new StringBuilder(code.length());
+        int i = 0;
+        int n = code.length();
+        while (i < n) {
+            char c = code.charAt(i);
+            char next = i + 1 < n ? code.charAt(i + 1) : '\0';
+            if (c == '/' && next == '/') {                       // line comment
+                while (i < n && code.charAt(i) != '\n') i++;
+            } else if (c == '/' && next == '*') {                // block comment
+                i += 2;
+                while (i + 1 < n && !(code.charAt(i) == '*' && code.charAt(i + 1) == '/')) i++;
+                i += 2;
+                out.append(' ');
+            } else if (c == '"' || c == '\'') {                  // string / GString (incl. triple)
+                boolean triple = next == c && i + 2 < n && code.charAt(i + 2) == c;
+                i = skipString(code, i, c, triple);
+                out.append(' ');
             } else {
-                return false;
+                out.append(c);
+                i++;
             }
         }
+        return out.toString();
+    }
+
+    private static int skipString(String code, int start, char quote, boolean triple) {
+        int n = code.length();
+        int i = start + (triple ? 3 : 1);
+        while (i < n) {
+            char c = code.charAt(i);
+            if (c == '\\') {                                     // escape — skip next char
+                i += 2;
+                continue;
+            }
+            if (triple) {
+                if (c == quote && i + 2 < n && code.charAt(i + 1) == quote && code.charAt(i + 2) == quote) {
+                    return i + 3;
+                }
+            } else if (c == quote || c == '\n') {
+                return i + 1;
+            }
+            i++;
+        }
+        return n;
+    }
+
+    /**
+     * Parses code under the hardened configuration, having first rejected compile-time transforms.
+     * Use this everywhere untrusted skill code is compiled, so the pre-parse gate can never be
+     * forgotten at a call site (as it was forgotten for the whole transform class until now).
+     *
+     * @throws SecurityException if the code carries an annotation
+     */
+    public static GroovyShell newGuardedShell(groovy.lang.Binding binding, String code) {
+        rejectCompileTimeTransforms(code);
+        return new GroovyShell(binding, hardenedConfig());
     }
 
     /**
@@ -196,6 +324,11 @@ public final class GroovySkillSandbox {
      * by the secure AST customizer.
      */
     public static List<String> scan(String code) {
+        try {
+            rejectCompileTimeTransforms(code);
+        } catch (SecurityException se) {
+            return List.of("Security violation: " + se.getMessage());
+        }
         try {
             new GroovyShell(hardenedConfig()).parse(code);
             return List.of();

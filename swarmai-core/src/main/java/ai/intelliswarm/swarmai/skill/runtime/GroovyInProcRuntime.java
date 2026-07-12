@@ -67,6 +67,9 @@ public class GroovyInProcRuntime implements SkillRuntime {
     @Override
     public SyntaxReport syntaxCheck(SkillSource source) {
         try {
+            // Reject compile-time AST transforms BEFORE parsing — parse() executes them, so this
+            // gate must precede it (see GroovySkillSandbox.rejectCompileTimeTransforms).
+            GroovySkillSandbox.rejectCompileTimeTransforms(source.code());
             // Compile under the same hardened config used at execution time, so
             // "compiles here" means "compiles when the skill actually runs".
             GroovyShell shell = new GroovyShell(GroovySkillSandbox.hardenedConfig());

@@ -1,5 +1,34 @@
 # RL Benchmark Results
 
+> ## CORRECTION (2026-07-12) — read before citing anything below
+>
+> **Section 8 ("Is Self-Improvement Feasible?") was wrong about the shipped system, and this
+> document is retained only as a record of the synthetic algorithm comparison.**
+>
+> These benchmarks measured the bandit algorithms **in an isolated harness**. They never
+> exercised the wired system. In the shipped code, `SelfImprovingProcess` called
+> `PolicyEngine.shouldGenerateSkill(...)` and `shouldStopIteration(...)` but **never called
+> `recordOutcome(...)`** — the reward loop was open, so the bandits received **zero rewards in
+> production**. Specifically:
+>
+> - §8.5 claimed *"the self-improving process ... feeds rewards back to the policy. The benchmarks
+>   prove that this feedback loop produces meaningful learning."* — **False.** No feedback loop
+>   existed. Nothing in this document tested one.
+> - §8.5 claimed convergence detection was *"correct STOP/CONTINUE"*. — **False in production.**
+>   An unfed `ThompsonSampling` samples its `Beta(1,1)` prior, i.e. a coin flip; it halted a
+>   visibly-improving run 489 times out of 1000, and never even read `ConvergenceContext`.
+> - §8.3 claimed *"after 50 heuristic decisions, the learned policy begins to outperform the
+>   heuristic"*. — **False in production.** An unfed `LinUCB` keeps `A=I, b=0`, so every UCB score
+>   ties and `argmax` collapses onto action 0: the policy degenerated to **always GENERATE**.
+>
+> The bug is fixed (reward loop closed; cold-start now gated on rewards *received*, not decisions
+> *made*; convergence made contextual with a safety floor). The comparison that actually matters —
+> **learned policy vs. the fixed heuristic on the framework's own decision** — is in
+> [POLICY_ENGINE_BENCHMARK.md](POLICY_ENGINE_BENCHMARK.md).
+>
+> The algorithm-vs-algorithm results below (§1–§7) remain valid *as a synthetic comparison of
+> bandit algorithms*. They say nothing about whether the framework benefits from them.
+
 **Date**: 2026-04-08
 **Runtime**: 20 min 45 sec
 **Tests**: 18/18 passed (0 failures)
