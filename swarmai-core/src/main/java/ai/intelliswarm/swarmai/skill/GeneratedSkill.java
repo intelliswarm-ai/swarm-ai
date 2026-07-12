@@ -5,8 +5,6 @@ import ai.intelliswarm.swarmai.tool.base.ToolRequirements;
 import groovy.lang.Binding;
 import groovy.lang.GroovyShell;
 import org.codehaus.groovy.control.CompilerConfiguration;
-import org.codehaus.groovy.control.customizers.ImportCustomizer;
-import org.codehaus.groovy.control.customizers.SecureASTCustomizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -662,27 +660,10 @@ public class GeneratedSkill implements BaseTool {
     // ==================== Sandbox ====================
 
     private CompilerConfiguration createSandboxedConfig() {
-        CompilerConfiguration config = new CompilerConfiguration();
-        ImportCustomizer imports = new ImportCustomizer();
-        imports.addStarImports("java.util", "java.math", "groovy.json", "groovy.xml",
-            "java.util.regex", "java.time");
-        imports.addImports("java.net.URLEncoder", "java.net.URLDecoder");
-        config.addCompilationCustomizers(imports);
-
-        SecureASTCustomizer secure = new SecureASTCustomizer();
-        secure.setDisallowedImports(List.of(
-            "java.lang.Runtime", "java.lang.ProcessBuilder", "java.lang.Process",
-            "java.io.File", "java.io.FileWriter", "java.io.FileReader",
-            "java.io.FileInputStream", "java.io.FileOutputStream",
-            "java.net.URL", "java.net.HttpURLConnection", "java.net.Socket",
-            "java.lang.reflect.Method", "java.lang.reflect.Field",
-            "groovy.lang.GroovyShell"
-        ));
-        secure.setDisallowedStaticImports(List.of(
-            "java.lang.System.exit", "java.lang.Runtime.getRuntime"
-        ));
-        config.addCompilationCustomizers(secure);
-        return config;
+        // Allowlist AST sandbox shared with validation — see GroovySkillSandbox.
+        // The old inline denylist only blocked import STATEMENTS, which Groovy
+        // doesn't need to reach java.io.File or Runtime.
+        return ai.intelliswarm.swarmai.skill.runtime.GroovySkillSandbox.hardenedConfig();
     }
 
     // ==================== BaseTool Enhanced Methods ====================

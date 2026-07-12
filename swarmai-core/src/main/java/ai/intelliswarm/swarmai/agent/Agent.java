@@ -41,6 +41,15 @@ import java.util.function.Supplier;
 public class Agent {
 
     private static final Logger logger = LoggerFactory.getLogger(Agent.class);
+
+    /**
+     * Shared mapper for serialising tool parameter schemas. ObjectMapper is
+     * thread-safe once configured and is expensive to construct — building one
+     * per dynamic tool per LLM call (the previous behaviour) is pure overhead on
+     * the hottest path in the framework.
+     */
+    private static final com.fasterxml.jackson.databind.ObjectMapper SCHEMA_MAPPER =
+            new com.fasterxml.jackson.databind.ObjectMapper();
     /**
      * Maximum LLM-call attempts before {@link #callWithRetry} gives up.
      * Bumped from 3 → 5 in 1.0.24-SNAPSHOT after observing that some
@@ -646,8 +655,7 @@ public class Agent {
                         Map<String, Object> paramSchema = tool.getParameterSchema();
                         if (paramSchema != null && !paramSchema.isEmpty()) {
                             try {
-                                String schemaJson = new com.fasterxml.jackson.databind.ObjectMapper()
-                                        .writeValueAsString(paramSchema);
+                                String schemaJson = SCHEMA_MAPPER.writeValueAsString(paramSchema);
                                 dynamicBuilder.inputSchema(schemaJson);
                             } catch (Exception e) {
                                 logger.warn("Could not serialise parameterSchema for tool {}: {}",
@@ -1102,23 +1110,29 @@ public class Agent {
             }
         }
 
-        // Add memory context
+        // Add memory context — capped so retrieved memories can never crowd out
+        // the task description (enforcePromptBudget truncates the tail blindly,
+        // and the task description comes last).
         if (memory != null) {
             List<String> relevantMemories = memory.search(task.getDescription(), 5);
             if (relevantMemories != null && !relevantMemories.isEmpty()) {
-                prompt.append("Relevant memories from previous executions:\n");
+                int memoryBudget = contextConfig.getMaxMemoryChars();
+                int perMemoryBudget = Math.max(200, memoryBudget / relevantMemories.size());
+                StringBuilder memoryBlock = new StringBuilder("Relevant memories from previous executions:\n");
                 for (String mem : relevantMemories) {
-                    prompt.append("- ").append(mem).append("\n");
+                    memoryBlock.append("- ").append(truncate(mem, perMemoryBudget)).append("\n");
                 }
-                prompt.append("\n");
+                prompt.append(truncate(memoryBlock.toString(), memoryBudget)).append("\n");
             }
         }
 
-        // Add knowledge context
+        // Add knowledge context — same budgeting rationale as memories above
         if (knowledge != null) {
             String knowledgeContext = knowledge.query(task.getDescription());
             if (StringUtils.hasText(knowledgeContext)) {
-                prompt.append("Relevant knowledge:\n").append(knowledgeContext).append("\n\n");
+                prompt.append("Relevant knowledge:\n")
+                        .append(truncate(knowledgeContext, contextConfig.getMaxKnowledgeChars()))
+                        .append("\n\n");
             }
         }
 

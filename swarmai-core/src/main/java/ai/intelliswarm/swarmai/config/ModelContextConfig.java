@@ -20,6 +20,8 @@ public class ModelContextConfig {
     private static final double PRIOR_CONTEXT_BUDGET = 0.30;   // 30%
     private static final double TASK_DESCRIPTION_BUDGET = 0.20; // 20%
     private static final double COMPLETION_RESERVE = 0.10;      // 10% reserved for output
+    private static final double MEMORY_BUDGET = 0.05;            // 5% — injected memories
+    private static final double KNOWLEDGE_BUDGET = 0.10;         // 10% — injected knowledge
 
     private ModelContextConfig(int contextWindowTokens) {
         this.contextWindowTokens = contextWindowTokens;
@@ -96,6 +98,20 @@ public class ModelContextConfig {
 
     public int getMaxTaskDescriptionChars() {
         return (int) (contextWindowChars * TASK_DESCRIPTION_BUDGET);
+    }
+
+    /**
+     * Cap for injected memories (all entries combined). Carved out of the prior-context
+     * share so memories can never crowd out the task description before the final
+     * whole-prompt truncation runs.
+     */
+    public int getMaxMemoryChars() {
+        return (int) (contextWindowChars * MEMORY_BUDGET);
+    }
+
+    /** Cap for the injected knowledge block, same rationale as {@link #getMaxMemoryChars()}. */
+    public int getMaxKnowledgeChars() {
+        return (int) (contextWindowChars * KNOWLEDGE_BUDGET);
     }
 
     public int getMaxTotalPromptChars() {

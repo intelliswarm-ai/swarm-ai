@@ -498,6 +498,111 @@ class SkillValidatorTest {
     class AdversarialPatterns {
 
         @Test
+        @DisplayName("blocks fully-qualified class references that need no import statement")
+        void blocksFullyQualifiedFileAccess() {
+            // The old denylist only matched literal patterns like "new File(" —
+            // fully-qualified references bypassed it entirely.
+            GeneratedSkill skill = createCodeSkill("fq_exploit",
+                "Fully qualified file access",
+                "def f = new java.io.File('/etc/passwd')\ndef result = f.text\nresult");
+
+            SkillValidator.ValidationResult result = validator.validate(skill);
+
+            assertFalse(result.passed(),
+                "SECURITY VULNERABILITY: fully-qualified java.io.File must be blocked without any import");
+        }
+
+        @Test
+        @DisplayName("blocks Eval.me as an in-process code injection vector")
+        void blocksEval() {
+            GeneratedSkill skill = createCodeSkill("eval_exploit",
+                "Eval-based escape",
+                "def result = Eval.me(\"'pwn'\")\nresult");
+
+            SkillValidator.ValidationResult result = validator.validate(skill);
+
+            assertFalse(result.passed(),
+                "SECURITY VULNERABILITY: groovy.util.Eval must be blocked");
+        }
+
+        @Test
+        @DisplayName("blocks dynamic (GString) method names that defeat static analysis")
+        void blocksDynamicMethodNames() {
+            GeneratedSkill skill = createCodeSkill("dynamic_dispatch",
+                "Dynamic method dispatch escape",
+                "def name = 'getRun' + 'time'\ndef result = ''.\"${name}\"()\nresult");
+
+            SkillValidator.ValidationResult result = validator.validate(skill);
+
+            assertFalse(result.passed(),
+                "SECURITY VULNERABILITY: dynamic method names must be rejected");
+        }
+
+        @Test
+        @DisplayName("blocks reflection reached through .class property access")
+        void blocksClassPropertyEscape() {
+            GeneratedSkill skill = createCodeSkill("class_prop",
+                "Reflection via .class",
+                "def result = 'x'.class.classLoader\nresult");
+
+            SkillValidator.ValidationResult result = validator.validate(skill);
+
+            assertFalse(result.passed(),
+                "SECURITY VULNERABILITY: .class/.classLoader property chain must be blocked");
+        }
+
+        @Test
+        @DisplayName("blocks getClass() as reflection entry point")
+        void blocksGetClassCall() {
+            GeneratedSkill skill = createCodeSkill("getclass_exploit",
+                "Reflection via getClass()",
+                "def result = 'x'.getClass().forName('java.lang.Runtime')\nresult");
+
+            SkillValidator.ValidationResult result = validator.validate(skill);
+
+            assertFalse(result.passed(),
+                "SECURITY VULNERABILITY: getClass() reflection must be blocked");
+        }
+
+        @Test
+        @DisplayName("blocks command execution via the Groovy String.execute() extension")
+        void blocksGroovyStringExecute() {
+            // Groovy adds execute() to String — no Runtime, ProcessBuilder or exec
+            // token appears anywhere in this code, so the substring denylist missed it.
+            GeneratedSkill skill = createCodeSkill("string_execute",
+                "Run a shell command through Groovy's String extension",
+                "def out = 'id'.execute().text\ndef result = out\nresult");
+
+            SkillValidator.ValidationResult result = validator.validate(skill);
+
+            assertFalse(result.passed(),
+                "SECURITY VULNERABILITY: 'cmd'.execute() is arbitrary command execution and must be blocked");
+        }
+
+        @Test
+        @DisplayName("still allows the documented tools.<name>.execute(...) calling convention")
+        void allowsToolExecuteCalls() {
+            // The sandbox blocks execute() on arbitrary receivers (String.execute() is a
+            // shell escape) but MUST keep working for the tools binding, which is how
+            // every real skill invokes its tools.
+            GeneratedSkill skill = createCodeSkill("tool_caller",
+                "Call a tool the documented way",
+                """
+                def response = tools.http_request.execute(Map.of("url", params.get("url")))
+                def viaSubscript = tools['http_request'].execute(Map.of("url", "https://example.com"))
+                def result = response.toString() + viaSubscript.toString()
+                result
+                """);
+            skill.getTestCases().add("assert true");
+            skill.getTestCases().add("assert 1 == 1");
+
+            SkillValidator.ValidationResult result = validator.validate(skill);
+
+            assertTrue(result.passed(),
+                "Legitimate tool execution must not be blocked by the sandbox. Errors: " + result.errors());
+        }
+
+        @Test
         @DisplayName("blocks Runtime access through Groovy metaprogramming")
         void blocksMetaprogrammingExploit() {
             GeneratedSkill skill = createCodeSkill("meta_exploit",

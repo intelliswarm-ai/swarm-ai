@@ -44,6 +44,20 @@ public class TenantAwareMemory implements Memory {
         return delegate.searchByAgentPrefix(query, tenantPrefix, limit);
     }
 
+    /**
+     * Composes the caller's prefix with the current tenant prefix so scoped
+     * searches stay inside the tenant even when a narrower prefix is requested.
+     */
+    @Override
+    public List<String> searchByAgentPrefix(String query, String agentPrefix, int limit) {
+        String tenantId = TenantContext.currentTenantId();
+        if (tenantId == null) {
+            return delegate.searchByAgentPrefix(query, agentPrefix, limit);
+        }
+        String composed = tenantId + TENANT_PREFIX_SEPARATOR + (agentPrefix != null ? agentPrefix : "");
+        return delegate.searchByAgentPrefix(query, composed, limit);
+    }
+
     @Override
     public List<String> getRecentMemories(String agentId, int limit) {
         return delegate.getRecentMemories(tenantScopedAgentId(agentId), limit);

@@ -276,6 +276,130 @@ class InMemoryMemoryTest {
     }
 
     @Nested
+    @DisplayName("Keyword retrieval")
+    class KeywordRetrievalTests {
+
+        @Test
+        @DisplayName("full task descriptions match stored task summaries by keywords")
+        void search_taskDescriptionQuery_findsRelatedMemory() {
+            // Stored the way Agent.saveToMemory writes it
+            memory.save("agent-1", "Task: Analyze quarterly revenue figures\nResult: Revenue grew 12%", null);
+            memory.save("agent-1", "Task: Draft marketing email\nResult: Email drafted", null);
+
+            // A different-but-related task description: substring match would find nothing
+            List<String> results = memory.search("Summarize the revenue trends for the last quarter", 5);
+
+            assertFalse(results.isEmpty(), "keyword OR search should match on 'revenue'");
+            assertTrue(results.get(0).contains("revenue figures"));
+        }
+
+        @Test
+        @DisplayName("ranks entries matching more keywords first")
+        void search_ranksByKeywordCount() {
+            memory.save("agent-1", "database migration completed", null);
+            memory.save("agent-1", "database migration rollback plan tested", null);
+
+            List<String> results = memory.search("database migration rollback", 2);
+
+            assertEquals(2, results.size());
+            assertTrue(results.get(0).contains("rollback"), "entry matching 3 keywords should rank first");
+        }
+
+        @Test
+        @DisplayName("stopword-only queries fall back to raw matching")
+        void search_stopwordOnlyQuery_usesRawFallback() {
+            memory.save("agent-1", "this and that", null);
+
+            assertFalse(memory.search("and", 5).isEmpty());
+        }
+    }
+
+    @Nested
+    @DisplayName("Bounded growth")
+    class EvictionTests {
+
+        @Test
+        @DisplayName("evicts oldest entries beyond maxEntries")
+        void save_beyondCap_evictsOldest() {
+            InMemoryMemory bounded = new InMemoryMemory(5);
+            for (int i = 0; i < 8; i++) {
+                bounded.save("agent-1", "entry-" + i, null);
+            }
+
+            assertEquals(5, bounded.size());
+            assertEquals(5, bounded.sizeForAgent("agent-1"));
+            List<String> recent = bounded.getRecentMemories("agent-1", 10);
+            assertEquals("entry-7", recent.get(0));
+            assertFalse(recent.contains("entry-0"), "oldest entries must be evicted");
+            assertFalse(recent.contains("entry-2"));
+        }
+
+        @Test
+        @DisplayName("rejects non-positive cap")
+        void constructor_rejectsNonPositiveCap() {
+            assertThrows(IllegalArgumentException.class, () -> new InMemoryMemory(0));
+        }
+    }
+
+    @Nested
+    @DisplayName("searchByAgentPrefix()")
+    class AgentPrefixTests {
+
+        @Test
+        @DisplayName("scopes results to matching agent prefix")
+        void searchByAgentPrefix_scopesResults() {
+            memory.save("tenant-a::agent-1", "shared keyword alpha", null);
+            memory.save("tenant-b::agent-1", "shared keyword beta", null);
+
+            List<String> results = memory.searchByAgentPrefix("shared keyword", "tenant-a::", 10);
+
+            assertEquals(1, results.size());
+            assertTrue(results.get(0).contains("alpha"));
+        }
+
+        @Test
+        @DisplayName("interface default fails closed instead of leaking unscoped results")
+        void defaultImplementation_failsClosed() {
+            Memory custom = new Memory() {
+                @Override
+                public void save(String agentId, String content, Map<String, Object> metadata) {
+                }
+
+                @Override
+                public List<String> search(String query, int limit) {
+                    return List.of("LEAKED cross-tenant result");
+                }
+
+                @Override
+                public List<String> getRecentMemories(String agentId, int limit) {
+                    return List.of();
+                }
+
+                @Override
+                public void clear() {
+                }
+
+                @Override
+                public void clearForAgent(String agentId) {
+                }
+
+                @Override
+                public int size() {
+                    return 0;
+                }
+
+                @Override
+                public boolean isEmpty() {
+                    return true;
+                }
+            };
+
+            assertTrue(custom.searchByAgentPrefix("anything", "tenant-a::", 10).isEmpty(),
+                    "default must not fall back to unscoped search");
+        }
+    }
+
+    @Nested
     @DisplayName("Thread Safety")
     class ThreadSafetyTests {
 
