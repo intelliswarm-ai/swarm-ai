@@ -32,6 +32,7 @@ RUN ./mvnw clean package -DskipTests -B -q
 
 # Create output directory
 RUN mkdir -p /app/output
+ENV SWARMAI_OUTPUT_DIR=/app/output
 
 # Copy entrypoint from Dockerfile.run
 COPY <<'ENTRYPOINT_SCRIPT' /app/entrypoint.sh

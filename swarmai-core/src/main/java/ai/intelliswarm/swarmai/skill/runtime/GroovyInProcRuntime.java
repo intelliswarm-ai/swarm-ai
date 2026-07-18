@@ -1,8 +1,6 @@
 package ai.intelliswarm.swarmai.skill.runtime;
 
 import groovy.lang.GroovyShell;
-import org.codehaus.groovy.control.CompilerConfiguration;
-import org.codehaus.groovy.control.customizers.ImportCustomizer;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -49,6 +47,9 @@ public class GroovyInProcRuntime implements SkillRuntime {
         List<String> violations = new ArrayList<>();
         String code = source.code();
         String lowerCode = code.toLowerCase();
+        // Fast string pre-filter: catches the obvious cases with a readable message.
+        // NOT the security boundary — that's the AST allowlist below, which also
+        // guards every execution site via the same GroovySkillSandbox config.
         for (String pattern : JAVA_API_BLOCKED) {
             if (code.contains(pattern)) {
                 violations.add("Security violation: code contains blocked pattern '" + pattern + "'");
@@ -59,20 +60,19 @@ public class GroovyInProcRuntime implements SkillRuntime {
                 violations.add("Security violation: code contains blocked pattern '" + pattern + "'");
             }
         }
+        violations.addAll(GroovySkillSandbox.scan(code));
         return violations.isEmpty() ? SecurityReport.passed() : SecurityReport.failed(violations);
     }
 
     @Override
     public SyntaxReport syntaxCheck(SkillSource source) {
         try {
-            CompilerConfiguration config = new CompilerConfiguration();
-            ImportCustomizer imports = new ImportCustomizer();
-            imports.addStarImports("java.util", "java.math", "groovy.json", "groovy.xml",
-                "java.util.regex", "java.time");
-            imports.addImports("java.net.URLEncoder", "java.net.URLDecoder");
-            config.addCompilationCustomizers(imports);
-
-            GroovyShell shell = new GroovyShell(config);
+            // Reject compile-time AST transforms BEFORE parsing — parse() executes them, so this
+            // gate must precede it (see GroovySkillSandbox.rejectCompileTimeTransforms).
+            GroovySkillSandbox.rejectCompileTimeTransforms(source.code());
+            // Compile under the same hardened config used at execution time, so
+            // "compiles here" means "compiles when the skill actually runs".
+            GroovyShell shell = new GroovyShell(GroovySkillSandbox.hardenedConfig());
             shell.parse(source.code());
             return SyntaxReport.passed();
         } catch (Exception e) {

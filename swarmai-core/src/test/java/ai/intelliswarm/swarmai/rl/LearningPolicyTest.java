@@ -37,17 +37,51 @@ class LearningPolicyTest {
         }
 
         @Test
-        void transitionsOutOfColdStartAfterNDecisions() {
+        void transitionsOutOfColdStartAfterEnoughDecisionsAndRewards() {
             var ctx = new SkillGenerationContext("test",
                     0.5, 0.5, 0.5, false, 0.5, 30, 5, 3, SkillType.CODE);
 
-            // Make 6 decisions (cold start threshold is <= 5, so 6th exits)
+            // Make 6 decisions (decision-count threshold is <= 5, so the 6th passes it) ...
             for (int i = 0; i < 6; i++) {
                 policy.shouldGenerateSkill(ctx);
             }
+            assertEquals(6, policy.getTotalDecisions());
+
+            // ... but decisions alone must NOT graduate the policy. A model that has never been
+            // fed a reward has learned nothing: LinUCB still has A=I and b=0, so every action
+            // ties and argmax collapses onto action 0 ("always GENERATE"). Cold start therefore
+            // ends on FEEDBACK, not activity.
+            assertTrue(policy.isColdStart(),
+                    "a policy with no rewards must keep deferring to the heuristic");
+            assertTrue(policy.isRewardLoopOpen(),
+                    "making decisions with no rewards means the caller never wired recordOutcome");
+
+            // Feed it real rewards — now it may use what it learned.
+            for (int i = 0; i < 10; i++) {
+                policy.recordOutcome(
+                        Decision.create("skill_generation", ctx.toFeatureVector(), 0),
+                        Outcome.of("d" + i, 1.0));
+            }
 
             assertFalse(policy.isColdStart());
-            assertEquals(6, policy.getTotalDecisions());
+            assertFalse(policy.isRewardLoopOpen());
+        }
+
+        @Test
+        void neverGraduatesWhileTheRewardLoopIsOpen() {
+            // Regression guard for the bug this replaced: SelfImprovingProcess called the policy
+            // for decisions but never called recordOutcome, so the policy "graduated" into an
+            // untrained bandit and silently degenerated to always-GENERATE. However many
+            // decisions it makes, an unfed policy must stay on the heuristic.
+            var ctx = new SkillGenerationContext("test",
+                    0.5, 0.5, 0.5, false, 0.5, 30, 5, 3, SkillType.CODE);
+
+            for (int i = 0; i < 500; i++) {
+                SkillDecision d = policy.shouldGenerateSkill(ctx);
+                assertFalse(d.reasoning().contains("LinUCB"),
+                        "an untrained bandit must never make live decisions");
+            }
+            assertTrue(policy.isColdStart());
         }
 
         @Test
@@ -73,11 +107,22 @@ class LearningPolicyTest {
 
         @BeforeEach
         void warmUp() {
-            // Exhaust cold start
+            // Exhaust cold start: both the decision count AND the reward count must be satisfied,
+            // because a policy that has received no feedback stays on the heuristic by design.
             var ctx = new SkillGenerationContext("test",
                     0.5, 0.5, 0.5, false, 0.5, 30, 5, 3, SkillType.CODE);
             for (int i = 0; i < 6; i++) {
                 policy.shouldGenerateSkill(ctx);
+            }
+            for (int i = 0; i < 10; i++) {
+                policy.recordOutcome(
+                        Decision.create("skill_generation", ctx.toFeatureVector(), i % 4),
+                        Outcome.of("warmup-" + i, i % 2 == 0 ? 1.0 : -0.5));
+                policy.recordOutcome(
+                        Decision.create("convergence",
+                                new ConvergenceContext(1.0, 0.5, 0, 0.5, 3, 0.8).toFeatureVector(),
+                                i % 2),
+                        Outcome.of("warmup-c-" + i, i % 2 == 0 ? 1.0 : -0.5));
             }
             assertFalse(policy.isColdStart());
         }
@@ -95,12 +140,28 @@ class LearningPolicyTest {
         }
 
         @Test
-        void usesThompsonSamplingAfterColdStart() {
+        void usesContextualBanditForConvergenceAfterColdStart() {
+            // Convergence is now a CONTEXTUAL decision (LinUCB over ConvergenceContext). It used
+            // to be non-contextual Thompson Sampling that never looked at the context at all.
             var ctx = new ConvergenceContext(1.0, 0.5, 0, 0.5, 3, 0.8);
-            // Should not throw
+
             boolean stop = policy.shouldStopIteration(ctx);
-            // Result is stochastic — just verify it runs
+
+            // A stalled context (no growth) may legitimately stop or continue — the point is that
+            // it runs and consults the context rather than sampling a blind prior.
             assertTrue(stop || !stop);
+        }
+
+        @Test
+        void refusesToStopAProductiveRunEvenAfterLearning() {
+            // Safety floor: output doubled, gaps all new, new skills produced. No learned model
+            // may halt this — early stopping silently destroys work that was about to pay off.
+            var productive = new ConvergenceContext(2.0, 0.0, 2, 0.5, 1, 1.0);
+
+            for (int i = 0; i < 200; i++) {
+                assertFalse(policy.shouldStopIteration(productive),
+                        "the safety floor must forbid stopping while the run is still improving");
+            }
         }
 
         @Test

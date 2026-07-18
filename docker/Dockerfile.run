@@ -22,8 +22,10 @@ COPY src ./src
 # Build the JAR (skip tests for faster builds)
 RUN ./mvnw clean package -DskipTests -B -q
 
-# Create output directory
+# Create output directory. SWARMAI_OUTPUT_DIR states the container convention explicitly
+# rather than leaving agents to infer it — on a host run the same build falls back to ./output.
 RUN mkdir -p /app/output
+ENV SWARMAI_OUTPUT_DIR=/app/output
 
 # Entry point script
 COPY <<'ENTRYPOINT_SCRIPT' /app/entrypoint.sh

@@ -445,7 +445,6 @@ SwarmOutput output = Swarm.builder()
         .kickoff(inputs);
 ```
 
-See [SELF_IMPROVING_WORKFLOWS.md](docs/SELF_IMPROVING_WORKFLOWS.md) for a deep dive on skill generation, validation, and persistence.
 
 ### Composite Process
 
@@ -1567,5 +1566,4 @@ The **[swarm-ai-examples](https://github.com/intelliswarm-ai/swarm-ai-examples)*
 
 - [API_KEYS_SETUP_GUIDE.md](docs/API_KEYS_SETUP_GUIDE.md) — Configure LLM provider API keys
 - [DOCKER_EXAMPLE_GUIDE.md](docs/DOCKER_EXAMPLE_GUIDE.md) — Run SwarmAI in Docker
-- [SELF_IMPROVING_WORKFLOWS.md](docs/SELF_IMPROVING_WORKFLOWS.md) — Deep dive into self-improving processes and skill generation
 - **[YAML Workflow Examples](https://github.com/intelliswarm-ai/swarm-ai-examples)** — 30 ready-to-use YAML workflow definitions

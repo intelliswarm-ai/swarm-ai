@@ -11,6 +11,16 @@ public final class TenantContext {
 
     private static final String TENANT_ID_ATTRIBUTE = "tenantId";
 
+    /**
+     * The reserved separator between tenant id and agent id in scoped keys (see
+     * {@code TenantAwareMemory}). A tenant id must not contain it, or prefix-based scoping stops
+     * being injective and tenants collide: a tenant {@code "acme"} scoped to prefix {@code "acme::"}
+     * matches a tenant {@code "acme::sub"}'s agent ids ({@code "acme::sub::agent1"} starts with
+     * {@code "acme::"}), so {@code acme} reads {@code acme::sub}'s memories. Rejecting the separator
+     * at the boundary keeps the prefix relation a true tree.
+     */
+    public static final String RESERVED_SEPARATOR = "::";
+
     private TenantContext() {
         // Static utility class
     }
@@ -35,6 +45,13 @@ public final class TenantContext {
      * @param tenantId the tenant ID to set
      */
     public static void setTenantId(String tenantId) {
+        if (tenantId != null && tenantId.contains(RESERVED_SEPARATOR)) {
+            // Fail loud at the boundary rather than silently admit a colliding tenant id.
+            throw new IllegalArgumentException(
+                    "Tenant id must not contain the reserved separator '" + RESERVED_SEPARATOR
+                            + "' (it is used to scope tenant data and would allow cross-tenant "
+                            + "reads): " + tenantId);
+        }
         ObservabilityContext.current().withAttribute(TENANT_ID_ATTRIBUTE, tenantId);
     }
 

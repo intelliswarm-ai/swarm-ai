@@ -16,7 +16,9 @@ import java.util.Map;
 public class TenantAwareMemory implements Memory {
 
     private static final Logger logger = LoggerFactory.getLogger(TenantAwareMemory.class);
-    private static final String TENANT_PREFIX_SEPARATOR = "::";
+    // Single source of truth: TenantContext rejects tenant ids containing this separator, which is
+    // what keeps prefix scoping injective (no cross-tenant collision).
+    private static final String TENANT_PREFIX_SEPARATOR = TenantContext.RESERVED_SEPARATOR;
 
     private final Memory delegate;
 
@@ -42,6 +44,20 @@ public class TenantAwareMemory implements Memory {
         }
         String tenantPrefix = tenantId + TENANT_PREFIX_SEPARATOR;
         return delegate.searchByAgentPrefix(query, tenantPrefix, limit);
+    }
+
+    /**
+     * Composes the caller's prefix with the current tenant prefix so scoped
+     * searches stay inside the tenant even when a narrower prefix is requested.
+     */
+    @Override
+    public List<String> searchByAgentPrefix(String query, String agentPrefix, int limit) {
+        String tenantId = TenantContext.currentTenantId();
+        if (tenantId == null) {
+            return delegate.searchByAgentPrefix(query, agentPrefix, limit);
+        }
+        String composed = tenantId + TENANT_PREFIX_SEPARATOR + (agentPrefix != null ? agentPrefix : "");
+        return delegate.searchByAgentPrefix(query, composed, limit);
     }
 
     @Override

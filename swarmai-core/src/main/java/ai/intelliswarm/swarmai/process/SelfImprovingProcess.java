@@ -609,16 +609,19 @@ public class SelfImprovingProcess implements Process {
 
             // Use PolicyEngine if available, otherwise fall back to SkillGapAnalyzer directly
             SkillGapAnalyzer.GapAnalysis gapAnalysis;
+            // Held so the outcome of this decision can be fed back to the policy below. Without
+            // this the policy never receives a reward and cannot learn anything — see
+            // recordSkillGenerationOutcome.
+            ai.intelliswarm.swarmai.rl.SkillGenerationContext genCtx = null;
+            ai.intelliswarm.swarmai.rl.SkillDecision policyDecision = null;
             if (policyEngine != null) {
-                ai.intelliswarm.swarmai.rl.SkillGenerationContext genCtx =
-                    gapAnalyzer.buildContext(gap, allExistingTools, skillRegistry);
-                ai.intelliswarm.swarmai.rl.SkillDecision decision =
-                    policyEngine.shouldGenerateSkill(genCtx);
+                genCtx = gapAnalyzer.buildContext(gap, allExistingTools, skillRegistry);
+                policyDecision = policyEngine.shouldGenerateSkill(genCtx);
 
                 // Convert SkillDecision back to GapAnalysis for downstream compatibility
                 gapAnalysis = new SkillGapAnalyzer.GapAnalysis(
-                    gap, decision.recommendation(), decision.confidence(),
-                    List.of(decision.reasoning()),
+                    gap, policyDecision.recommendation(), policyDecision.confidence(),
+                    List.of(policyDecision.reasoning()),
                     new SkillGapAnalyzer.CoverageResult(1.0 - genCtx.noveltyScore(), List.of()),
                     genCtx.recommendedType());
             } else {
@@ -626,6 +629,11 @@ public class SelfImprovingProcess implements Process {
             }
 
             if (!gapAnalysis.shouldGenerate()) {
+                // Reward the decision NOT to generate: we avoided the cost of building a skill.
+                // The counterfactual (would the skill have helped?) is unobservable, so this is a
+                // deliberately modest constant rather than an invented estimate.
+                recordSkillGenerationOutcome(genCtx, policyDecision, REWARD_AVOIDED_GENERATION);
+
                 logger.info("Gap analysis REJECTED skill generation for: {} (recommendation={}, score={:.2f}, reasons={})",
                     truncate(gap, 60), gapAnalysis.recommendation(), gapAnalysis.score(), gapAnalysis.reasons());
 
@@ -672,10 +680,102 @@ public class SelfImprovingProcess implements Process {
                 rebuildAgentsWithSkill(skill);
                 existingNames.add(skill.getFunctionName());
                 skillsGenerated++;
+
+                // The skill built, validated, and registered — the decision to generate paid off.
+                // Scale the reward by the skill's measured quality so the policy learns to prefer
+                // gaps that yield GOOD skills, not merely gaps that yield skills.
+                double quality = skill.getQualityScore() != null
+                        ? skill.getQualityScore().totalScore() / 100.0
+                        : 0.5;
+                recordSkillGenerationOutcome(genCtx, policyDecision,
+                        REWARD_SKILL_VALIDATED + (1.0 - REWARD_SKILL_VALIDATED) * clamp01(quality));
+            } else {
+                // We paid for generation (LLM tokens, latency) and got nothing usable.
+                recordSkillGenerationOutcome(genCtx, policyDecision, REWARD_GENERATION_FAILED);
             }
         }
 
         return skillsGenerated;
+    }
+
+    // --- Reward signals for the PolicyEngine -------------------------------------------------
+    // These close the loop that makes LearningPolicy able to learn at all. They are deliberately
+    // simple and observable: we reward what we can actually measure (did the skill validate, how
+    // good was it, did we avoid wasted work) rather than inventing a proxy for "did the workflow
+    // ultimately succeed", which we cannot attribute to a single decision.
+
+    private static final int CONVERGENCE_ACTION_CONTINUE = 0;
+    private static final int CONVERGENCE_ACTION_STOP = 1;
+
+    /**
+     * The CONTINUE decision awaiting a verdict. Set when the policy chooses to keep iterating,
+     * graded on the next iteration once we can see whether continuing actually paid off.
+     */
+    private ai.intelliswarm.swarmai.rl.ConvergenceContext pendingConvergenceContext;
+
+    /**
+     * Grades the previous CONTINUE decision now that we can observe what the extra iteration
+     * produced: growth means continuing was right, a stalled iteration means it was wasted work.
+     */
+    private void gradePendingConvergenceDecision(double observedGrowthRate) {
+        if (pendingConvergenceContext == null) {
+            return;
+        }
+        boolean continuingPaidOff = observedGrowthRate > 1.1;
+        recordConvergenceOutcome(pendingConvergenceContext, CONVERGENCE_ACTION_CONTINUE,
+                continuingPaidOff ? 1.0 : -0.5);
+        pendingConvergenceContext = null;
+    }
+
+    private void recordConvergenceOutcome(
+            ai.intelliswarm.swarmai.rl.ConvergenceContext context, int action, double reward) {
+        if (policyEngine == null || context == null) {
+            return;
+        }
+        policyEngine.recordOutcome(
+                ai.intelliswarm.swarmai.rl.Decision.create(
+                        "convergence", context.toFeatureVector(), action),
+                ai.intelliswarm.swarmai.rl.Outcome.of("convergence", reward));
+    }
+
+    /** A generated skill validated and registered. Floor reward, before the quality bonus. */
+    private static final double REWARD_SKILL_VALIDATED = 0.30;
+    /** Generation was attempted and produced nothing usable — tokens and latency burned. */
+    private static final double REWARD_GENERATION_FAILED = -0.50;
+    /** We declined to generate (USE_EXISTING / SKIP), avoiding the cost of building a skill. */
+    private static final double REWARD_AVOIDED_GENERATION = 0.10;
+
+    private static double clamp01(double v) {
+        return Math.max(0.0, Math.min(1.0, v));
+    }
+
+    /**
+     * Feeds the outcome of a skill-generation decision back to the policy. No-op for the
+     * heuristic policy (which does not learn) and when no policy engine is configured.
+     */
+    private void recordSkillGenerationOutcome(
+            ai.intelliswarm.swarmai.rl.SkillGenerationContext context,
+            ai.intelliswarm.swarmai.rl.SkillDecision decision,
+            double reward) {
+        if (policyEngine == null || context == null || decision == null) {
+            return;
+        }
+        policyEngine.recordOutcome(
+                new ai.intelliswarm.swarmai.rl.Decision(
+                        decision.decisionId(), "skill_generation",
+                        context.toFeatureVector(),
+                        skillActionIndex(decision.recommendation()),
+                        java.time.Instant.now()),
+                ai.intelliswarm.swarmai.rl.Outcome.of(decision.decisionId(), reward));
+    }
+
+    private static int skillActionIndex(SkillGapAnalyzer.Recommendation recommendation) {
+        return switch (recommendation) {
+            case GENERATE -> 0;
+            case GENERATE_SIMPLE -> 1;
+            case USE_EXISTING -> 2;
+            case SKIP -> 3;
+        };
     }
 
     /**
@@ -844,7 +944,23 @@ public class SelfImprovingProcess implements Process {
                 1.0 // no budget info available here
         );
 
+        // Grade the PREVIOUS decision before making a new one. "Was continuing the right call?"
+        // is only answerable one iteration later — the reward for CONTINUE is whether this
+        // iteration actually produced growth. Without this retrospective step the convergence
+        // model never receives feedback at all.
+        gradePendingConvergenceDecision(outputGrowthRate);
+
         boolean shouldStop = getEffectivePolicy().shouldStopIteration(ctx);
+
+        if (shouldStop) {
+            // STOP is terminal — there is no next iteration to observe, so grade it now against
+            // the signals it saw. Stopping a stale run is right; stopping a productive one is not.
+            boolean wasStale = outputGrowthRate <= 1.1 && gapRepetitionRate > 0.5;
+            recordConvergenceOutcome(ctx, CONVERGENCE_ACTION_STOP, wasStale ? 1.0 : -1.0);
+        } else {
+            // Remember it so the next call can grade it against what actually happened.
+            pendingConvergenceContext = ctx;
+        }
 
         // Update tracking state for next call
         previousOutputLengthRef[0] = currentOutputLength;

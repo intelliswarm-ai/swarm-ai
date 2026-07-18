@@ -16,14 +16,24 @@ public interface Memory {
      * Searches memories scoped to agents whose IDs start with the given prefix.
      * Used by TenantAwareMemory to restrict search results to a single tenant's data.
      *
+     * <p>The default implementation FAILS CLOSED: it returns an empty list and logs
+     * a warning. It must not fall back to unscoped {@link #search}, because a custom
+     * Memory implementation that forgets to override this method would then silently
+     * leak other tenants' memories through TenantAwareMemory. Implementations that
+     * support scoping must override this method.
+     *
      * @param query        keyword to search for in memory content
      * @param agentPrefix  only return results from agents whose ID starts with this prefix
      * @param limit        maximum number of results
      * @return matching memory content strings, empty list if none found
      */
     default List<String> searchByAgentPrefix(String query, String agentPrefix, int limit) {
-        // Default: fall back to unscoped search (backward compatible)
-        return search(query, limit);
+        org.slf4j.LoggerFactory.getLogger(Memory.class).warn(
+                "{} does not override searchByAgentPrefix; returning no results rather than "
+                        + "leaking unscoped search across tenants. Override searchByAgentPrefix "
+                        + "to enable tenant-scoped memory search.",
+                getClass().getName());
+        return List.of();
     }
 
     List<String> getRecentMemories(String agentId, int limit);

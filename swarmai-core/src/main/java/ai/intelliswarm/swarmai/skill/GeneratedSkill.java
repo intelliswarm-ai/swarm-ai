@@ -5,8 +5,6 @@ import ai.intelliswarm.swarmai.tool.base.ToolRequirements;
 import groovy.lang.Binding;
 import groovy.lang.GroovyShell;
 import org.codehaus.groovy.control.CompilerConfiguration;
-import org.codehaus.groovy.control.customizers.ImportCustomizer;
-import org.codehaus.groovy.control.customizers.SecureASTCustomizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -236,7 +234,11 @@ public class GeneratedSkill implements BaseTool {
         binding.setVariable("resources", definition.getResources());
         binding.setVariable("log", logger);
 
-        GroovyShell shell = new GroovyShell(binding, config);
+        // newGuardedShell rejects compile-time AST transforms BEFORE parsing (config alone cannot
+        // — see GroovySkillSandbox). config is now redundant with the shell's own hardened config
+        // but kept for the null-tolerant createSandboxedConfig() call above.
+        GroovyShell shell = ai.intelliswarm.swarmai.skill.runtime.GroovySkillSandbox
+                .newGuardedShell(binding, definition.getCode());
         return shell.evaluate(definition.getCode());
     }
 
@@ -607,11 +609,11 @@ public class GeneratedSkill implements BaseTool {
     private String runAssertions(String assertionCode, String output) {
         if (assertionCode == null || assertionCode.isBlank()) return null;
         try {
-            CompilerConfiguration config = createSandboxedConfig();
             Binding binding = new Binding();
             binding.setVariable("output", output);
             binding.setVariable("log", logger);
-            GroovyShell shell = new GroovyShell(binding, config);
+            GroovyShell shell = ai.intelliswarm.swarmai.skill.runtime.GroovySkillSandbox
+                    .newGuardedShell(binding, assertionCode);
             shell.evaluate(assertionCode);
             return null; // All assertions passed
         } catch (AssertionError e) {
@@ -652,7 +654,13 @@ public class GeneratedSkill implements BaseTool {
         binding.setVariable("resources", definition.getResources());
         binding.setVariable("log", logger);
 
-        GroovyShell shell = new GroovyShell(binding, config);
+        // Both the skill code AND the test code are untrusted and get parsed here, so both must
+        // pass the compile-time-transform gate before either is evaluated.
+        ai.intelliswarm.swarmai.skill.runtime.GroovySkillSandbox
+                .rejectCompileTimeTransforms(definition.getCode());
+        ai.intelliswarm.swarmai.skill.runtime.GroovySkillSandbox
+                .rejectCompileTimeTransforms(testCode);
+        GroovyShell shell = new GroovyShell(binding, createSandboxedConfig());
         Object skillResult = shell.evaluate(definition.getCode());
         binding.setVariable("skillResult", skillResult);
         binding.setVariable("result", skillResult);
@@ -662,27 +670,10 @@ public class GeneratedSkill implements BaseTool {
     // ==================== Sandbox ====================
 
     private CompilerConfiguration createSandboxedConfig() {
-        CompilerConfiguration config = new CompilerConfiguration();
-        ImportCustomizer imports = new ImportCustomizer();
-        imports.addStarImports("java.util", "java.math", "groovy.json", "groovy.xml",
-            "java.util.regex", "java.time");
-        imports.addImports("java.net.URLEncoder", "java.net.URLDecoder");
-        config.addCompilationCustomizers(imports);
-
-        SecureASTCustomizer secure = new SecureASTCustomizer();
-        secure.setDisallowedImports(List.of(
-            "java.lang.Runtime", "java.lang.ProcessBuilder", "java.lang.Process",
-            "java.io.File", "java.io.FileWriter", "java.io.FileReader",
-            "java.io.FileInputStream", "java.io.FileOutputStream",
-            "java.net.URL", "java.net.HttpURLConnection", "java.net.Socket",
-            "java.lang.reflect.Method", "java.lang.reflect.Field",
-            "groovy.lang.GroovyShell"
-        ));
-        secure.setDisallowedStaticImports(List.of(
-            "java.lang.System.exit", "java.lang.Runtime.getRuntime"
-        ));
-        config.addCompilationCustomizers(secure);
-        return config;
+        // Allowlist AST sandbox shared with validation — see GroovySkillSandbox.
+        // The old inline denylist only blocked import STATEMENTS, which Groovy
+        // doesn't need to reach java.io.File or Runtime.
+        return ai.intelliswarm.swarmai.skill.runtime.GroovySkillSandbox.hardenedConfig();
     }
 
     // ==================== BaseTool Enhanced Methods ====================
